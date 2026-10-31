@@ -659,9 +659,58 @@ def get_asset(asset_id: str) -> Dict[str, Any]:
     return dict(_require(state().read(), asset_id))
 
 
+_ASSET_CATEGORY_EXTENSIONS = {
+    "image": frozenset({
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif",
+        "avif", "raw", "svg", "eps", "psd", "ai", "cdr", "hdr", "exr",
+    }),
+    "video": frozenset({"mp4", "mov", "mkv", "avi", "webm", "m4v", "flv", "wmv"}),
+    "audio": frozenset({"mp3", "wav", "flac", "aac", "ogg", "m4a", "aiff", "aif", "wma", "opus"}),
+    "document": frozenset({
+        "txt", "csv", "tsv", "json", "xml", "html", "htm", "md", "markdown", "rtf", "doc", "docx",
+        "odt", "ppt", "pptx", "odp", "xls", "xlsx", "ods", "pdf", "srt", "vtt", "zip",
+    }),
+    "model": frozenset({
+        "stl", "3mf", "obj", "fbx", "gltf", "glb", "usd", "usdz", "step", "stp", "iges", "igs",
+        "dxf", "ply", "3ds", "dae", "ifc", "wrl", "vrml", "blend", "c4d", "max", "ma", "mb",
+        "ckpt", "safetensors", "pt", "pth", "onnx", "gguf",
+    }),
+    "font": frozenset({"ttf", "otf", "ttc", "otc", "woff", "woff2"}),
+}
+_ASSET_CATEGORY_BY_EXTENSION = {
+    extension: category
+    for category, extensions in _ASSET_CATEGORY_EXTENSIONS.items()
+    for extension in extensions
+}
+
+
+def _asset_extension(asset: Dict[str, Any]) -> str:
+    metadata = asset.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    values = [
+        asset.get("name"), asset.get("display_path"), asset.get("relative_path"), asset.get("file_name"),
+        asset.get("filename"), metadata.get("name"), metadata.get("file_name"),
+        metadata.get("filename"), metadata.get("original_filename"),
+    ]
+    direct_extension = str(metadata.get("extension") or metadata.get("file_extension") or "")
+    values.append(direct_extension)
+    for value in values:
+        text = str(value or "").split("?", 1)[0].split("#", 1)[0].replace("\\", "/")
+        name = text.rsplit("/", 1)[-1].strip().lower()
+        extension = name.rsplit(".", 1)[-1] if "." in name else name.lstrip(".")
+        if extension in _ASSET_CATEGORY_BY_EXTENSION:
+            return extension
+    return ""
+
+
 def _asset_category(asset: Dict[str, Any]) -> str:
-    kind = str(asset.get("kind") or "").lower()
-    return kind if kind in {"image", "video", "audio", "document", "model", "font"} else "other"
+    extension_category = _ASSET_CATEGORY_BY_EXTENSION.get(_asset_extension(asset))
+    if extension_category:
+        return extension_category
+    kind = str(asset.get("kind") or asset.get("media_type") or asset.get("type") or "").lower()
+    if kind == "text":
+        return "document"
+    return kind if kind in _ASSET_CATEGORY_EXTENSIONS else "other"
 
 
 def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[str],
@@ -845,7 +894,11 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
     if archived is not None:
         items = [a for a in items if bool(a.get("archived")) == bool(archived)]
     if kind:
-        items = [a for a in items if a.get("kind") == kind]
+        normalized_kind = str(kind).lower()
+        if normalized_kind in {*_ASSET_CATEGORY_EXTENSIONS, "other"}:
+            items = [a for a in items if _asset_category(a) == normalized_kind]
+        else:
+            items = [a for a in items if str(a.get("kind") or "") == kind]
     if query:
         needle = query.casefold()
         def _matches_query(a: Dict[str, Any]) -> bool:
@@ -1545,7 +1598,7 @@ def facets() -> Dict[str, Any]:
     raw = state().read()
     from gw.core.asset_visibility import asset_visible
     assets = [a for a in raw["assets"].values() if asset_visible(a)]
-    kinds = Counter(str(asset.get("kind") or "unknown") for asset in assets)
+    kinds = Counter(_asset_category(asset) for asset in assets)
     categories = Counter(_asset_category(asset) for asset in assets)
     tag_counts = Counter(tag for asset in assets for tag in set(asset.get("tags", [])))
     tags = [{**value, "count": tag_counts.get(value["tag_id"], 0)}

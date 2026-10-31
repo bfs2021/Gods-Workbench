@@ -8338,7 +8338,7 @@ function registryCategoryCount(category){
     return Number(item?.count || 0);
 }
 function registryCategoryLabel(category=''){
-    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',other:'其他'}[category] || '全部资产';
+    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',other:'其他'}[category] || '全部资产';
 }
 function renderRegistryOverviewStats(){
     const globalTotal = (registryFacets.categories || []).reduce((total, item) => total + Number(item.count || 0), 0) || (registryFacets.kinds || []).reduce((total, item) => total + Number(item.count || 0), 0) || registryTotal;
@@ -8350,6 +8350,7 @@ function renderRegistryOverviewStats(){
         {id:'audio', name:'音频', value:registryCategoryCount('audio'), icon:'audio-lines'},
         {id:'document', name:'文档', value:registryCategoryCount('document'), icon:'files'},
         {id:'model', name:'模型', value:registryCategoryCount('model'), icon:'box'},
+        {id:'font', name:'字体', value:registryCategoryCount('font'), icon:'type'},
         {id:'reference-canvas', name:'参考画布', value:referenceCanvasTotal, icon:'map', canvasType:true},
         {id:'other', name:'其他', value:registryCategoryCount('other'), icon:'package-open'},
     ];
@@ -8383,16 +8384,32 @@ function renderRegistryOverview(){
     return `<section class="registry-overview-shell">${renderRegistryOverviewStats()}</section>`;
 }
 function registryAssetExtension(item={}){
-    return assetFileExtension(item);
+    const existing = assetFileExtension(item);
+    if(existing) return existing;
+    const source = String(item.display_path || item.canonical_relpath || item.relative_path || item.metadata?.original_filename || item.metadata?.file_name || item.metadata?.filename || '').split('?')[0].split('#')[0];
+    const match = source.toLowerCase().match(/\.([a-z0-9]+)$/);
+    if(match) return match[1];
+    return String(item.metadata?.extension || item.metadata?.file_extension || '').trim().toLowerCase().replace(/^\./, '');
 }
+const REGISTRY_ASSET_CATEGORY_EXTENSIONS = Object.freeze({
+    image:new Set(['jpg','jpeg','png','gif','webp','bmp','tif','tiff','heic','heif','avif','raw','svg','eps','psd','ai','cdr','hdr','exr']),
+    video:new Set(['mp4','mov','mkv','avi','webm','m4v','flv','wmv']),
+    audio:new Set(['mp3','wav','flac','aac','ogg','m4a','aiff','aif','wma','opus']),
+    document:new Set(['txt','csv','tsv','json','xml','html','htm','md','markdown','rtf','doc','docx','odt','ppt','pptx','odp','xls','xlsx','ods','pdf','srt','vtt','zip']),
+    model:new Set(['stl','3mf','obj','fbx','gltf','glb','usd','usdz','step','stp','iges','igs','dxf','ply','3ds','dae','ifc','wrl','vrml','blend','c4d','max','ma','mb','ckpt','safetensors','pt','pth','onnx','gguf']),
+    font:new Set(['ttf','otf','ttc','otc','woff','woff2']),
+});
 function registryAssetCategory(item={}){
     const extension = registryAssetExtension(item);
-    if((ASSET_LIBRARY_PRESETS.find(value => value.id === 'model')?.extensions || []).includes(extension)) return 'model';
-    if(['ttf','otf','woff','woff2'].includes(extension)) return 'other';
-    const kind = String(item.kind || '').toLowerCase();
-    if(['image','video','audio'].includes(kind)) return kind;
-    if(['document','workflow'].includes(kind)) return 'document';
-    return 'other';
+    for(const [category, extensions] of Object.entries(REGISTRY_ASSET_CATEGORY_EXTENSIONS)){
+        if(extensions.has(extension)) return category;
+    }
+    const type = detailViewerType('registry', item);
+    if(type === 'text') return 'document';
+    if(['image','video','audio','document','model','font'].includes(type)) return type;
+    const kind = String(item.kind || item.media_type || item.type || '').toLowerCase();
+    if(['image','video','audio','document','model','font'].includes(kind)) return kind;
+    return kind === 'text' ? 'document' : 'other';
 }
 function customAssetLibraryIncludesAsset(board,item={}){
     if(!board || board.system !== false || !item?.id) return false;
@@ -8847,8 +8864,8 @@ function renderRegistryTagGroups(){
     </section>`).join('');
 }
 function registryVisualType(item={}){
-    const type = detailViewerType('registry', item);
-    return ['font','image','video','text'].includes(type) ? type : 'other';
+    const category = registryAssetCategory(item);
+    return category === 'document' ? 'text' : category;
 }
 function registryMediaAspectStyle(item={}){
     if(!['image','video'].includes(registryVisualType(item))) return '';
@@ -9099,8 +9116,8 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"></i><span>排序</span><select class="asset-sort-select" id="registrySort" aria-label="资产排序"><option value="newest" ${registrySort==='newest'?'selected':''}>最近新增</option><option value="oldest" ${registrySort==='oldest'?'selected':''}>最早新增</option><option value="name" ${registrySort==='name'?'selected':''}>名称</option><option value="size_desc" ${registrySort==='size_desc'?'selected':''}>大小降序</option></select></label>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select></label>
+            <label class="registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"></i><span>排序</span><select class="asset-sort-select" id="registrySort" aria-label="资产排序"><option value="newest" ${registrySort==='newest'?'selected':''}>最近新增</option><option value="oldest" ${registrySort==='oldest'?'selected':''}>最早新增</option><option value="name" ${registrySort==='name'?'selected':''}>名称</option><option value="size_desc" ${registrySort==='size_desc'?'selected':''}>大小降序</option></select></label>
+            <label class="registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select></label>
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
             ${coverflowControl}
@@ -19025,10 +19042,11 @@ document.addEventListener('keydown', event => {
 });
 document.addEventListener('wheel', navigateDetailPreviewWheel, {passive:false});
 let registryCardSizeSaveTimer = 0;
-document.addEventListener('wheel', event => {
+function handleRegistryCardResizeWheel(event){
     if(!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
-    if(!event.target?.closest?.('[data-registry-zoom-area]')) return;
-    if(!event.target.closest('.registry-content.registry-layout-grid')) return;
+    const target = event.target;
+    if(!target?.closest?.('[data-registry-zoom-area]')) return;
+    if(!target.closest('.registry-content.registry-layout-grid')) return;
     event.preventDefault();
     registryCardSize = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, registryCardSize + (event.deltaY > 0 ? -12 : 12)));
     root.querySelectorAll('.registry-content').forEach(node => node.style.setProperty('--registry-card-size', registryCardSize + 'px'));
@@ -19037,7 +19055,8 @@ document.addEventListener('wheel', event => {
         saveRegistryViewSettings();
         setStatus('预览大小 ' + registryCardSize + 'px');
     }, 240);
-}, {passive:false});
+}
+document.addEventListener('wheel', handleRegistryCardResizeWheel, {passive:false});
 document.addEventListener('scroll', event => {
     if(event.target?.matches?.('[data-detail-media-library-grid]')) detailViewerState.mediaCanvasLibraryScrollTop = event.target.scrollTop;
     const registryScroll = event.target?.closest?.('.registry-assets-scroll');

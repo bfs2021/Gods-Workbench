@@ -7,6 +7,7 @@ const html = readFileSync(new URL('../../web/pages/assets.html', import.meta.url
 const shell = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
 const manager = readFileSync(new URL('../../web/js/modules/asset-manager.js', import.meta.url), 'utf8');
 const vaultCss = readFileSync(new URL('../../web/css/pages/asset-vault.css', import.meta.url), 'utf8');
+const managerCss = readFileSync(new URL('../../web/css/pages/asset-manager.css', import.meta.url), 'utf8');
 
 function functionSource(name){
     const start = manager.indexOf(`function ${name}(`);
@@ -57,14 +58,101 @@ test('AC3: 智能筛选与资产设置入口固定在左栏底部并转发到现
     assert.match(vaultCss, /asset-manager-root-registry\.asset-registry-filters-collapsed/);
 });
 
-test('AC4: 刷新按钮位于搜索前，搜索宽度限制为可用栏约一半', () => {
+test('AC4: 刷新按钮位于搜索前，搜索框宽度为原来的约一半', () => {
     const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
     const refreshIndex = manager.indexOf('data-refresh-assets', toolbarStart);
     const searchIndex = manager.indexOf('id="registrySearch"', toolbarStart);
     assert.ok(toolbarStart >= 0 && refreshIndex > toolbarStart && searchIndex > refreshIndex);
     assert.match(vaultCss, /registry-refresh \{ order: -2/);
-    assert.match(vaultCss, /asset-search-wrap \{ order: -1; flex: 0 1 calc\(50% - 44px\); max-width: calc\(50% - 44px\)/);
-    assert.match(vaultCss, /flex-basis: calc\(50% - 52px\)/);
+    assert.match(vaultCss, /asset-search-wrap \{ order: -1; flex: 0 1 calc\(25% - 44px\); max-width: calc\(25% - 44px\)/);
+    assert.match(vaultCss, /flex-basis: calc\(25% - 52px\)/);
+});
+
+test('QIN-505 AC1: 扩展名与导入元数据统一映射到素材分类', () => {
+    const extensionStart = manager.indexOf('const REGISTRY_ASSET_CATEGORY_EXTENSIONS =');
+    const categoryStart = manager.indexOf('\nfunction registryAssetCategory(', extensionStart);
+    const categoryEnd = manager.indexOf('\nfunction customAssetLibraryIncludesAsset(', categoryStart);
+    const visualStart = manager.indexOf('\nfunction registryVisualType(', categoryStart);
+    const visualEnd = manager.indexOf('\nfunction registryMediaAspectStyle(', visualStart);
+    const extensionFunctionStart = manager.indexOf('function registryAssetExtension(');
+    assert.ok(extensionStart >= 0 && extensionFunctionStart >= 0 && categoryStart > extensionStart && categoryEnd > categoryStart && visualStart > categoryEnd && visualEnd > visualStart);
+    const categorySources = [
+        manager.slice(extensionFunctionStart, extensionStart),
+        manager.slice(extensionStart, categoryStart),
+        manager.slice(categoryStart, categoryEnd),
+        manager.slice(visualStart, visualEnd),
+    ].join('\n');
+    const buildCategory = new Function('assetFileExtension', 'detailViewerType', `${categorySources}\nreturn {category:registryAssetCategory,visual:registryVisualType};`);
+    const classify = buildCategory(
+        item => String(item.name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '',
+        (_source, item) => item.kind === 'text' ? 'text' : ['image','video','audio','document','model','font'].includes(item.kind) ? item.kind : 'other',
+    );
+    for (const [name, item, expected] of [
+        ['frame.png', {kind:'indexed',name:'frame.png'}, 'image'],
+        ['clip.mov', {kind:'indexed',name:'clip.mov'}, 'video'],
+        ['sound.aiff', {kind:'indexed',name:'sound.aiff'}, 'audio'],
+        ['plan.xlsx', {kind:'indexed',name:'plan.xlsx'}, 'document'],
+        ['model.glb', {kind:'indexed',name:'model.glb'}, 'model'],
+        ['family.woff2', {kind:'indexed',name:'family.woff2'}, 'font'],
+        ['path metadata', {kind:'indexed',display_path:'D:\\library\\frame.exr'}, 'image'],
+        ['extension metadata', {kind:'indexed',metadata:{extension:'.otf'}}, 'font'],
+        ['explicit text kind', {kind:'text'}, 'document'],
+        ['unknown.bin', {kind:'indexed',name:'unknown.bin'}, 'other'],
+    ]) {
+        assert.equal(classify.category(item), expected, name);
+        assert.equal(classify.visual(item), expected === 'document' ? 'text' : expected, name);
+    }
+    assert.match(manager, /\{id:'font', name:'字体'/);
+});
+
+test('QIN-505 AC2-AC5: 素材色条常驻，简洁模式保留原比例且工具栏只留单层圆角框', () => {
+    assert.match(managerCss, /\.registry-card::before \{[^}]*height:5px/);
+    assert.match(vaultCss, /registry-card::before \{ display: block !important; height: 5px/);
+    assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: var\(--vault-bottom\) !important; border: 1px solid var\(--vault-accent\) !important/);
+    assert.match(managerCss, /\.registry-card\.active \.registry-card-selection-overlay,\.registry-card\.selected \.registry-card-selection-overlay \{ display:none; \}/);
+    assert.match(vaultCss, /grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),1fr\)\)/);
+    assert.doesNotMatch(vaultCss, /registry-simple \.registry-card \.asset-thumb \{ aspect-ratio: 16\/9/);
+    assert.match(managerCss, /\.registry-simple \.registry-card \.asset-card-body \{ display:none !important; \}/);
+    const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
+    const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
+    const toolbar = manager.slice(toolbarStart, toolbarEnd);
+    assert.doesNotMatch(toolbar, /label class="hw-btn registry-toolbar-select"/);
+    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select \{[^}]*border-radius:7px/);
+    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select option:hover,[\s\S]*?background: #dfc384; color: #101114/);
+    assert.match(managerCss, /\.asset-search-wrap \{[^}]*border: 0 !important/);
+    assert.match(managerCss, /\.asset-search \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.2\) !important/);
+});
+
+test('QIN-505 AC6: Shift+滚轮缩放修改卡片尺寸并保存设置', () => {
+    const writes = [];
+    let pendingSave;
+    let saveCount = 0;
+    let status = '';
+    const content = {style:{setProperty:(key,value) => writes.push([key,value])}};
+    const root = {querySelectorAll:selector => selector === '.registry-content' ? [content] : []};
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+    )(
+        root,
+        {min:120,max:360},
+        () => {},
+        callback => { pendingSave = callback; return 1; },
+        () => { saveCount += 1; },
+        value => { status = value; },
+    );
+    let prevented = false;
+    handle.handle({
+        shiftKey:true,ctrlKey:false,metaKey:false,altKey:false,deltaY:1,
+        target:{closest:selector => selector === '[data-registry-zoom-area]' || selector === '.registry-content.registry-layout-grid'},
+        preventDefault:() => { prevented = true; },
+    });
+    assert.equal(prevented, true);
+    assert.equal(handle.size(), 164);
+    assert.deepEqual(writes, [['--registry-card-size','164px']]);
+    pendingSave();
+    assert.equal(saveCount, 1);
+    assert.equal(status, '预览大小 164px');
 });
 
 test('AC5: 窄屏时左侧导航转为可横向滚动入口', () => {

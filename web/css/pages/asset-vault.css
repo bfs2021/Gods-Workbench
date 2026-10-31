@@ -118,7 +118,7 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #registryFacetPo
 body.gw-signal.gw-page--asset-manager .registry-overview-shell { padding: 9px 10px; background: var(--vault-deck) !important; border-bottom: 1px solid var(--vault-line); }
 body.gw-signal.gw-page--asset-manager .registry-overview-stats {
     display: grid;
-    grid-template-columns: 2fr 2fr repeat(4,1fr) .95fr .95fr;
+    grid-template-columns: 2fr 2fr repeat(5,1fr) .95fr .95fr;
     gap: 8px;
     overflow: visible;
     padding: 0;
@@ -172,7 +172,7 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading strong 
 body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading > span {    font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
 body.gw-signal.gw-page--asset-manager .registry-toolbar-controls { gap: 8px; flex: 1 1 600px; justify-content: flex-start; flex-wrap: wrap; min-width: 0; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-refresh { order: -2; flex: 0 0 auto; }
-body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { order: -1; flex: 0 1 calc(50% - 44px); max-width: calc(50% - 44px); min-width: 140px; height: 40px !important; padding: 0 8px; box-shadow: inset 0 2px 4px rgb(0 0 0 / .4); }
+body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { order: -1; flex: 0 1 calc(25% - 44px); max-width: calc(25% - 44px); min-width: 100px; height: 40px !important; padding: 0 8px; box-shadow: none; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar :is(input, select,.registry-toolbar-select) {      font-family:var(--gw-font-body) !important; font-size:var(--gw-type-body-md) !important; line-height:var(--gw-leading-body-md) !important; font-weight:var(--gw-weight-regular) !important; letter-spacing:0 !important; min-height:40px !important; height:auto !important; max-height:none !important;}
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-btn { padding: 0 7px; gap: 4px; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar svg { width: 13px; height: 13px; }
@@ -183,7 +183,7 @@ body.gw-signal.gw-page--asset-manager .registry-layout-switch { padding: 0; }
 
 
 body.gw-signal.gw-page--asset-manager .registry-content .registry-assets-scroll { padding: 12px; gap: 12px; background: var(--vault-bg); }
-body.gw-signal.gw-page--asset-manager .registry-grid { background: transparent !important; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 10px; }
+body.gw-signal.gw-page--asset-manager .registry-grid { background: transparent !important; grid-template-columns: repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),1fr)); gap: 10px; }
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card {
     padding: 6px;
     border-radius: 8px !important;
@@ -191,9 +191,9 @@ body.gw-signal.gw-page--asset-manager .registry-content .registry-card {
 }
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card:not(.active):not(.selected) { background: linear-gradient(165deg,var(--vault-top),var(--vault-bottom)) !important; border: 1px solid var(--vault-line) !important; box-shadow: inset 0 1px rgb(255 255 255 / .05) !important; }
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card:not(.active):not(.selected):hover { border-color: var(--vault-edge) !important; transform: translateY(-2px); }
-body.gw-signal.gw-page--asset-manager .registry-card:not(.active):not(.selected)::before { display: none; }
+body.gw-signal.gw-page--asset-manager .registry-card::before { display: block !important; height: 5px; border-radius: 7px 7px 0 0; }
+body.gw-signal.gw-page--asset-manager .registry-content .registry-card:is(.active,.selected) { background: var(--vault-bottom) !important; border: 1px solid var(--vault-accent) !important; box-shadow: inset 0 1px rgb(255 255 255 / .05) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card .asset-thumb { border: 1px solid var(--vault-line); background: var(--vault-well); border-radius: 5px !important; }
-body.gw-signal.gw-page--asset-manager .registry-simple .registry-card .asset-thumb { aspect-ratio: 16/9 !important; min-height: 0 !important; height: auto; }
 body.gw-signal.gw-page--asset-manager .registry-simple.registry-aspect-square .registry-card .asset-thumb { aspect-ratio: 1 !important; }
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card .asset-thumb :is(img, video) { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain !important; }
 body.gw-signal.gw-page--asset-manager .registry-simple.registry-aspect-square .registry-card .asset-thumb :is(img, video) { object-fit: cover !important; }
@@ -224,17 +224,15 @@ body.gw-signal.gw-page--asset-manager :is(#assetBoardTabs,.registry-content) :is
     body.gw-signal.gw-page--asset-manager .asset-manager-root-library > .library-board-nav { grid-column: 1; grid-row: 2; }
     body.gw-signal.gw-page--asset-manager .asset-manager-root-library > .registry-content { grid-column: 1; grid-row: 3; }
     body.gw-signal.gw-page--asset-manager .asset-manager-root-library > :is(.registry-detail-resizer,.registry-detail-panel) { grid-column: 1; grid-row: 4; }
-    body.gw-signal.gw-page--asset-manager .registry-grid { grid-template-columns: repeat(4,minmax(0,1fr)); }
     body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading { flex-direction: row; }
-    body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { flex-basis: calc(50% - 52px); max-width: calc(50% - 52px); min-width: 116px; }
+    body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { flex-basis: calc(25% - 52px); max-width: calc(25% - 52px); min-width: 96px; }
     body.gw-signal.gw-page--asset-manager .registry-overview-shell { grid-column: 1; }
     body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-registry { grid-template-rows: auto auto minmax(500px,1fr) !important; }
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-registry { grid-template-rows: auto minmax(500px,1fr) !important; }
 }
 @media (max-width: 480px) {
-    body.gw-signal.gw-page--asset-manager .registry-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+    body.gw-signal.gw-page--asset-manager .registry-grid { gap: 8px; }
     body.gw-signal.gw-page--asset-manager .registry-overview-stats { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
-    body.gw-signal.gw-page--asset-manager .registry-content { --registry-card-size: 140px !important; }
     body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex-wrap: wrap;   font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
     body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { min-width: 96px; }
 }
