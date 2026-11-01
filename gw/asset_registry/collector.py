@@ -360,7 +360,7 @@ def store_content(data: bytes, name: str, source_url: str = "", title: str = "",
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
         relative = f"registry_uploads/collect_inbox/{owner_directory}/{path.name}"
-        kind = ("image" if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+        kind = ("image" if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".jxl"}
                 else "video" if suffix in {".mp4", ".mov", ".webm", ".mkv"}
                 else "audio" if suffix in {".mp3", ".wav", ".flac", ".m4a"}
                 else "unknown")
@@ -370,6 +370,12 @@ def store_content(data: bytes, name: str, source_url: str = "", title: str = "",
             from gw.asset_registry.index_jobs import _video_index_data
             video_metadata, duration = _video_index_data(path)
             metadata.update(video_metadata)
+        elif kind == "image" and suffix == ".jxl":
+            from gw.asset_registry.media_probe import probe_jxl_metadata
+
+            jxl_metadata = probe_jxl_metadata(path)
+            if jxl_metadata is not None:
+                metadata["jxl_metadata"] = jxl_metadata
 
         def register(state):
             asset_id = repository._seq(state, "ast_", state["assets"].keys())

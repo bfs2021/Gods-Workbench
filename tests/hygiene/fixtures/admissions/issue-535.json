@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 535,
+  "authorization_basis": "GitHub Issue #535, 2026-11-01",
+  "files": [
+    "gw/asset_library/repository.py",
+    "gw/asset_registry/collector.py",
+    "gw/asset_registry/media_probe.py",
+    "gw/api/routes_asset_registry.py",
+    "tests/contracts/assets/test_jxl_format_support.py",
+    "tests/hygiene/fixtures/admissions/issue-535.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_jxl_format_support.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #535, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-512：JXL 准入、轻量头部元数据探测和原图直通。"
+}

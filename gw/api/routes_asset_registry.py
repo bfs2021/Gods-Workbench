@@ -715,6 +715,7 @@ def _media_type(path) -> str:
     suffix = path.suffix.lower()
     return {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".jxl": "image/jxl",
         ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
         ".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm",
         ".mov": "video/quicktime", ".mp3": "audio/mpeg", ".wav": "audio/wav",
