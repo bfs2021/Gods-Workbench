@@ -285,10 +285,20 @@ def test_c7_p3_text_loop_real_browser_readback_and_export(monkeypatch, tmp_path)
                     "window.HardwareDeck?.authState?.authenticated === true"
                 )
 
-                # 真实页面创建带项目归属的持久任务。
+                # QIN-506：项目下拉框只有一个加载/赋值负责人，默认不预选任何项目。
+                page.wait_for_function(
+                    "() => (document.querySelector('#agentTaskProject')?.options.length || 0) > 1",
+                    timeout=15000,
+                )
+                assert (
+                    page.eval_on_selector("#agentTaskProject", "el => el.value") == ""
+                ), "无 URL project_id 时项目下拉框必须保持未选中"
+                # 真实用户行为：等待选项加载后，通过下拉框主动选择测试项目。
+                page.select_option("#agentTaskProject", project.project_id)
                 page.wait_for_function(
                     "(expected) => document.querySelector('#agentTaskProject')?.value === expected",
                     arg=project.project_id,
+                    timeout=15000,
                 )
                 page.fill(
                     "#agentTaskGoal", "完成一个可审核、可导出的六阶段文本链浏览器证据"
@@ -364,6 +374,12 @@ def test_c7_p3_text_loop_real_browser_readback_and_export(monkeypatch, tmp_path)
 
                 # 刷新后由 localStorage 的 job_id 恢复同一个持久任务与导出目录。
                 page.reload(wait_until="domcontentloaded")
+                # AC3：显式选择后地址栏已带有效 project_id，刷新应据此预选同一项目。
+                page.wait_for_function(
+                    "(expected) => document.querySelector('#agentTaskProject')?.value === expected",
+                    arg=project.project_id,
+                    timeout=15000,
+                )
                 page.wait_for_function(
                     "document.querySelector('#agentTaskStatus')?.textContent.includes('succeeded')",
                     timeout=30000,
