@@ -1,0 +1,21 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 531,
+  "authorization_basis": "GitHub Issue #531, 2026-11-01",
+  "files": [
+    "gw/media/repository.py",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "tests/contracts/media/test_media_preview_cache.py",
+    "tests/hygiene/fixtures/admissions/issue-531.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_media_preview_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #531, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-509：预览优先命中缩略图缓存（含预生成产物复用）、源身份与宽度分键、坏缓存降级修复、删除同步清理预览派生缓存。"
+}
