@@ -19262,7 +19262,9 @@ document.addEventListener('click', event => {
     if(detailNavigate){ navigateDetailPreview(Number(detailNavigate.dataset.detailNavigate || 0)); return; }
     const detailZoom = event.target.closest?.('[data-detail-zoom]');
     if(detailZoom){ adjustDetailPreviewZoom(Number(detailZoom.dataset.detailZoom || 0)); return; }
-    if(event.target.closest?.('#storageSettingsOverlay,#boardCreateOverlay,#boardSourceOverlay,#boardEditOverlay,#boardFolderCreateOverlay,#thumbnailGeneratorOverlay')){
+    // 挂在 body 上的浮层不在 #assetManagerRoot 内，root 的点击委托收不到事件；
+    // 新增 body 级浮层时务必把容器 id 加到这份清单，否则按钮点击全部无效。
+    if(event.target.closest?.('#storageSettingsOverlay,#boardCreateOverlay,#boardSourceOverlay,#boardEditOverlay,#boardFolderCreateOverlay,#thumbnailGeneratorOverlay,#thumbnailCacheSwitchOverlay')){
         handleClick(event).catch(err => setStatus(err.message || '操作失败'));
         return;
     }

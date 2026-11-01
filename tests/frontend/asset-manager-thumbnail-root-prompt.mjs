@@ -86,6 +86,19 @@ test('取消切换不改设置，目录回退到已保存值', () => {
     assert.match(cancel, /已取消切换/);
 });
 
+test('切换弹窗挂在 body 上，点击必须经文档级委托进入 handleClick', () => {
+    // #assetManagerRoot 的 root.addEventListener 收不到 body 级浮层的点击，
+    // 必须由文档级委托清单兜住，否则弹窗所有按钮点击都无效（QIN-515 返工 3）。
+    const render = functionBody('renderThumbnailCacheSwitchDialog');
+    assert.match(render, /document\.body\.appendChild\(overlay\)/);
+    const delegation = source.match(/event\.target\.closest\?\.\('(#storageSettingsOverlay[^']*)'\)/);
+    assert.ok(delegation, '未找到文档级的 body 浮层点击委托清单');
+    assert.ok(
+        delegation[1].split(',').includes('#thumbnailCacheSwitchOverlay'),
+        '切换弹窗容器 id 不在文档级委托清单里，按钮点击会全部失效',
+    );
+});
+
 test('目录与已保存值不同才询问；未确认前不发起生成', () => {
     const commit = functionBody('commitThumbnailSettingsChange');
     assert.match(commit, /openThumbnailCacheSwitchDialog\(mode, directory\)/);
