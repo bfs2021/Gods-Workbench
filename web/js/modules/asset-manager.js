@@ -5435,21 +5435,24 @@ function registryVirtualStateKey(items=[]){
     ].join(':');
 }
 function registryVirtualCardHeight(item={}, cardWidth=176){
-    if(registrySimple) return Math.ceil((cardWidth - 12) / (registryAspect === 'square' ? 1 : 16 / 9) + 39);
     const type = registryVisualType(item);
     const width = Number(item.width || item.metadata?.width || 0);
     const height = Number(item.height || item.metadata?.height || 0);
-    const ratio = width > 0 && height > 0 ? width / height : type === 'video' ? 16 / 9 : 1.35;
-    const mediaHeight = registryAspect === 'square'
-        ? cardWidth
-        : type === 'video'
-            ? cardWidth / Math.max(.2, ratio)
-            : ['image','video'].includes(type)
-                ? Math.max(96, Math.min(520, cardWidth / Math.max(.2, ratio)))
-                : 150;
+    const ratio = width > 0 && height > 0 ? width / height : type === 'video' ? 16 / 9 : 1;
+    const innerWidth = Math.max(96, cardWidth - 14);
+    const hasImagePreview = type === 'image' || type === 'video' || (type === 'audio' && assetSupportsImagePreview(item));
+    const mediaHeight = hasImagePreview
+        ? registryAspect === 'square' && type === 'video'
+            ? innerWidth
+            : width > 0 && height > 0
+                ? Math.max(96, Math.min(520, innerWidth / Math.max(.2, ratio)))
+                : type === 'video'
+                    ? innerWidth / (16 / 9)
+                    : 96
+        : 150;
     // Reserve enough space for the two-line name, metadata and source label.
     const bodyHeight = registrySimple ? 0 : 92;
-    return Math.max(180, Math.min(720, Math.ceil(mediaHeight + bodyHeight + 24)));
+    return Math.ceil(mediaHeight + bodyHeight + 14);
 }
 function registryVirtualHeightCacheKey(item, index=0, cacheMode=''){
     item = item || {};
@@ -5508,7 +5511,7 @@ function registryVirtualMeasureCardHeights(items=[], options){
     });
     host.remove();
 }
-function registryVirtualLayout(items=[], width=0){
+function registryVirtualLayout(items=[], width=0, measureMissing=true){
     const grid = root.querySelector('.registry-grid');
     const contentWidth = Math.max(320, Number(width) || grid?.clientWidth || root.querySelector('.registry-content')?.clientWidth || window.innerWidth || 1024);
     const gridStyle = grid ? getComputedStyle(grid) : {};
@@ -5516,9 +5519,9 @@ function registryVirtualLayout(items=[], width=0){
     const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
     const rowHeight = Math.max(1, Number.parseFloat(gridStyle.gridAutoRows) || 8);
     const preferred = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, Number(registryCardSize) || REGISTRY_CARD_SIZE.fallback));
-    const cssColumns = grid ? registryGridColumnCount(gridStyle.gridTemplateColumns) : 0;
-    const cols = Math.max(1, cssColumns || Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
-    const cardWidth = Math.max(96, (contentWidth - columnGap * Math.max(0, cols - 1)) / cols);
+    const cols = Math.max(1, Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
+    const availableCardWidth = (contentWidth - columnGap * Math.max(0, cols - 1)) / cols;
+    const cardWidth = Math.max(96, Math.min(preferred, availableCardWidth));
     const pitch = rowHeight + rowGap;
     const cacheMode = `${cardWidth.toFixed(2)}:${registryAspect}:${registrySimple ? 1 : 0}`;
     if(registryVirtualHeightCacheMode !== cacheMode){
@@ -5542,7 +5545,7 @@ function registryVirtualLayout(items=[], width=0){
         if(measuredWidth > 0 && Math.abs(measuredWidth - cardWidth) > 1) return;
         if(id && height > 0) registryVirtualHeightCache.set(registryVirtualHeightCacheKey(entry.item,entry.index,cacheMode), height);
     });
-    registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
+    if(measureMissing) registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
     const occupiedRows = [];
     const itemLayouts = [];
     let cursorRow = 0;
@@ -5697,7 +5700,7 @@ function registryVirtualItemsForActiveBoard(){
     const base = board?.system === false ? registryVisibleAssetList(customAssetLibraryItems(board)) : registryVisibleAssets();
     return {board, items:registryProjectedAssetItems(base)};
 }
-function updateRegistryVirtualWindow(force=false){
+function updateRegistryVirtualWindow(force=false, skipMeasurements=false){
     const grid = root.querySelector('[data-registry-virtual-grid]');
     const scrollRoot = grid?.closest('.registry-assets-scroll');
     if(!grid || !scrollRoot) return false;
@@ -5709,7 +5712,7 @@ function updateRegistryVirtualWindow(force=false){
         && registryVirtualState.key === key
         && registryVirtualState.itemLayouts?.length === items.length
         && Math.abs(Number(registryVirtualState.width || 0) - width) < 1;
-    const layout = canReuseLayout ? registryVirtualState : registryVirtualLayout(items, width);
+    const layout = canReuseLayout ? registryVirtualState : registryVirtualLayout(items, width, !skipMeasurements);
     const range = registryVirtualRange(items, layout, scrollRoot.scrollTop, scrollRoot.clientHeight || 650);
     const sameWindow = !force
         && registryVirtualState.key === key
@@ -19042,6 +19045,7 @@ document.addEventListener('keydown', event => {
 });
 document.addEventListener('wheel', navigateDetailPreviewWheel, {passive:false});
 let registryCardSizeSaveTimer = 0;
+let registryCardSizeLayoutFrame = 0;
 function handleRegistryCardResizeWheel(event){
     if(!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
@@ -19050,6 +19054,13 @@ function handleRegistryCardResizeWheel(event){
     event.preventDefault();
     registryCardSize = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, registryCardSize + (event.deltaY > 0 ? -12 : 12)));
     root.querySelectorAll('.registry-content').forEach(node => node.style.setProperty('--registry-card-size', registryCardSize + 'px'));
+    if(!registryCardSizeLayoutFrame){
+        registryCardSizeLayoutFrame = requestAnimationFrame(() => {
+            registryCardSizeLayoutFrame = 0;
+            if(root.querySelector('.registry-grid-virtualized')) updateRegistryVirtualWindow(true, true);
+            else scheduleRegistryMasonryLayout();
+        });
+    }
     clearTimeout(registryCardSizeSaveTimer);
     registryCardSizeSaveTimer = setTimeout(() => {
         saveRegistryViewSettings();

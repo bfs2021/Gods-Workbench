@@ -105,14 +105,38 @@ test('QIN-505 AC1: 扩展名与导入元数据统一映射到素材分类', () =
     assert.match(manager, /\{id:'font', name:'字体'/);
 });
 
-test('QIN-505 AC2-AC5: 素材色条常驻，简洁模式保留原比例且工具栏只留单层圆角框', () => {
-    assert.match(managerCss, /\.registry-card::before \{[^}]*height:5px/);
-    assert.match(vaultCss, /registry-card::before \{ display: block !important; height: 5px/);
+test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流及素材比例', () => {
+    assert.doesNotMatch(managerCss, /\.registry-card::before \{[^}]*height:5px/);
+    assert.match(vaultCss, /registry-card::before \{ display: none !important; \}/);
+    assert.match(vaultCss, /registry-card \.registry-card-format \{[^}]*background: var\(--asset-type-color\) !important; color: var\(--vault-accent\) !important/);
+    assert.doesNotMatch(vaultCss, /registry-card\.asset-type-video \.registry-card-format \{[^}]*color:/);
     assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: var\(--vault-bottom\) !important; border: 1px solid var\(--vault-accent\) !important/);
     assert.match(managerCss, /\.registry-card\.active \.registry-card-selection-overlay,\.registry-card\.selected \.registry-card-selection-overlay \{ display:none; \}/);
-    assert.match(vaultCss, /grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),1fr\)\)/);
-    assert.doesNotMatch(vaultCss, /registry-simple \.registry-card \.asset-thumb \{ aspect-ratio: 16\/9/);
+    assert.match(vaultCss, /grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
+    assert.match(managerCss, /grid-template-columns:repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
+    assert.doesNotMatch(vaultCss, /registry-simple[^}]*aspect-ratio:\s*(?:1|16\/9)/);
+    assert.doesNotMatch(vaultCss, /registry-simple \.registry-card \.asset-thumb :is\(img, video\) \{ position: absolute/);
     assert.match(managerCss, /\.registry-simple \.registry-card \.asset-card-body \{ display:none !important; \}/);
+    assert.match(vaultCss, /registry-simple \.registry-card \.asset-card-body \{ display: none !important; \}/);
+    const heightStart = manager.indexOf('function registryVirtualCardHeight(');
+    const heightOpen = manager.indexOf('){', heightStart) + 1;
+    let heightDepth = 0;
+    let heightEnd = heightOpen;
+    for(; heightEnd < manager.length; heightEnd += 1){
+        if(manager[heightEnd] === '{') heightDepth += 1;
+        else if(manager[heightEnd] === '}' && --heightDepth === 0){ heightEnd += 1; break; }
+    }
+    assert.ok(heightStart >= 0 && heightOpen > heightStart && heightEnd > heightOpen);
+    const estimateHeight = new Function(
+        'registryVisualType','assetSupportsImagePreview','registryAspect','registrySimple',
+        `${manager.slice(heightStart,heightEnd)}\nreturn registryVirtualCardHeight;`,
+    )(
+        item => item.kind,
+        () => false,
+        'original',
+        true,
+    );
+    assert.ok(estimateHeight({kind:'image',width:600,height:1200},176) > estimateHeight({kind:'image',width:1200,height:600},176), '简洁模式虚拟瀑布流按素材原始比例估高');
     const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
     const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
     const toolbar = manager.slice(toolbarStart, toolbarEnd);
@@ -123,16 +147,22 @@ test('QIN-505 AC2-AC5: 素材色条常驻，简洁模式保留原比例且工具
     assert.match(managerCss, /\.asset-search \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.2\) !important/);
 });
 
-test('QIN-505 AC6: Shift+滚轮缩放修改卡片尺寸并保存设置', () => {
+test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
     const writes = [];
     let pendingSave;
     let saveCount = 0;
     let status = '';
+    let pendingLayout;
+    let masonryCalls = 0;
+    let virtualCalls = 0;
     const content = {style:{setProperty:(key,value) => writes.push([key,value])}};
-    const root = {querySelectorAll:selector => selector === '.registry-content' ? [content] : []};
+    const root = {
+        querySelectorAll:selector => selector === '.registry-content' ? [content] : [],
+        querySelector:() => null,
+    };
     const handle = new Function(
-        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus',
-        `let registryCardSize=176; let registryCardSizeSaveTimer=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
     )(
         root,
         {min:120,max:360},
@@ -140,6 +170,9 @@ test('QIN-505 AC6: Shift+滚轮缩放修改卡片尺寸并保存设置', () => {
         callback => { pendingSave = callback; return 1; },
         () => { saveCount += 1; },
         value => { status = value; },
+        callback => { pendingLayout = callback; return 1; },
+        () => { masonryCalls += 1; },
+        () => { virtualCalls += 1; },
     );
     let prevented = false;
     handle.handle({
@@ -150,9 +183,45 @@ test('QIN-505 AC6: Shift+滚轮缩放修改卡片尺寸并保存设置', () => {
     assert.equal(prevented, true);
     assert.equal(handle.size(), 164);
     assert.deepEqual(writes, [['--registry-card-size','164px']]);
+    pendingLayout();
+    assert.equal(masonryCalls, 1, '非虚拟瀑布流在下一帧立即重测卡片高度');
+    assert.equal(virtualCalls, 0);
     pendingSave();
     assert.equal(saveCount, 1);
     assert.equal(status, '预览大小 164px');
+});
+
+test('QIN-505 AC6: 虚拟瀑布流缩放后快速重算卡片列与位置', () => {
+    let pendingLayout;
+    let forceValue = false;
+    let skipMeasurements = false;
+    const content = {style:{setProperty:() => {}}};
+    const root = {
+        querySelectorAll:selector => selector === '.registry-content' ? [content] : [],
+        querySelector:selector => selector === '.registry-grid-virtualized' ? {} : null,
+    };
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn handleRegistryCardResizeWheel;`,
+    )(
+        root,
+        {min:120,max:360},
+        () => {},
+        () => 1,
+        () => {},
+        () => {},
+        callback => { pendingLayout = callback; return 1; },
+        () => assert.fail('虚拟瀑布流不得调用常规高度观察器'),
+        (force, skip) => { forceValue = force; skipMeasurements = skip; },
+    );
+    handle({
+        shiftKey:true,ctrlKey:false,metaKey:false,altKey:false,deltaY:-1,
+        target:{closest:selector => selector === '[data-registry-zoom-area]' || selector === '.registry-content.registry-layout-grid'},
+        preventDefault:() => {},
+    });
+    pendingLayout();
+    assert.equal(forceValue, true, '强制用最新尺寸重建虚拟瀑布流布局');
+    assert.equal(skipMeasurements, true, '滚轮缩放时跳过整库离屏测量，避免预览迟滞');
 });
 
 test('AC5: 窄屏时左侧导航转为可横向滚动入口', () => {
@@ -217,13 +286,13 @@ test('QIN-504 AC1: 虚拟网格渲染后重新绑定滚动窗口', () => {
     assert.ok(render.indexOf('scheduleRegistryVirtualWindow();') > render.indexOf('scheduleRegistryMasonryLayout();'));
 });
 
-test('QIN-504 AC2: 虚拟卡片列数沿用实际 CSS 网格列数', () => {
+test('QIN-504 AC2: 虚拟卡片按预览尺寸占用固定宽度列', () => {
     const columnSource = functionSource('registryGridColumnCount');
     const heightKeySource = functionSource('registryVirtualHeightCacheKey');
     const measureSource = functionSource('registryVirtualMeasureCardHeights');
     const layoutSource = functionSource('registryVirtualLayout');
     const grid = {clientWidth:1750,querySelectorAll:() => []};
-    let template = '241.42px 241.42px 241.42px 241.42px 241.42px 241.42px 241.42px';
+    let template = '176px 176px 176px 176px 176px 176px 176px 176px 176px';
     const buildLayout = new Function(
         'root','getComputedStyle','REGISTRY_VIRTUAL_GAP','REGISTRY_CARD_SIZE','registryCardSize','registrySimple','registryAspect','registryVirtualCardHeight','registryVirtualHeightCache','registryVirtualHeightCacheMode',
         `${columnSource}\n${heightKeySource}\n${measureSource}\n${layoutSource}\nreturn registryVirtualLayout;`,
@@ -241,10 +310,10 @@ test('QIN-504 AC2: 虚拟卡片列数沿用实际 CSS 网格列数', () => {
         '',
     );
     const regular = layout([{id:'a'},{id:'b'}]);
-    assert.equal(regular.cols, 7);
-    assert.ok(Math.abs(regular.cardWidth - (1750 - 60) / 7) < 0.01);
-    template = 'repeat(7, minmax(0px, 1fr))';
-    assert.equal(layout([{id:'a'},{id:'b'}]).cols, 7);
+    assert.equal(regular.cols, 9);
+    assert.equal(regular.cardWidth, 176);
+    template = 'repeat(9, minmax(0px, 1fr))';
+    assert.equal(layout([{id:'a'},{id:'b'}]).cols, 9);
 });
 
 test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整覆盖可视区', () => {
@@ -261,7 +330,7 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     );
     const {registryVirtualLayout, registryVirtualRange} = buildVirtualLayout(
         {querySelector:selector => selector === '.registry-grid' ? grid : null},
-        () => ({gridTemplateColumns:'repeat(7, minmax(0px, 1fr))',columnGap:'10px',rowGap:'10px',gridAutoRows:'8px'}),
+        () => ({gridTemplateColumns:'repeat(9, minmax(0px, 1fr))',columnGap:'10px',rowGap:'10px',gridAutoRows:'8px'}),
         10,
         {min:96,max:480,fallback:176},
         176,
@@ -281,10 +350,10 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     const beforeAppend = registryVirtualLayout(items.slice(0,100));
     const layout = registryVirtualLayout(items);
 
-    assert.equal(layout.cols, 7);
-    assert.deepEqual(layout.itemLayouts.slice(0, 7).map(position => position.top), Array(7).fill(0));
-    assert.deepEqual(layout.itemLayouts.slice(0, 7).map(position => position.column), [0,1,2,3,4,5,6]);
-    assert.ok(layout.itemLayouts.slice(7, 21).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
+    assert.equal(layout.cols, 9);
+    assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.top), Array(9).fill(0));
+    assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.column), [0,1,2,3,4,5,6,7,8]);
+    assert.ok(layout.itemLayouts.slice(9, 27).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
     assert.ok(layout.rowTops.every((top,index,tops) => index === 0 || top >= tops[index - 1]), '按素材顺序的 top 位置保持单调，供二分窗口定位');
     assert.deepEqual(
         layout.itemLayouts.slice(0,100).map(({left,top,span}) => [left,top,span]),

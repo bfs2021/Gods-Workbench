@@ -1459,7 +1459,6 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-filter-chips button.exclude { border-color:rgba(220,38,38,.25); color:var(--danger); }
 .registry-filter-chips svg { width:10px; height:10px; }
 .registry-card { --asset-type-color:var(--asset-type-other); --asset-type-ink:#fff; outline:none; user-select:none; }
-.registry-card::before { content:""; position:absolute; z-index:4; inset:0 0 auto; height:5px; background:var(--asset-type-color); pointer-events:none; }
 .registry-card.asset-type-font { --asset-type-color:var(--asset-type-font); }
 .registry-card.asset-type-image { --asset-type-color:var(--asset-type-image); }
 .registry-card.asset-type-video { --asset-type-color:var(--asset-type-video); }
@@ -1489,7 +1488,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb { aspect-ratio:1/1; min-height:0; }
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb .asset-video-poster,
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb .asset-video-hover { display:block; inset:0; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto!important; object-fit:cover!important; object-position:center; }
-.registry-card-format { position:absolute; z-index:6; top:9px; left:8px; min-width:44px; height:28px; max-width:calc(100% - 88px); padding:0 9px; border:1px solid rgba(255,255,255,.28); border-radius:4px; background:rgba(20,24,21,.9); color:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; pointer-events:none; }
+.registry-card-format { position:absolute; z-index:6; top:9px; left:8px; min-width:44px; height:28px; max-width:calc(100% - 88px); padding:0 9px; border:1px solid rgba(255,255,255,.28); border-radius:4px; background:var(--asset-type-color); color:#dfc384; display:flex; align-items:center; justify-content:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; pointer-events:none; }
 .registry-card-segment-badge { position:absolute; z-index:6; bottom:8px; left:8px; height:26px; max-width:calc(100% - 16px); padding:0 8px; border:1px solid rgba(223,195,132,.45); border-radius:4px; background:rgba(11,13,19,.92); color:#dfc384; display:inline-flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); backdrop-filter:blur(4px); transition:background .14s ease, border-color .14s ease, transform .14s ease; }
 .registry-card-segment-badge:hover { background:rgba(20,24,32,.98); border-color:#f59e0b; color:#fef3c7; transform:scale(1.02); }
 .registry-card-segment-badge svg { width:13px; height:13px; color:#dfc384; flex-shrink:0; }
@@ -1630,7 +1629,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 /* Row-first compact masonry. CSS columns fill top-to-bottom, which groups
    different media types into separate sides; fixed rows plus measured spans
    keep insertion order left-to-right while retaining variable card heights. */
-.registry-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(var(--registry-card-size,176px),1fr)); grid-auto-rows:8px; grid-auto-flow:row; align-items:start; gap:10px; }
+.registry-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),min(100%,var(--registry-card-size,176px)))); grid-auto-rows:8px; grid-auto-flow:row; align-items:start; align-content:start; justify-content:start; gap:10px; }
 .registry-grid .registry-card { display:flex; flex-direction:column; width:auto; height:max-content; margin:0; align-self:start; grid-row:span var(--registry-masonry-span,1); }
 .registry-grid-virtualized {
   position:relative;
