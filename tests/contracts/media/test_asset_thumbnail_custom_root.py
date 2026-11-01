@@ -73,14 +73,39 @@ def _three_assets(runtime: dict[str, Path]) -> list[str]:
     return ids
 
 
+# 缩略图产物扩展名由 QIN-513 的 format 设置决定（默认 jxl），断言只锁「每个素材
+# 恰好一个产物」，不锁具体格式，避免新增格式时整批返工。
+CACHE_EXTENSIONS = (".jpg.png", ".jxl", ".webp")
+
+
+def _cache_name(path: Path) -> str:
+    """去掉格式后缀，只留素材身份部分（ast_0001.jpg.png / ast_0001.jxl → ast_0001）。"""
+    for extension in CACHE_EXTENSIONS:
+        if path.name.endswith(extension):
+            return path.name[: -len(extension)]
+    return path.name
+
+
 def _managed_files(runtime: dict[str, Path], folder: str = "god-cache") -> list[Path]:
     base = runtime["data"] / "media_output" / folder
-    return sorted(base.rglob("*.jpg.png")) if base.exists() else []
+    if not base.exists():
+        return []
+    return sorted(
+        path
+        for path in base.rglob("*")
+        if path.is_file() and path.name.endswith(CACHE_EXTENSIONS)
+    )
 
 
 def _custom_files(directory: Path, folder: str = "god-cache") -> list[Path]:
     base = directory / folder
-    return sorted(base.glob("*.jpg.png")) if base.exists() else []
+    if not base.exists():
+        return []
+    return sorted(
+        path
+        for path in base.glob("*")
+        if path.is_file() and path.name.endswith(CACHE_EXTENSIONS)
+    )
 
 
 def test_custom_root_writes_into_selected_directory(
@@ -96,9 +121,7 @@ def test_custom_root_writes_into_selected_directory(
 
     assert result["generated"] == 3, result
     written = _custom_files(custom)
-    assert [path.name for path in written] == sorted(
-        asset_id + ".jpg.png" for asset_id in ids
-    )
+    assert [_cache_name(path) for path in written] == sorted(ids)
     assert {path.parent for path in written} == {custom / "god-cache"}
     assert _managed_files(media_runtime) == []
 

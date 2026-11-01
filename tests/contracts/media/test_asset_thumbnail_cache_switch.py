@@ -79,8 +79,17 @@ def _generate(runtime: dict[str, Path], count: int = 2) -> list[str]:
     return ids
 
 
+CACHE_EXTENSIONS = (".jpg.png", ".jxl", ".webp")
+
+
 def _cache_files(root: Path) -> list[Path]:
-    return sorted(root.rglob("*.jpg.png")) if root.exists() else []
+    if not root.exists():
+        return []
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.name.endswith(CACHE_EXTENSIONS)
+    )
 
 
 def test_migrate_moves_cache_tree_to_new_directory(
@@ -196,3 +205,29 @@ def test_switch_outside_allowed_roots_keeps_settings_and_cache(
     assert media_repo.get_thumbnail_settings()["mode"] == "source"
     assert _cache_files(old_root) == before
     assert list(outside.rglob("*")) == []
+
+
+def test_cache_artifact_name_covers_every_thumbnail_format() -> None:
+    """迁移 / 清理只认可识别的产物名，三种缩略图格式与视频预览都必须覆盖。"""
+    for name in (
+        "ast_0001.jpg.png",
+        "ast_0001.jxl",
+        "ast_0001.webp",
+        "ast_0001-w0256-0123456789abcdef.frame.jpg",
+    ):
+        assert media_repo.is_cache_artifact_name(name), name
+    for name in ("ast_0001.mp4", "ast_0001.jpg", "proxy.mp4"):
+        assert not media_repo.is_cache_artifact_name(name), name
+
+
+def test_cache_artifact_name_covers_every_thumbnail_format() -> None:
+    """迁移 / 清理只认可识别的产物名，三种缩略图格式与视频预览都必须覆盖。"""
+    for name in (
+        "ast_0001.jpg.png",
+        "ast_0001.jxl",
+        "ast_0001.webp",
+        "ast_0001-w0256-0123456789abcdef.frame.jpg",
+    ):
+        assert media_repo.is_cache_artifact_name(name), name
+    for name in ("ast_0001.mp4", "ast_0001.jpg", "proxy.mp4"):
+        assert not media_repo.is_cache_artifact_name(name), name

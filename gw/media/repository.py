@@ -409,7 +409,8 @@ def is_cache_artifact_name(name: str) -> bool:
 
     if media_probe.is_storyboard_cache_name(name):
         return True
-    return name.endswith(".jpg.png") or name.endswith(".frame.jpg")
+    # 扩展名随 QIN-513 的 format 设置变化：png(.jpg.png) / jxl / webp，视频预览为 .frame.jpg。
+    return name.endswith((".jpg.png", ".jxl", ".webp", ".frame.jpg"))
 
 
 def _iter_cache_artifacts(root: Path) -> list[Path]:

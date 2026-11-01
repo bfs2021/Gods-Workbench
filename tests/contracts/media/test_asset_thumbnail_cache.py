@@ -81,6 +81,20 @@ def _three_assets(runtime: dict[str, Path]) -> list[str]:
     ]
 
 
+# 缩略图产物扩展名随 format 设置变化（默认 jxl），断言不锁具体格式。
+CACHE_EXTENSIONS = (".jpg.png", ".jxl", ".webp")
+
+
+def _cache_files_for(base: Path) -> list[Path]:
+    if not base.exists():
+        return []
+    return sorted(
+        path
+        for path in base.glob("*")
+        if path.is_file() and path.name.endswith(CACHE_EXTENSIONS)
+    )
+
+
 def _cache_files(runtime: dict[str, Path], folder: str = "god-cache") -> list[Path]:
     base = runtime["data"] / "media_output" / folder
     if not base.exists():
@@ -207,8 +221,8 @@ def test_custom_mode_accepts_registered_directory(
     result = media_repo.generate_thumbnail({"asset_ids": ids, "width": 256})
 
     assert result["generated"] == 3
-    written = sorted((custom / "god-cache").glob("*.jpg.png"))
-    assert [path.name for path in written] == [asset_id + ".jpg.png" for asset_id in sorted(ids)]
+    written = _cache_files_for(custom / "god-cache")
+    assert [path.name.split(".")[0] for path in written] == sorted(ids)
     # 受管数据目录下不再新增同一批产物。
     assert _cache_files(media_runtime) == []
 
