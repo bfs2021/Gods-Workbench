@@ -193,8 +193,9 @@ def test_storyboard_cache_isolated_per_version(
     second = media_probe.storyboard(asset_id, "1719999999", cache_root=cache_root)
     assert first["version"] == "1710000000"
     assert second["version"] == "1719999999"
-    first_parent = Path(first["frames"][0]["output_name"]).parts
-    second_parent = Path(second["frames"][0]["output_name"]).parts
+    # 中间帧合成后即删除，产物路径以合成单图为锚点判断版本隔离。
+    first_parent = Path(first["image"]).parts
+    second_parent = Path(second["image"]).parts
     assert first_parent != second_parent
 
 

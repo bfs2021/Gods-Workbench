@@ -1006,19 +1006,15 @@ def generate_storyboards(payload: dict[str, Any]) -> dict[str, Any]:
             items.append(_storyboard_error_item(asset_id, exc))
             continue
         produced = int(result.get("generated") or 0)
+        grid = result.get("storyboard") or {}
         items.append(
             {
                 "asset_id": asset_id,
                 "status": "generated" if produced else "cached",
-                "output": (result.get("storyboard") or {}).get("frames", [{}])[0].get(
-                    "output_name", ""
-                )
-                if (result.get("storyboard") or {}).get("frames")
-                else "",
+                # 中间帧合成后即删除，对外产物是那张固定横板的 3×3 单图。
+                "output": grid.get("image", ""),
                 "frames": int(result.get("frames") or 0),
-                "frames_generated": int(
-                    (result.get("storyboard") or {}).get("generated") or 0
-                ),
+                "frames_generated": int(grid.get("generated") or 0),
                 "segment_total": int(result.get("segment_total") or 0),
                 "segments_updated": int(result.get("segments_updated") or 0),
             }

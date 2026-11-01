@@ -12545,8 +12545,12 @@ function videoStoryboardImageKey(assetId, version){
 function videoStoryboardImageUrl(outputName){
     return `/api/download-output?path=${encodeURIComponent(String(outputName || ''))}`;
 }
-// 九宫格是后端合成的 3×3 单图（宽边 ≤2160），前端只渲染一张，不再各格取原图拼接。
-function paintVideoStoryboardImage(node, data){
+// 九宫格是后端合成的 3×3 单图（固定横板 2160×1215），前端只渲染一张。
+// 图幅用内联 contain 约束：无论缓存里是旧口径的竖版还是新横版，都完整显示不裁切。
+const VIDEO_STORYBOARD_IMAGE_STYLE = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;';
+// 放大层沿用上一版口径：整图完整展示，高度按视口收，绝不裁切。
+const VIDEO_STORYBOARD_LARGE_STYLE = 'max-width:100%;max-height:calc(100vh - 109px);width:auto;height:auto;object-fit:contain;display:block;';
+function paintVideoStoryboardImage(node, data, style = VIDEO_STORYBOARD_IMAGE_STYLE){
     if(!node) return;
     const image = String(data?.image || '');
     if(!image){
@@ -12554,7 +12558,7 @@ function paintVideoStoryboardImage(node, data){
         refreshIcons();
         return;
     }
-    node.innerHTML = `<img src="${escapeAttr(videoStoryboardImageUrl(image))}" alt="视频九宫格" loading="lazy">`;
+    node.innerHTML = `<img src="${escapeAttr(videoStoryboardImageUrl(image))}" alt="视频九宫格" loading="lazy" style="${style}">`;
     refreshIcons();
 }
 function hydrateVideoStoryboardImages(scope){
@@ -15450,11 +15454,11 @@ async function openDetailVideoStoryboard(button){
     const version = String(button?.dataset?.storyboardVersion || '');
     const key = videoStoryboardImageKey(assetId, version);
     const cached = videoStoryboardImageCache.get(key);
-    if(cached){ paintVideoStoryboardImage(target, cached); return; }
+    if(cached){ paintVideoStoryboardImage(target, cached, VIDEO_STORYBOARD_LARGE_STYLE); return; }
     try{
         const data = await apiJsonResponse(assetManagerApi.getRegistryVideoStoryboard(assetId));
         videoStoryboardImageCache.set(key, data || {});
-        paintVideoStoryboardImage(target, data);
+        paintVideoStoryboardImage(target, data, VIDEO_STORYBOARD_LARGE_STYLE);
     }catch(err){
         if(target) target.innerHTML = `<span class="asset-video-storyboard-placeholder is-error">九宫格读取失败：${escapeHtml(err?.message || '未知错误')}</span>`;
     }
