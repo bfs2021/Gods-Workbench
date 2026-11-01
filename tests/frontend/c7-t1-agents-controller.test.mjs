@@ -201,7 +201,10 @@ test('全局进入智能体时忽略旧 localStorage 项目，等待显式选择
   assert.equal(context.window.WorkbenchAgents.getProjectId(), null);
   assert.equal(elements['agentProjectContextBar'].isRemoved, true, '默认不应保留项目上下文栏');
   const projectSelect = elements.agentTaskProject;
-  assert.ok(projectSelect.innerHTML.includes('projA') && projectSelect.innerHTML.includes('projB'), '用户应能选择有效项目');
+  // QIN-506：项目下拉框的加载与赋值归 agent-tasks.js 独占；控制器只读值、监听 change，
+  // 不得并发重绘选项或改写选择值，否则两个异步响应会互相清除对方的结果。
+  assert.equal(projectSelect.innerHTML, '', '控制器不得重绘项目下拉框选项');
+  assert.doesNotMatch(projectSelect.innerHTML, /projA|projB/, '控制器不得把项目列表写入下拉框');
   assert.equal(projectSelect.value, '', '默认选项应为空，不能暗选本地记忆项目');
   assert.equal(storage.get('workspace_project_id'), 'projA', '仅忽略旧记忆，不应因进入页面改写它');
   assert.deepEqual(historyChanges, [], '无项目选择时不得向地址栏注入 project_id');

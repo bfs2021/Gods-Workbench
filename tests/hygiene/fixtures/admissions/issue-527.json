@@ -1,0 +1,18 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 527,
+  "authorization_basis": "GitHub Issue #527, 2026-11-01",
+  "files": [
+    "tests/e2e/test_c7_text_loop_browser.py",
+    "tests/frontend/c7-t1-agents-controller.test.mjs",
+    "tests/frontend/mvp2-t7a-reference-card.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/frontend/qin-506-agent-project-select.test.mjs",
+    "tests/hygiene/fixtures/admissions/issue-527.json",
+    "web/js/controllers/agent-tasks.js",
+    "web/js/controllers/agents-controller.js"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [],
+  "notes": "QIN-506：智能体项目下拉框收敛为 agent-tasks.js 单一负责人，控制器不再并发重绘并丢弃初始化校验的晚到结果，消除 C7-P3 偶发超时。mvp2-t7a-reference-card.test.mjs 仅按新行为更新：参考读取前模拟用户显式选中项目，URL 用例改用有效 project_id（无效 ID 不绑定）。"
+}

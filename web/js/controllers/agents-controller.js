@@ -39,6 +39,8 @@ window.WorkbenchAgents = (function () {
     requestInFlight: false,
     projectId: null,
     projectName: null,
+    // 用户在页面上显式选择过项目后置为 true，用于丢弃初始化校验的晚到结果。
+    projectChoicePinned: false,
     agentConfigReady: false,
     agentConfigProfiles: []
   };
@@ -111,8 +113,7 @@ window.WorkbenchAgents = (function () {
         </a>
       </div>
     `;
-    const projectSelect = document.getElementById('agentTaskProject');
-    if (projectSelect) projectSelect.value = state.projectId || '';
+    // 下拉框的选择值由 agent-tasks.js 独占负责；这里只渲染上下文栏，不回写选择。
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -146,29 +147,18 @@ window.WorkbenchAgents = (function () {
     return state.projectId;
   }
 
-  function renderProjectOptions(projects, selectedId = '') {
-    const select = document.getElementById('agentTaskProject');
-    if (!select) return;
-    const options = ['<option value="">请选择项目</option>'];
-    for (const project of projects) {
-      const id = String(project.project_id || '').trim();
-      if (!id) continue;
-      const name = String(project.name || id);
-      options.push(`<option value="${esc(id)}">${esc(name)}</option>`);
-    }
-    select.innerHTML = options.join('');
-    select.value = selectedId || '';
-  }
-
   // 只有 URL 明确带入的有效项目才自动绑定；本地记忆与首个项目都不作为默认值。
+  // 选项渲染与赋值归 agent-tasks.js 独占，这里只校验上下文并渲染上下文栏，
+  // 避免两个异步请求竞争重绘同一个下拉框。
   function validateProjectContext(candidateId) {
     return fetch('/api/asset-registry/projects?archived=false&deleted=false', { credentials: 'same-origin' })
       .then(res => (res && res.ok ? res.json() : null))
       .then(payload => {
         if (!payload || !Array.isArray(payload.projects)) return null;
+        // 用户在初始化期间已经显式选择项目时，晚到的校验结果不得覆盖该选择。
+        if (state.projectChoicePinned) return null;
         const projects = payload.projects.filter(item => item && item.project_id && !item.archived_at && !item.deleted_at);
         const matched = candidateId && projects.find(item => String(item.project_id) === String(candidateId));
-        renderProjectOptions(projects, matched ? String(matched.project_id) : '');
         if (matched) {
           setProjectId(matched.project_id, matched.name);
         } else {
@@ -584,6 +574,8 @@ window.WorkbenchAgents = (function () {
     projectSelect?.addEventListener('change', () => {
       const projectId = String(projectSelect.value || '').trim();
       const selected = Array.from(projectSelect.options || []).find(option => option.value === projectId);
+      // 用户显式选择即锁定；初始化校验的晚到响应不得再覆盖上下文。
+      state.projectChoicePinned = true;
       setProjectId(projectId || null, selected?.text || null, { persist: Boolean(projectId) });
     });
     state.traceUnsubscribe = window.AuraTraceBus?.subscribe?.(appendTrace) || null;

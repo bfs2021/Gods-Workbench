@@ -285,14 +285,31 @@
     return response;
   }
 
+  // 页面 URL 可能是唯一的明确项目上下文来源；无效或缺失时不绑定任何项目。
+  function requestedProjectId() {
+    try {
+      const value = new URLSearchParams(String(window.location?.search || '')).get('project_id');
+      return value && value.trim() ? value.trim() : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // 下拉框的唯一负责人：加载、校验、填充与赋值都只在这里发生，
+  // 其它控制器只读该控件的值或监听 change，禁止并发重绘造成“最后写入者胜出”。
   async function loadProjects() {
     const select = byId('agentTaskProject');
     if (!select) return;
+    const urlProjectId = requestedProjectId();
     try {
       const data = await request('/api/asset-registry/projects?archived=false&deleted=false');
       const projects = Array.isArray(data?.projects) ? data.projects.filter(item => item && item.project_id && !item.archived_at && !item.deleted_at) : [];
+      // 重绘前记住当前选择：晚到的响应不得清除用户已经做出的显式选择。
+      const currentProjectId = String(select.value || '').trim();
       select.innerHTML = '<option value="">选择所属项目</option>' + projects.map(item => `<option value="${escapeHtml(item.project_id)}">${escapeHtml(item.name || item.project_id)}</option>`).join('');
-      if (projects.length === 1) select.value = projects[0].project_id;
+      // 默认不预选：即使只有一个项目也不自动选中；只有 URL 明确带入且确实存在的项目才作为初始选择。
+      const matched = projects.find(item => String(item.project_id) === (currentProjectId || urlProjectId));
+      select.value = matched ? String(matched.project_id) : '';
       if (!projects.length) setStatus('没有可选择的项目；任务创建仍会由服务端复核项目所有权。', 'error');
     } catch (error) {
       select.innerHTML = '<option value="">项目读取失败</option>';
