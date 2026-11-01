@@ -2704,7 +2704,7 @@ function renderAllowedRootsSettings(){
             ${root.availabilityMessage ? `<small>${escapeHtml(root.availabilityMessage)}</small>` : ''}
             ${root.aliases.map(alias => `<small>已确认别名：<code>${escapeHtml(alias)}</code></small>`).join('')}
         </div>
-        <div class="allowed-root-actions">${root.aliasCandidates.map(candidate => `<button type="button" class="hw-btn" data-storage-root-alias-confirm="${escapeAttr(root.id)}" data-storage-root-alias-path="${escapeAttr(candidate.path || '')}" ${allowedRootSettingsState.saving ? 'disabled' : ''}>确认别名：${escapeHtml(candidate.path || '')}</button>`).join('')}
+        <div class="allowed-root-actions">${(root.active ? root.aliasCandidates.map(candidate => `<button type="button" class="hw-btn" data-storage-root-alias-confirm="${escapeAttr(root.id)}" data-storage-root-alias-path="${escapeAttr(candidate.path || '')}" ${allowedRootSettingsState.saving ? 'disabled' : ''}>确认别名：${escapeHtml(candidate.path || '')}</button>`) : []).join('')}
             ${!root.readOnly ? `<button type="button" class="hw-btn allowed-root-remove" data-storage-root-delete="${escapeAttr(root.id)}" ${allowedRootSettingsState.saving ? 'disabled' : ''}>移除</button>` : ''}
         </div>
     </article>`).join('');
