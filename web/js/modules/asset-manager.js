@@ -418,7 +418,7 @@ let savedScrollPositions = {registry: 0, assets: 0, workflows: 0, prompts: 0, lo
 let registryPreviewScheduleRevision = 0;
 let registryMasonryObserver = null;
 let registryMasonryScheduleRevision = 0;
-let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, submittingBackground:false, backgroundTaskId:'', mode:'source', directory:'', cacheFolder:'god-cache', transcodeVideos:true, error:''};
+let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, error:''};
 let thumbnailCacheVersion = 0; // 【修复问题1】仅作为无 asset_id 的旧版 URL 的会话级版本，任务完成不再全局变化
 let projects = [];
 function requestedRegistryProjectId(){
@@ -1263,6 +1263,15 @@ function renderAssetDirectorySettingsBody(){
         <div class="storage-settings-actions inline"><button class="hw-btn hw-btn-gold" type="button" data-storage-save><i data-lucide="save"></i><span>保存目录</span></button></div>
     </section>`;
 }
+function renderThumbnailFormatOptions(){
+    const format = thumbnailGeneratorState.format === 'webp' ? 'webp' : 'jxl';
+    const disabled = thumbnailGeneratorState.loading || thumbnailGeneratorState.savingFormat;
+    return `<fieldset class="thumbnail-format-options" aria-label="缩略图格式">
+        <legend>缩略图格式</legend>
+        <label class="thumbnail-format-option ${format === 'jxl' ? 'is-active' : ''}"><input type="radio" name="thumbnailFormat" value="jxl" data-thumbnail-format ${format === 'jxl' ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span><strong>JXL</strong><small>默认推荐 · 体积更小</small></span></label>
+        <label class="thumbnail-format-option ${format === 'webp' ? 'is-active' : ''}"><input type="radio" name="thumbnailFormat" value="webp" data-thumbnail-format ${format === 'webp' ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span><strong>WebP</strong><small>兼容过渡 · 适用于旧版 WebView</small></span></label>
+    </fieldset>`;
+}
 function renderAssetPreviewSettingsBody(){
     const features = Array.isArray(registryStatus?.overview?.features) ? registryStatus.overview.features : [];
     const thumbnailFeature = features.find(feature => feature.id === 'thumbnail') || {id:'thumbnail',name:'自动缩略图',enabled:true};
@@ -1272,6 +1281,7 @@ function renderAssetPreviewSettingsBody(){
     return `<section class="asset-pref-section board-preview-settings">
         <div class="asset-pref-title board-preview-title"><span><i data-lucide="images"></i>生成缩略图</span><div class="board-preview-feature-switches">${renderRegistryFeatureControl(thumbnailFeature)}</div></div>
         <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>重新生成会覆盖同名缓存文件，不进入回收站。</small></div>
+        ${renderThumbnailFormatOptions()}
         ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error board-thumbnail-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
         <div class="board-thumbnail-actions">
             <button class="hw-btn hw-btn-danger" type="button" data-board-thumbnail-delete ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="image-off"></i><span>${thumbnailGeneratorState.deleting ? '正在删除…' : `删除缩略图 ${ids.length}`}</span></button>
@@ -2331,6 +2341,8 @@ async function openStorageSettings(tab='boards'){
             mode:thumbnail.mode === 'custom' ? 'custom' : 'source',
             directory:thumbnail.directory || '',
             cacheFolder:thumbnail.cache_folder || 'god-cache',
+            format:thumbnail.format === 'webp' ? 'webp' : 'jxl',
+            revision:Number(thumbnail.revision || 1),
         };
         if(proxy) applyAssetProxySettings(proxy);
         else assetProxySettingsState = {...assetProxySettingsState, loading:false, message:'代理设置读取失败'};
@@ -2614,7 +2626,7 @@ async function loadGlobalDirectorySettings(){
         applyStorageSettingsData(storage);
         if(roots) applyAllowedRootSettingsData(roots);
         registryStatus = status;
-        thumbnailGeneratorState = {...thumbnailGeneratorState, mode:thumbnail.mode, directory:thumbnail.directory || '', cacheFolder:thumbnail.cache_folder || 'god-cache', loading:false};
+        thumbnailGeneratorState = {...thumbnailGeneratorState, mode:thumbnail.mode, directory:thumbnail.directory || '', cacheFolder:thumbnail.cache_folder || 'god-cache', format:thumbnail.format === 'webp' ? 'webp' : 'jxl', revision:Number(thumbnail.revision || 1), loading:false};
         if(isTauriClientMode()) await loadClientUploadSourceDir();
         directorySettingsReady = true;
         currentStatusText = '目录已同步';
@@ -3169,16 +3181,19 @@ function thumbnailGeneratorAssetIds(){
     const visible = activeRegistryVisibleAssets().map(item => item.id).filter(Boolean);
     return [...new Set(selected.length ? selected : visible)];
 }
-async function persistThumbnailStorageSettings(){
+async function persistThumbnailStorageSettings(patch={}){
     const mode = thumbnailGeneratorState.mode === 'custom' ? 'custom' : 'source';
     const directory = String(document.getElementById('thumbnailDirectory')?.value || thumbnailGeneratorState.directory || '').trim();
-    if(mode === 'custom' && !directory) return null;
-    const data = await apiJsonResponse(assetManagerApi.updateThumbnailSettings({mode,directory}));
+    if(mode === 'custom' && !directory && patch.format === undefined) return null;
+    const expectedVersion = Number(thumbnailGeneratorState.revision || 1);
+    const data = await apiJsonResponse(assetManagerApi.updateThumbnailSettings({mode,directory,...patch,expected_version:expectedVersion}));
     thumbnailGeneratorState = {
         ...thumbnailGeneratorState,
         mode:data.mode === 'custom' ? 'custom' : 'source',
         directory:data.directory || '',
         cacheFolder:data.cache_folder || thumbnailGeneratorState.cacheFolder || 'god-cache',
+        format:data.format === 'webp' ? 'webp' : 'jxl',
+        revision:Number(data.revision || expectedVersion + 1),
         error:'',
     };
     if(data.cache_directory) setStatus(`缓存目录已就绪：${data.cache_directory}`);
@@ -3259,6 +3274,8 @@ async function openThumbnailGenerator(){
             mode:settings.mode === 'custom' ? 'custom' : 'source',
             directory:settings.directory || '',
             cacheFolder:settings.cache_folder || 'god-cache',
+            format:settings.format === 'webp' ? 'webp' : 'jxl',
+            revision:Number(settings.revision || 1),
         };
     } catch(err){
         const missingApi = /not found/i.test(String(err.message || ''));
@@ -3295,6 +3312,7 @@ function renderThumbnailGeneratorModal(){
             <div class="asset-pref-section">
                 <div class="thumbnail-cache-notice"><i data-lucide="folder-plus"></i><div><strong>将写入 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</strong><span>缓存落在应用受管数据目录内的此文件夹，不写入素材源目录；缓存文件不会进入素材索引。</span></div></div>
             </div>
+            ${renderThumbnailFormatOptions()}
             <div class="asset-pref-section">
                 <div class="asset-pref-title"><i data-lucide="hard-drive"></i><span>缓存存储位置</span></div>
                 <div class="thumbnail-cache-options">
@@ -19352,6 +19370,22 @@ root.addEventListener('change', event => {
     }
 });
 document.addEventListener('change', event => {
+    if(event.target?.matches?.('[data-thumbnail-format]')){
+        const nextFormat = event.target.value === 'webp' ? 'webp' : 'jxl';
+        const previousFormat = thumbnailGeneratorState.format === 'webp' ? 'webp' : 'jxl';
+        if(nextFormat === previousFormat || thumbnailGeneratorState.savingFormat) return;
+        thumbnailGeneratorState = {...thumbnailGeneratorState, format:nextFormat, savingFormat:true, error:''};
+        if(storageSettingsState.open) renderStorageSettingsModal();
+        if(thumbnailGeneratorState.open) renderThumbnailGeneratorModal();
+        persistThumbnailStorageSettings({format:nextFormat}).catch(error => {
+            thumbnailGeneratorState = {...thumbnailGeneratorState, format:previousFormat, error:error.message || '保存缩略图格式失败'};
+        }).finally(() => {
+            thumbnailGeneratorState = {...thumbnailGeneratorState, savingFormat:false};
+            if(storageSettingsState.open) renderStorageSettingsModal();
+            if(thumbnailGeneratorState.open) renderThumbnailGeneratorModal();
+        });
+        return;
+    }
     if(event.target?.id === 'thumbnailDirectoryPreset'){
         thumbnailGeneratorState.directory = event.target.value || '';
         const input = document.getElementById('thumbnailDirectory');

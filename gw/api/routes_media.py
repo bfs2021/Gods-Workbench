@@ -102,7 +102,9 @@ async def patch_thumb_settings(
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
     _write(authorization, x_user_role)
-    return repo.patch_thumbnail_settings(await _json(request))
+    return repo.patch_thumbnail_settings(
+        await _json(request), require_expected_version=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ async def generate_thumbs(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """真实生成缩略图（PIL 重采样），输出落盘到数据目录。"""
+    """真实生成缩略图，按设置格式编码并落盘到数据目录。"""
     _write(authorization, x_user_role)
     return repo.generate_thumbnail(await _json(request))
 

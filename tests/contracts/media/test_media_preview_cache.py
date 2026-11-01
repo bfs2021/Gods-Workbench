@@ -110,7 +110,7 @@ def test_preview_serves_pregenerated_thumbnail_without_decoding_source(
 
     assert counter["calls"] == 0, "命中预生成缩略图时不得再解码源文件"
     assert result["bytes"] == stored
-    assert result["media_type"] == "image/png"
+    assert result["media_type"] == "image/jxl"
     assert media_repo.preview_cache_stats()["hit"] == 1
 
 
