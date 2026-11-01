@@ -58,3 +58,38 @@ test('缓存位置文案按模式区分受管目录与所选目录', () => {
     assert.match(source, /真实写入所选目录下的 \$\{folder\} 子目录/);
     assert.match(source, /写入应用受管数据目录内的 \$\{folder\}/);
 });
+
+test('用户指定缓存目录即自动登记允许根，不需要先撞 403（QIN-515 返工）', () => {
+    const ensure = functionBody('ensureThumbnailCacheRootAllowed');
+    assert.match(ensure, /canManageAllowedRoots\(\)/);
+    assert.match(ensure, /'\/api\/storage-settings\/roots'/);
+    assert.match(ensure, /expected_version:Number\(snapshot\.revision \|\| 1\)/);
+    assert.match(ensure, /ALLOWED_ROOT_ALREADY_REGISTERED/);
+    assert.match(ensure, /VERSION_CONFLICT/);
+    assert.match(functionBody('saveThumbnailCacheDirectory'), /ensureThumbnailCacheRootAllowed/);
+    assert.match(functionBody('commitThumbnailSettingsChange'), /ensureThumbnailCacheRootAllowed/);
+});
+
+test('切换缓存目录弹出确认框，含迁移 / 删除 / 取消三个动作', () => {
+    assert.match(source, /是否迁移原缓存/);
+    assert.match(source, /data-thumbnail-cache-switch="migrate"/);
+    assert.match(source, /data-thumbnail-cache-switch="delete"/);
+    assert.match(source, /data-thumbnail-cache-switch="cancel"/);
+    assert.match(source, /switchThumbnailCache\(\{mode:state\.toMode, directory:state\.toDirectory, cache_action:action\}\)/);
+    assert.match(styles, /\.thumbnail-cache-switch-modal \{/);
+});
+
+test('取消切换不改设置，目录回退到已保存值', () => {
+    const cancel = functionBody('cancelThumbnailCacheSwitch');
+    assert.doesNotMatch(cancel, /switchThumbnailCache/);
+    assert.match(cancel, /savedDirectory/);
+    assert.match(cancel, /已取消切换/);
+});
+
+test('目录与已保存值不同才询问；未确认前不发起生成', () => {
+    const commit = functionBody('commitThumbnailSettingsChange');
+    assert.match(commit, /openThumbnailCacheSwitchDialog\(mode, directory\)/);
+    const request = functionBody('thumbnailGeneratorRequest');
+    assert.match(request, /openThumbnailCacheSwitchDialog\(mode, directory\)/);
+    assert.match(request, /缓存目录尚未切换/);
+});

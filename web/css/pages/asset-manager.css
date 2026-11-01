@@ -1181,6 +1181,12 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .thumbnail-cache-block-text span { color:var(--danger); font-size: var(--gw-type-label-md); font-weight:750; }
 .thumbnail-cache-block-actions { display:flex; align-items:center; gap:8px; }
 .thumbnail-cache-block-hint { color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
+.thumbnail-cache-switch-modal { width:min(560px,calc(100vw - 32px)); }
+.thumbnail-cache-switch-paths { margin:0 0 10px; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:center; }
+.thumbnail-cache-switch-paths span { color:var(--muted); font-size: var(--gw-type-label-md); font-weight:850; }
+.thumbnail-cache-switch-paths code { padding:4px 6px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-size: var(--gw-type-label-md); word-break:break-all; }
+.thumbnail-cache-switch-notes { margin:0; padding-left:18px; color:var(--muted); font-size: var(--gw-type-label-md); line-height:1.7; }
+.thumbnail-cache-switch-notes strong { color:var(--text); }
 .registry-recycle-overlay { z-index:92; }
 .registry-recycle-dialog { width:min(520px,calc(100vw - 28px)); border:1px solid var(--text); background:var(--panel); color:var(--text); box-shadow:0 18px 42px rgba(20,24,21,.24); }
 .registry-recycle-dialog > header { min-height:68px; padding:12px 14px; border-bottom:1px solid var(--line-2); display:grid; grid-template-columns:38px minmax(0,1fr) 32px; align-items:center; gap:10px; }

@@ -14,7 +14,9 @@
     "tests/contracts/media/test_asset_thumbnail_custom_root.py",
     "tests/contracts/assets/test_storage_allowed_root_cache.py",
     "tests/frontend/asset-manager-thumbnail-root-prompt.mjs",
-    "tests/hygiene/fixtures/admissions/issue-539.json"
+    "tests/hygiene/fixtures/admissions/issue-539.json",
+    "tests/contracts/media/test_asset_thumbnail_cache_switch.py",
+    "gw/api/routes_media.py"
   ],
   "admitted_files": [],
   "accepted_test_files": [
@@ -41,7 +43,13 @@
       "classification": "curated_test_coverage",
       "authorization_basis": "GitHub Issue #539, 2026-11-01",
       "admission": "accepted"
+    },
+    {
+      "path": "tests/contracts/media/test_asset_thumbnail_cache_switch.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #539, 2026-11-01",
+      "admission": "accepted"
     }
   ],
-  "notes": "QIN-515：自定义缓存根真实写入所选目录，越界用 CACHE_DIRECTORY_NOT_ALLOWED 失败关闭，前端引导登记允许根后原参数重试。"
+  "notes": "QIN-515：自定义缓存根真实写入所选目录，越界用 CACHE_DIRECTORY_NOT_ALLOWED 失败关闭，指定目录即自动登记允许根；切换缓存目录弹出「是否迁移原缓存」确认框（迁移/删除/取消），由 POST /api/asset-thumbnails/cache/switch 统一处理旧缓存。"
 }

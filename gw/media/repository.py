@@ -382,6 +382,166 @@ def cache_root_relative() -> str:
     return "media_output/" + _cache_folder_name(get_thumbnail_settings())
 
 
+# ---------------------------------------------------------------------------
+# 缓存目录切换：旧缓存迁移 / 删除（QIN-515 切换确认弹窗）
+# ---------------------------------------------------------------------------
+
+CACHE_SWITCH_ACTIONS = ("migrate", "delete", "keep")
+
+
+def cache_root_path(settings: dict[str, Any]) -> Path:
+    """缓存根目录（不按素材源分桶），用于整棵缓存树的迁移与清理。
+
+    - ``mode=source`` → 受管 ``media_output/<cache_folder>``；
+    - ``mode=custom`` → ``<所选目录>/<cache_folder>``（必须仍在允许根内）。
+    """
+    folder = _cache_folder_name(settings)
+    if str((settings or {}).get("mode") or "source") == "custom":
+        return _custom_cache_directory(settings, folder)[1]
+    return storage.resolve_output_directory(
+        "media_output/" + folder, must_exist=False
+    )
+
+
+def is_cache_artifact_name(name: str) -> bool:
+    """缓存产物文件名判定：迁移与清理只碰这些，绝不动素材、代理与转码产物。"""
+    from gw.asset_registry import media_probe
+
+    if media_probe.is_storyboard_cache_name(name):
+        return True
+    return name.endswith(".jpg.png") or name.endswith(".frame.jpg")
+
+
+def _iter_cache_artifacts(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return sorted(
+        child
+        for child in root.rglob("*")
+        if child.is_file() and is_cache_artifact_name(child.name)
+    )
+
+
+def _prune_empty_dirs(root: Path) -> None:
+    """自底向上清理空目录；非空或权限不足一律跳过，不误删内容。"""
+    if not root.is_dir():
+        return
+    for child in sorted(
+        (item for item in root.rglob("*") if item.is_dir()),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    ):
+        try:
+            child.rmdir()
+        except OSError:
+            continue
+    try:
+        root.rmdir()
+    except OSError:
+        return
+
+
+def _move_cache_artifacts(old_root: Path, new_root: Path) -> tuple[int, int]:
+    """把旧缓存树按相对路径搬到新根；目标已存在则保留目标，返回 (迁移, 跳过)。"""
+    moved = skipped = 0
+    for path in _iter_cache_artifacts(old_root):
+        target = new_root / path.relative_to(old_root)
+        if target.exists():
+            skipped += 1
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(path), str(target))
+            moved += 1
+        except OSError:
+            skipped += 1
+    return moved, skipped
+
+
+def _delete_cache_artifacts(old_root: Path) -> int:
+    removed = 0
+    for path in _iter_cache_artifacts(old_root):
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def _cache_roots_overlap(old_root: Path, new_root: Path) -> bool:
+    try:
+        old = old_root.resolve()
+        new = new_root.resolve()
+    except OSError:
+        return False
+    return old in new.parents or new in old.parents
+
+
+def switch_thumbnail_cache(payload: dict[str, Any]) -> dict[str, Any]:
+    """切换缩略图缓存目录，并按 ``cache_action`` 处理旧缓存。
+
+    ``migrate`` 迁移、``delete`` 删除、``keep`` 保留；新目录越界或不存在时
+    失败关闭且不改动设置（磁盘零写入）。旧目录已不可准入时只切换不清理，
+    用 ``cache_retained`` 告知调用方旧缓存仍在原处。
+    """
+    action = str(payload.get("cache_action") or "keep")
+    if action not in CACHE_SWITCH_ACTIONS:
+        raise CleanroomException(
+            400,
+            "INVALID_CACHE_ACTION",
+            "cache_action 只接受 migrate / delete / keep",
+        )
+    current = get_thumbnail_settings()
+    target = dict(current)
+    for key in ("mode", "directory", "cache_folder"):
+        if payload.get(key) is not None:
+            target[key] = str(payload.get(key))
+    if str(target.get("mode")) not in ("source", "custom"):
+        raise CleanroomException(400, "INVALID_REQUEST", "mode 只接受 source/custom")
+
+    # 先解析新根：越界/不存在在这里失败关闭，设置与磁盘都不会被改动。
+    new_root = cache_root_path(target)
+    try:
+        old_root: Path | None = cache_root_path(current)
+    except CleanroomException:
+        # 旧目录已移出允许根：不越界清理，只切换并如实回报。
+        old_root = None
+
+    moved = deleted = skipped = 0
+    retained = False
+    if action != "keep" and old_root is not None and old_root != new_root:
+        if _cache_roots_overlap(old_root, new_root):
+            raise CleanroomException(
+                400,
+                "CACHE_DIRECTORY_OVERLAP",
+                "新旧缓存目录互相包含，无法迁移或清理；请选择互不包含的目录",
+            )
+        if action == "migrate":
+            moved, skipped = _move_cache_artifacts(old_root, new_root)
+        else:
+            deleted = _delete_cache_artifacts(old_root)
+        _prune_empty_dirs(old_root)
+    elif action != "keep" and old_root is None:
+        retained = True
+
+    data = patch_thumbnail_settings(
+        {
+            "mode": target.get("mode"),
+            "directory": target.get("directory") or "",
+            "cache_folder": target.get("cache_folder"),
+        }
+    )
+    return {
+        **data,
+        "cache_action": action,
+        "cache_moved": moved,
+        "cache_deleted": deleted,
+        "cache_skipped": skipped,
+        "cache_retained": retained,
+    }
+
+
 def _cache_is_fresh(target: Path, source: Path) -> bool:
     """缓存是否可直接复用：存在且不早于源文件修改时间。
 

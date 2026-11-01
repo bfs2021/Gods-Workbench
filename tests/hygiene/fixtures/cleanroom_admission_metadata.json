@@ -465,7 +465,7 @@
       "path": "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
       "classification": "frozen_interface_contract",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "ca51de7980887d96d64b42b5d23857b83702dd27283b31203cf9428c6d6f4fc5",
+      "sha256": "8ecae6de9a94b5ae585541ae738d6359692f31d1c2e6dbb15556d91bfb2ff54b",
       "admission": "accepted"
     },
     {
@@ -843,7 +843,7 @@
       "path": "docs/fixtures/phase11-b5-media-boundary.json",
       "classification": "golden_fixture",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "10751554b6eabb1a3b98f8599ba1573a850476b955c8d7ee1c4db7cecea7af26",
+      "sha256": "6ebdcd8a6e8b2aad20d44f95c18b3aab83372ad04666bd215fe51f0108f1a309",
       "admission": "accepted"
     },
     {

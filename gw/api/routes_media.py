@@ -107,6 +107,17 @@ async def patch_thumb_settings(
     )
 
 
+@router.post("/api/asset-thumbnails/cache/switch", status_code=status.HTTP_200_OK)
+async def switch_thumb_cache_settings(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """切换缓存目录，并按 cache_action 迁移 / 删除 / 保留旧缓存。"""
+    _write(authorization, x_user_role)
+    return repo.switch_thumbnail_cache(await _json(request))
+
+
 # ---------------------------------------------------------------------------
 # 缩略图
 # ---------------------------------------------------------------------------

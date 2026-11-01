@@ -230,6 +230,12 @@ export function createAssetManagerApi(http) {
                 credentials: 'same-origin',
             });
         },
+        switchThumbnailCache(payload, init = {}) {
+            return transport.request('/api/asset-thumbnails/cache/switch', {
+                ...jsonInit(payload, {...init, method: 'POST'}),
+                credentials: 'same-origin',
+            });
+        },
         getRegistryStatus(init = {}) {
             return transport.request('/api/asset-registry/status', {
                 ...init,
