@@ -1237,8 +1237,8 @@ function renderAssetThumbnailCacheDirectoryBody(){
         <div class="asset-pref-title"><i data-lucide="folder-clock"></i><span>缓存目录</span></div>
         <p class="board-settings-hint">缩略图缓存写入应用受管数据目录内的 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}，按素材源或所选目录分桶；同一源文件未变更时直接复用已有缓存。</p>
         <div class="thumbnail-cache-options board-thumbnail-options">
-            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>受管缓存 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}（按素材源分桶）</small></span></button>
-            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>受管缓存 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}（按所选目录分桶）</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
         </div>
         ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
             <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
@@ -3298,8 +3298,8 @@ function renderThumbnailGeneratorModal(){
             <div class="asset-pref-section">
                 <div class="asset-pref-title"><i data-lucide="hard-drive"></i><span>缓存存储位置</span></div>
                 <div class="thumbnail-cache-options">
-                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>受管缓存 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}（按素材源分桶）</small></span></button>
-                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>受管缓存 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}（按所选目录分桶）</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
                 </div>
                 ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
                     <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
