@@ -167,7 +167,7 @@ def test_storyboard_endpoint_reuses_generated_frames(tmp_path, monkeypatch):
         path = "/api/asset-registry/assets/%s/video/storyboard" % asset_id
 
         first = client.get(path, headers=AUTH).json()
-        assert first["count"] >= 1
+        assert first["count"] == 9
         targets = [_data_root() / frame["output_name"] for frame in first["frames"]]
         assert all(target.is_file() for target in targets)
         stamps = [target.stat().st_mtime_ns for target in targets]
@@ -177,6 +177,41 @@ def test_storyboard_endpoint_reuses_generated_frames(tmp_path, monkeypatch):
         assert second["generated"] == 0
         assert second["cached"] == second["count"]
         assert all(frame["status"] == "cached" for frame in second["frames"])
+
+
+def test_storyboard_is_one_composed_3x3_image(tmp_path, monkeypatch):
+    """九宫格是服务端合成的单张 3×3 图，宽边不超过 2160，重复读不重合成。"""
+    from PIL import Image
+
+    root = tmp_path / "media"
+    root.mkdir()
+    source = _make_video(root, "clip.mp4", seconds=4)
+    monkeypatch.setenv("GW_ALLOWED_ROOTS", str(root))
+    with TestClient(create_app()) as client:
+        asset_id = _register(client, root, source)
+        _generate(client, [asset_id])
+        payload = client.get(
+            "/api/asset-registry/assets/%s/video/storyboard" % asset_id, headers=AUTH
+        ).json()
+
+        image_path = _data_root() / payload["image"]
+        assert image_path.is_file(), payload["image"]
+        assert image_path.name == "storyboard.jpg"
+        with Image.open(image_path) as composed:
+            assert composed.width <= 2160
+            # 3×3：单格等比，整图宽高比与源帧一致（3 列 ≤> 宽是高的 3 倍关系成立）。
+            assert payload["image_width"] == composed.width
+            assert payload["image_height"] == composed.height
+        # 9 帧仍是独立真实文件，用作合成输入与片段缩略图来源。
+        assert len(payload["frames"]) == 9
+        assert all((_data_root() / frame["output_name"]).is_file() for frame in payload["frames"])
+
+        stamp = image_path.stat().st_mtime_ns
+        again = client.get(
+            "/api/asset-registry/assets/%s/video/storyboard" % asset_id, headers=AUTH
+        ).json()
+        assert again["image_status"] == "cached"
+        assert image_path.stat().st_mtime_ns == stamp
 
 
 def test_non_video_fails_closed_without_fake_thumbnail(tmp_path, monkeypatch):

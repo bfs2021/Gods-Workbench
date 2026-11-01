@@ -243,7 +243,8 @@ def test_real_ffmpeg_registered_frame_storyboard_clip_and_transcode(tmp_path, mo
             assert image.getpixel((80, 60))[0] > 200
         storyboard = client.get(path + "/" + created + "/video/storyboard", headers=AUTH)
         assert storyboard.status_code == 200, storyboard.text
-        assert storyboard.json()["count"] == 1
+        # 九宫格固定 9 帧（首帧、尾帧与 7 个等分中间帧），与视频时长无关。
+        assert storyboard.json()["count"] == 9
         assert (data_root / storyboard.json()["frames"][0]["output_name"]).is_file()
         clipped = client.post(path + "/" + created + "/video/clip", headers=AUTH,
                               json={"start_seconds": 0, "end_seconds": 1})
@@ -270,7 +271,8 @@ def test_real_ffmpeg_registered_frame_storyboard_clip_and_transcode(tmp_path, mo
         assert story_bytes.status_code == 200
         assert story_bytes.content == (data_root / story_output).read_bytes()
         deleted = client.post("/api/asset-thumbnails/delete-storyboards", headers=AUTH, json={"asset_ids": [created]})
-        assert deleted.status_code == 200 and deleted.json()["removed"] == 1
+        # 9 张分镜帧 + 1 张 3×3 合成单图，全部按精确文件名删除。
+        assert deleted.status_code == 200 and deleted.json()["removed"] == 10
         assert deleted.json()["data_gaps"] == ["legacy_shared_frames_preserved"]
         assert client.get("/api/download-output", headers=AUTH, params={"path": story_output}).status_code == 404
         assert (data_root / frame.json()["output_name"]).is_file() and clip_path.is_file()

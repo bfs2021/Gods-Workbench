@@ -418,8 +418,8 @@ let savedScrollPositions = {registry: 0, assets: 0, workflows: 0, prompts: 0, lo
 let registryPreviewScheduleRevision = 0;
 let registryMasonryObserver = null;
 let registryMasonryScheduleRevision = 0;
-// 分镜帧清单缓存：接口返回的是帧列表而非单张图，面板按真实落盘帧渲染 3×3。
-const videoStoryboardFrameCache = new Map();
+// 九宫格单图缓存：接口返回后端合成的 3×3 单图路径，面板只渲染这一张。
+const videoStoryboardImageCache = new Map();
 let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, backgroundTaskId:'', mode:'source', directory:'', cacheFolder:'god-cache', transcodeVideos:true, error:''};
 let thumbnailCacheVersion = 0; // 【修复问题1】仅作为无 asset_id 的旧版 URL 的会话级版本，任务完成不再全局变化
 let projects = [];
@@ -1288,7 +1288,7 @@ function renderAssetVideoSettingsBody(){
     const busy = thumbnailGeneratorState.loading || thumbnailGeneratorState.generating || thumbnailGeneratorState.deleting || thumbnailGeneratorState.deletingStoryboards || thumbnailGeneratorState.generatingStoryboards || thumbnailGeneratorState.submittingBackground;
     return `<section class="asset-pref-section board-video-settings" data-board-video-settings>
         <div class="asset-pref-title board-preview-title"><span><i data-lucide="film"></i>视频</span><div class="board-preview-feature-switches">${renderRegistryFeatureControl(storyboardFeature)}</div></div>
-        <p class="board-settings-hint">视频九宫格按总时长九等分提取中间帧并合成为 3×3 预览。</p>
+        <p class="board-settings-hint">视频九宫格按总时长九等分抽取 9 帧（首帧、尾帧与 7 个中间帧），由服务端合成为一张 3×3 单图，宽边不超过 2160px。</p>
         <label class="thumbnail-video-transcode board-thumbnail-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>生成一一对应的 H.264 MP4，已有转码会直接复用。</small></span></label>
         <div class="board-settings-divider" aria-hidden="true"></div>
         ${renderAssetProxySettingsBody()}
@@ -3424,7 +3424,7 @@ async function generateBoardVideoStoryboards(){
         const job = taskId ? await apiJsonResponse(assetManagerApi.getThumbnailJob(taskId)) : {};
         const result = job.result || data.result || {};
         thumbnailGeneratorState = {...thumbnailGeneratorState, generatingStoryboards:false};
-        videoStoryboardFrameCache.clear();
+        videoStoryboardImageCache.clear();
         // 分镜缩略图已回写注册表元数据，需要重新拉取素材与能力开关才能看到九宫格。
         await refreshRegistryAssets(false);
         render();
@@ -3448,7 +3448,7 @@ async function deleteBoardVideoStoryboards(){
         // 【修复问题1】显式删除九宫格属于真实失效，保留会话级 bump（仅影响旧版 url 参数 URL）
         thumbnailCacheVersion = Date.now();
         thumbnailGeneratorState = {...thumbnailGeneratorState, deletingStoryboards:false};
-        videoStoryboardFrameCache.clear();
+        videoStoryboardImageCache.clear();
         // 元数据里的片段缩略图已被清空，重新拉取注册表避免界面显示已删除的路径。
         await refreshRegistryAssets(false);
         render();
@@ -7779,7 +7779,7 @@ function render(){
         });
     }
     scheduleAssetTouchbarReport();
-    hydrateVideoStoryboardFrames(document);
+    hydrateVideoStoryboardImages(document);
 }
 function updateSearchQueryFromInput(id, value){
     if(id === 'registrySearch') registryQuery = value || '';
@@ -12535,43 +12535,43 @@ function renderDetailVideoStoryboardPanel(item={},source=detailViewerState.sourc
     const version=String(Number(item.updated_at || item.indexed_at || 0) || '');
     return `<section class="asset-video-storyboard-panel" aria-label="视频九宫格缩略图">
         <button type="button" data-detail-video-storyboard-open="${escapeAttr(assetId)}" data-storyboard-url="${escapeAttr(url)}" data-storyboard-version="${escapeAttr(version)}" title="放大查看九宫格">
-            <div class="asset-video-storyboard-grid" data-storyboard-frames="${escapeAttr(assetId)}" data-storyboard-version="${escapeAttr(version)}"><span class="asset-video-storyboard-placeholder"><i data-lucide="grid-3x3"></i></span></div>
-            <span><i data-lucide="grid-3x3"></i>九宫格预览</span>
+            <div class="asset-video-storyboard-slot" data-storyboard-image="${escapeAttr(assetId)}" data-storyboard-version="${escapeAttr(version)}"><span class="asset-video-storyboard-placeholder"><i data-lucide="grid-3x3"></i></span></div>
         </button>
     </section>`;
 }
-function videoStoryboardFrameKey(assetId, version){
+function videoStoryboardImageKey(assetId, version){
     return `${assetId || ''}@${version || ''}`;
 }
-function videoStoryboardFrameUrl(outputName){
+function videoStoryboardImageUrl(outputName){
     return `/api/download-output?path=${encodeURIComponent(String(outputName || ''))}`;
 }
-function paintVideoStoryboardFrames(node, frames){
+// 九宫格是后端合成的 3×3 单图（宽边 ≤2160），前端只渲染一张，不再各格取原图拼接。
+function paintVideoStoryboardImage(node, data){
     if(!node) return;
-    if(!Array.isArray(frames) || !frames.length){
-        node.innerHTML = `<span class="asset-video-storyboard-placeholder"><i data-lucide="grid-3x3"></i><small>暂无分镜帧</small></span>`;
+    const image = String(data?.image || '');
+    if(!image){
+        node.innerHTML = `<span class="asset-video-storyboard-placeholder"><i data-lucide="grid-3x3"></i><small>暂无九宫格</small></span>`;
         refreshIcons();
         return;
     }
-    node.innerHTML = frames.map((frame,index) => `<img src="${escapeAttr(videoStoryboardFrameUrl(frame?.output_name))}" alt="分镜 ${index + 1}" loading="lazy">`).join('');
+    node.innerHTML = `<img src="${escapeAttr(videoStoryboardImageUrl(image))}" alt="视频九宫格" loading="lazy">`;
     refreshIcons();
 }
-function hydrateVideoStoryboardFrames(scope){
-    const nodes = scope?.querySelectorAll ? [...scope.querySelectorAll('[data-storyboard-frames]')] : [];
+function hydrateVideoStoryboardImages(scope){
+    const nodes = scope?.querySelectorAll ? [...scope.querySelectorAll('[data-storyboard-image]')] : [];
     nodes.forEach(async node => {
-        const assetId = node.dataset.storyboardFrames || '';
+        const assetId = node.dataset.storyboardImage || '';
         if(!assetId) return;
         const version = node.dataset.storyboardVersion || '';
-        const key = videoStoryboardFrameKey(assetId, version);
-        const cached = videoStoryboardFrameCache.get(key);
-        if(cached){ paintVideoStoryboardFrames(node, cached); return; }
+        const key = videoStoryboardImageKey(assetId, version);
+        const cached = videoStoryboardImageCache.get(key);
+        if(cached){ paintVideoStoryboardImage(node, cached); return; }
         if(node.dataset.storyboardLoading === '1') return;
         node.dataset.storyboardLoading = '1';
         try{
             const data = await apiJsonResponse(assetManagerApi.getRegistryVideoStoryboard(assetId));
-            const frames = Array.isArray(data?.frames) ? data.frames : [];
-            videoStoryboardFrameCache.set(key, frames);
-            paintVideoStoryboardFrames(node, frames);
+            videoStoryboardImageCache.set(key, data || {});
+            paintVideoStoryboardImage(node, data);
         }catch(err){
             node.innerHTML = `<span class="asset-video-storyboard-placeholder is-error" title="${escapeAttr(err?.message || '九宫格读取失败')}"><i data-lucide="image-off"></i></span>`;
             refreshIcons();
@@ -14064,7 +14064,7 @@ function renderDetailViewer(){
     }
     refreshIcons();
     if(type === 'audio') initializeDetailAudioWaveform(overlay, item, url);
-    if(type === 'video') hydrateVideoStoryboardFrames(overlay);
+    if(type === 'video') hydrateVideoStoryboardImages(overlay);
     if(type === 'font') initializeDetailFontPreview(overlay, url);
     else clearDetailViewerFontFace();
     if(mediaCanvasMode && detailViewerState.referenceCanvasMode){
@@ -15440,7 +15440,7 @@ async function openDetailVideoStoryboard(button){
     const overlay = document.createElement('div');
     overlay.className = 'asset-video-storyboard-overlay';
     overlay.dataset.videoStoryboardOverlay = '';
-    overlay.innerHTML = `<section data-floating-content role="dialog" aria-modal="true" aria-label="视频九宫格预览"><header><div><i data-lucide="grid-3x3"></i><strong>视频九宫格预览</strong></div><button type="button" data-video-storyboard-close aria-label="关闭九宫格预览"><i data-lucide="x"></i></button></header><div class="asset-video-storyboard-grid is-large" data-video-storyboard-large><span class="asset-video-storyboard-placeholder">正在读取九宫格…</span></div></section>`;
+    overlay.innerHTML = `<section data-floating-content role="dialog" aria-modal="true" aria-label="视频九宫格预览"><header><div><i data-lucide="grid-3x3"></i><strong>视频九宫格预览</strong></div><button type="button" data-video-storyboard-close aria-label="关闭九宫格预览"><i data-lucide="x"></i></button></header><div class="asset-video-storyboard-slot is-large" data-video-storyboard-large><span class="asset-video-storyboard-placeholder">正在读取九宫格…</span></div></section>`;
     document.body.appendChild(overlay);
     markAssetFloatingSurface(overlay, {surface:'asset-video-storyboard', content:'[role="dialog"]', close:closeDetailVideoStoryboard});
     detailViewerState.videoStoryboardExpandedId = assetId;
@@ -15448,14 +15448,13 @@ async function openDetailVideoStoryboard(button){
     requestAnimationFrame(() => overlay.querySelector('[data-video-storyboard-close]')?.focus());
     const target = overlay.querySelector('[data-video-storyboard-large]');
     const version = String(button?.dataset?.storyboardVersion || '');
-    const key = videoStoryboardFrameKey(assetId, version);
-    const cached = videoStoryboardFrameCache.get(key);
-    if(cached){ paintVideoStoryboardFrames(target, cached); return; }
+    const key = videoStoryboardImageKey(assetId, version);
+    const cached = videoStoryboardImageCache.get(key);
+    if(cached){ paintVideoStoryboardImage(target, cached); return; }
     try{
         const data = await apiJsonResponse(assetManagerApi.getRegistryVideoStoryboard(assetId));
-        const frames = Array.isArray(data?.frames) ? data.frames : [];
-        videoStoryboardFrameCache.set(key, frames);
-        paintVideoStoryboardFrames(target, frames);
+        videoStoryboardImageCache.set(key, data || {});
+        paintVideoStoryboardImage(target, data);
     }catch(err){
         if(target) target.innerHTML = `<span class="asset-video-storyboard-placeholder is-error">九宫格读取失败：${escapeHtml(err?.message || '未知错误')}</span>`;
     }

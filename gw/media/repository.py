@@ -1284,10 +1284,11 @@ def _sync_storyboard_feature() -> None:
     from gw.asset_registry import repository as registry
 
     for relative, _path in storage.iter_output_paths("media_output"):
-        if (
-            _STORYBOARD_PATH_MARKER in relative.replace("\\", "/")
-            and relative.endswith(".png")
-        ):
+        normalized = relative.replace("\\", "/")
+        if _STORYBOARD_PATH_MARKER not in normalized:
+            continue
+        # 帧文件（.png）与九宫格合成单图（.jpg）任一类还在，就说明产物未清空。
+        if normalized.endswith(".png") or normalized.endswith(".jpg"):
             return
     try:
         registry.update_feature("video_storyboard", False)
