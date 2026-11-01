@@ -395,7 +395,9 @@ const REGISTRY_PAGE_SIZE = 100;
 // a time, instead of re-requesting every previously loaded card in parallel.
 const REGISTRY_STRUCTURE_QUERY_CHUNK_SIZE = 500;
 const REGISTRY_CACHE_MAX_SIZE = 20; // 【优化问题1】限制缓存大小，避免内存膨胀
-const REGISTRY_PREVIEW_ROOT_MARGIN = '0px 0px';
+// 【QIN-518】视口提前量：卡片在进入视口前 200px 就发起预览解码，
+// 消除快速滚动时的大面积白块与渐现延迟。
+const REGISTRY_PREVIEW_ROOT_MARGIN = '200px 0px';
 const REGISTRY_PREVIEW_SCROLL_AHEAD_COUNT = 20;
 const REGISTRY_PREVIEW_SCROLL_PRELOAD_INTERVAL_MS = 120;
 const REGISTRY_PREVIEW_CONCURRENCY = 4;
@@ -6472,6 +6474,51 @@ function appendRegistryAssetPageCards(items=[], context){
     scheduleRegistryPreviewImages();
     return inserted;
 }
+function promoteRegistryGridToVirtual(){
+    // 【QIN-518】跨虚拟化阈值时原地升级：以当前首个可见卡片为滚动锚点，
+    // 只把网格容器内部结构换成虚拟窗口，筛选栏/侧栏/滚动容器节点全部保留，
+    // 严禁调用全局 render() 整树重建，因此不会出现翻页闪跳。
+    const scrollRoot = root.querySelector('.registry-assets-scroll');
+    const grid = scrollRoot?.querySelector?.(':scope > .registry-grid');
+    if(!scrollRoot || !grid || grid.classList.contains('registry-grid-virtualized')) return false;
+    const {board, items} = registryVirtualItemsForActiveBoard();
+    if(!registryVirtualizationEnabled(items, board)) return false;
+    const previousScrollTop = scrollRoot.scrollTop;
+    const scrollRect = scrollRoot.getBoundingClientRect();
+    let anchorId = '';
+    let anchorOffset = 0;
+    for(const card of grid.querySelectorAll(':scope > .registry-card[data-registry-card]')){
+        const cardRect = card.getBoundingClientRect();
+        if(cardRect.bottom <= scrollRect.top + 1) continue;
+        anchorId = String(card.dataset.registryCard || '');
+        anchorOffset = cardRect.top - scrollRect.top;
+        break;
+    }
+    const registryPreviewCache = captureRegistryPreviewImages();
+    const width = Math.max(320, grid.clientWidth || scrollRoot.clientWidth || 0);
+    const layout = registryVirtualLayout(items, width);
+    const range = registryVirtualRange(items, layout, previousScrollTop, scrollRoot.clientHeight || 650);
+    const template = document.createElement('template');
+    template.innerHTML = registryVirtualGridMarkup(items, layout, range).trim();
+    const nextGrid = template.content.firstElementChild;
+    if(!nextGrid) return false;
+    grid.replaceWith(nextGrid);
+    registryVirtualState = {
+        ...layout,
+        width,
+        key:registryVirtualStateKey(items),
+        start:range.start,
+        end:range.end,
+    };
+    restoreRegistryPreviewImages(registryPreviewCache);
+    refreshIcons();
+    // 先恢复 scrollTop 再按锚点卡片微调，保证升级前后视口停留位置一致。
+    scrollRoot.scrollTop = previousScrollTop;
+    restoreRegistryVirtualScroll(scrollRoot, previousScrollTop, anchorId, anchorOffset);
+    scheduleRegistryVirtualWindow();
+    scheduleRegistryPreviewImages();
+    return true;
+}
 async function loadMoreRegistryAssets(){
     if(registryLoading || registryPageLoading || !registryHasMoreAssets()) return;
     const requestId = registryRequestSeq;
@@ -6489,6 +6536,7 @@ async function loadMoreRegistryAssets(){
     contextSentinelBusy(appendContext ? appendContext.scrollRoot : root.querySelector('.registry-assets-scroll'), true);
     let appendedIds = [];
     let structurePresentationChanged = false;
+    let promoteToVirtual = false;
     try {
         const cached = registryAssetsQueryCache.get(queryKey);
         let data = cached;
@@ -6521,13 +6569,17 @@ async function loadMoreRegistryAssets(){
         if(requestId !== registryRequestSeq) return;
         structurePresentationChanged = structuresChanged;
         // The first page is intentionally rendered as a normal grid so the
-        // existing append fast path remains cheap. Once the loaded window
-        // crosses the virtualization threshold, switch to one bounded DOM
-        // window in the trailing render instead of appending every card.
+        // existing append fast path remains cheap. 【QIN-518】Once the loaded
+        // window crosses the virtualization threshold, upgrade the grid in
+        // place instead of a whole-tree render(), so the scroll anchor and the
+        // surrounding chrome survive the transition.
         if(appendTarget){
             const board = activeTab === 'registry' ? null : assetBoardById(activeTab);
             const shouldVirtualize = registryVirtualizationEnabled(registryDisplayedItems(board), board);
-            if(shouldVirtualize !== appendTarget.virtual) appendTarget = null;
+            if(shouldVirtualize !== appendTarget.virtual){
+                promoteToVirtual = shouldVirtualize && !appendTarget.virtual && !structurePresentationChanged;
+                appendTarget = null;
+            }
         }
         if(appendTarget && !structurePresentationChanged){
             const appendedItems = appendedIds
@@ -6545,15 +6597,24 @@ async function loadMoreRegistryAssets(){
         if(requestId !== registryRequestSeq) return;
         registryRequestAbortController = null;
         registryPageLoading = false;
-        if(appendContext){
-            if(appendTarget && !structurePresentationChanged){
+        if(promoteToVirtual){
+            // 【QIN-518】跨阈值：原地升级为虚拟窗口，保留滚动锚点，不走全局 render()。
+            const promoted = promoteRegistryGridToVirtual();
+            if(appendContext) contextSentinelBusy(appendContext.scrollRoot, false);
+            if(promoted){
+                if(!registryHasMoreAssets()) appendContext?.scrollRoot.querySelector('.registry-infinite-sentinel')?.remove();
+                syncRegistryVaultFooter();
+            } else {
+                // 原地升级前置条件失效（布局/分组在本次加载中变化）时的兜底路径。
+                render();
+            }
+        } else if(appendTarget && !structurePresentationChanged){
+            // Fast path has already updated the existing sentinel and cards.
+            if(appendContext){
                 // 快路径收尾：仅同步哨兵忙态，不重建任何卡片节点；已无更多资产时摘除哨兵，避免残留误导文案
                 contextSentinelBusy(appendContext.scrollRoot, false);
                 if(!registryHasMoreAssets()) appendContext.scrollRoot.querySelector('.registry-infinite-sentinel')?.remove();
             }
-        }
-        if(appendTarget && !structurePresentationChanged){
-            // Fast path has already updated the existing sentinel and cards.
             syncRegistryVaultFooter();
         } else {
             render();
@@ -7075,8 +7136,10 @@ function renderRegistryFreshNotice(){
         if(registryPendingFreshCount()) setStatus(registryPendingFreshNoticeText());
         return;
     }
-    if(!registryPendingFreshCount()){ host.remove(); return; }
-    host.innerHTML = `<button class="hw-btn" type="button" data-registry-fresh-apply><i data-lucide="refresh-cw"></i><span>${escapeHtml(registryPendingFreshNoticeText())}</span></button>`;
+    // 【QIN-518】宿主常驻：胶囊以绝对定位浮在网格右上角，出现/更新/消失都不撑开文档流；
+    // 不再 remove() 宿主，避免提示条消失后整树渲染前永久失效。
+    if(!registryPendingFreshCount()){ host.innerHTML = ''; return; }
+    host.innerHTML = `<button class="hw-btn registry-fresh-capsule" type="button" data-registry-fresh-apply><i data-lucide="refresh-cw"></i><span>${escapeHtml(registryPendingFreshNoticeText())}</span></button>`;
     refreshIcons();
 }
 function registryPendingFreshNoticeText(){
@@ -9839,7 +9902,7 @@ function renderRegistryManager(){
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
-        <div data-registry-fresh-notice></div>
+        <div class="registry-fresh-notice" data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, null, '没有符合条件的资产。可以清空排除条件。')}${renderRegistryPagination()}</div>
         <div class="registry-vault-footer" aria-label="资产库状态"><span>资产索引 <strong>${registryTotalKnown ? Number(registryTotal).toLocaleString('zh-CN') : '统计中'}</strong></span><span>${registryLoading ? '正在读取' : `已加载 ${registryAssets.length} 项`}</span><span>${registryPageHasMore ? '下滑加载更多' : `当前显示 ${visible.length} 项`}</span></div>
         ${renderRegistrySelectionBar(null)}
@@ -9892,7 +9955,7 @@ function renderCustomAssetLibrary(board){
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(board, board.name, `${matching.length} 个匹配资产 · ${activeReferenceCanvas ? `参考画布：${activeReferenceCanvas.title || '未命名'}` : sourceLabel}${folderLabel ? ` · ${folderLabel}` : ''}${activeGroup ? ` · ${activeGroup.name}` : ''}`)}
         ${renderRegistryFilterChips()}
-        <div data-registry-fresh-notice></div>
+        <div class="registry-fresh-notice" data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, board, emptyAssetMessage)}${renderRegistryPagination()}</div>
         <div class="registry-vault-footer" aria-label="资产库状态"><span>匹配资产 <strong>${Number(matching.length || 0).toLocaleString('zh-CN')}</strong></span><span>${registryLoading ? '正在读取' : `当前显示 ${visible.length} 项`}</span><span>${escapeHtml(sourceLabel)}</span></div>
         ${renderRegistrySelectionBar(board)}

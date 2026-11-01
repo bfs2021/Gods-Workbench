@@ -1633,6 +1633,21 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-assets-scroll { display:flex; flex-direction:column; gap:16px; }
 .registry-assets-scroll .selection-marquee { border-color:rgba(255,90,38,.8); border-radius:0; background:rgba(255,90,38,.14); }
 .registry-content { position:relative; }
+/* QIN-518：新素材待看提示改为悬浮胶囊。宿主固定 height:0，胶囊绝对定位浮于网格右上角，
+   出现、更新、消失都不会撑开文档流，也不会推挤网格滚动位置。 */
+.registry-fresh-notice { position:relative; height:0; z-index:6; pointer-events:none; }
+.registry-fresh-notice > .registry-fresh-capsule {
+    position:absolute;
+    top:10px;
+    right:16px;
+    pointer-events:auto;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 14px;
+    border-radius:999px;
+    box-shadow:0 10px 26px rgb(0 0 0 / .38);
+}
 .registry-content.manage-on .registry-assets-scroll { padding-bottom:84px; }
 .registry-assets-scroll > .empty-state { width:100%; min-height:180px; }
 .registry-infinite-sentinel { min-height:44px; margin-top:4px; padding:12px 0 4px; border-top:1px solid var(--line); display:flex; align-items:center; justify-content:center; gap:7px; color:var(--muted); font-size: var(--gw-type-label-md); font-weight:800; }
