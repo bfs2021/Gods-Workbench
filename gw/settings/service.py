@@ -608,7 +608,6 @@ class StorageAllowedRootsService:
             state["revision"] = current + 1
 
         self._state.mutate(update)
-        self._trigger_rescan(normalized)
         return self.get_snapshot()
 
     def remove_root(
@@ -664,8 +663,6 @@ class StorageAllowedRootsService:
             state["revision"] = current + 1
 
         self._state.mutate(update)
-        if restored_path:
-            self._trigger_rescan(restored_path)
         return self.get_snapshot()
 
     def purge_root(
@@ -690,28 +687,31 @@ class StorageAllowedRootsService:
         self._state.mutate(update)
 
         try:
-            from gw.asset_registry import repository as repo
-            repo.purge_root_records(root_id)
+            snapshot = default_storage_settings_service.get_snapshot()
+            remaining_entries = []
+            for entry in snapshot.extra_local_entries:
+                epath = entry.get("path")
+                if epath:
+                    try:
+                        eid, _ = storage.location_identity(Path(epath))
+                        if eid == root_id:
+                            continue
+                    except Exception:
+                        pass
+                remaining_entries.append(entry)
+            if len(remaining_entries) != len(snapshot.extra_local_entries):
+                from gw.settings.models import StorageSettingsPatchRequest
+                default_storage_settings_service.patch(
+                    StorageSettingsPatchRequest(
+                        dirs=dict(snapshot.dirs),
+                        extra_local_entries=remaining_entries,
+                        expected_version=snapshot.revision,
+                    )
+                )
         except Exception:
             pass
 
         return self.get_snapshot()
-
-    @staticmethod
-    def _trigger_rescan(path: str) -> None:
-        try:
-            import types
-            from gw.asset_registry import index_jobs
-            root_id = storage.root_identity_id(Path(path))
-            auth = types.SimpleNamespace(subject="admin", mode="local", identity_domain="local", role="admin")
-            index_jobs.service().submit(
-                "reindex",
-                {"roots": [root_id], "background": True},
-                auth,
-                key=f"rescan_{root_id}_{int(datetime.now(timezone.utc).timestamp())}",
-            )
-        except Exception:
-            pass
 
     def confirm_alias(
         self, root_id: str, payload: StorageAllowedRootRequest

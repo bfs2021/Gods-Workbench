@@ -267,8 +267,22 @@ def restore_storage_allowed_root(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role", description="用户角色权限"),
 ):
-    _require_storage_admin(authorization, x_user_role)
-    return default_storage_allowed_roots_service.restore_root(root_id, payload)
+    context = _require_storage_admin(authorization, x_user_role)
+    snapshot = default_storage_allowed_roots_service.restore_root(root_id, payload)
+    try:
+        import time
+        from gw.asset_registry import index_jobs
+        root_record = next((r for r in snapshot.roots if r.id == root_id), None)
+        if root_record:
+            index_jobs.service().submit(
+                "reindex",
+                {"roots": [root_id], "background": True},
+                context,
+                key=f"rescan_{root_id}_{int(time.time())}",
+            )
+    except Exception:
+        pass
+    return snapshot
 
 
 @router.delete(
@@ -284,7 +298,21 @@ def purge_storage_allowed_root(
     x_user_role: str = Header("editor", alias="X-User-Role", description="用户角色权限"),
 ):
     _require_storage_admin(authorization, x_user_role)
-    return default_storage_allowed_roots_service.purge_root(root_id, payload)
+    snapshot = default_storage_allowed_roots_service.purge_root(root_id, payload)
+    try:
+        from gw.asset_registry import repository as asset_repo
+        purged = asset_repo.purge_root_records(root_id)
+        removed_ids = purged.get("purged_asset_ids") or []
+        if removed_ids:
+            try:
+                from gw.media import repository as media_repo
+                media_repo.delete_outputs("thumbnails", {"asset_ids": removed_ids})
+                media_repo.delete_outputs("storyboards", {"asset_ids": removed_ids})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return snapshot
 
 
 @router.post(

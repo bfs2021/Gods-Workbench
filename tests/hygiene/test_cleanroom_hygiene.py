@@ -1146,12 +1146,12 @@ def test_qin_517_allowed_roots_files_are_registered(repo_root: Path):
     assert set(registrations[0].get("files", [])) == {
         "gw/api/routes_asset_registry.py",
         "gw/api/routes_settings.py",
-        "gw/asset_registry/index_jobs.py",
         "gw/asset_registry/repository.py",
         "gw/settings/service.py",
         "web/css/pages/directory-settings.css",
         "web/js/modules/asset-manager.js",
         "tests/contracts/assets/test_allowed_root_purge.py",
+        "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
         "tests/hygiene/fixtures/admissions/issue-544.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }

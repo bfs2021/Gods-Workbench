@@ -1478,25 +1478,12 @@ class IndexJobs:
                     known[identity] = record
                     search_documents[asset_id] = record
                     added += 1
-                scoped = {x for x in known if x[0] in job["_request"]["roots"]}
-                missing_from_disk = scoped - disk
-                deleted_ids = []
-                for missing_identity in missing_from_disk:
-                    missing_asset = known.get(missing_identity)
-                    if missing_asset:
-                        missing_aid = str(missing_asset.get("asset_id") or missing_asset.get("id") or "")
-                        if missing_aid and missing_aid in raw["assets"]:
-                            del raw["assets"][missing_aid]
-                            deleted_ids.append(missing_aid)
-                if deleted_ids:
-                    repo.delete_asset_search_documents(deleted_ids)
-                if added or updated or deleted_ids:
+                if added or updated:
                     repo._bump(raw)
                 repo._upsert_asset_search_documents(search_documents.values())
                 result = {
                     "indexed": added,
                     "updated": updated,
-                    "deleted": len(deleted_ids),
                     "scanned": len(files),
                     "revision": raw["revision"],
                 }

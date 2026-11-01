@@ -155,6 +155,9 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/storage-settings/roots",
         "/api/storage-settings/roots/{p}",
         "/api/storage-settings/roots/{p}/aliases/confirm",
+        # 2026-11-01 QIN-517：允许根恢复与彻底删除端点。
+        "/api/storage-settings/roots/{p}/purge",
+        "/api/storage-settings/roots/{p}/restore",
         # 2026-10-28 QIN-432：目录设置服务端原生选择器（仅回环管理员）。
         "/api/settings/directories/pick-native",
         "/api/providers",

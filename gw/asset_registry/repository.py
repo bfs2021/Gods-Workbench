@@ -2951,7 +2951,7 @@ def delete_asset_search_documents(asset_ids: List[str]) -> None:
 
 
 def purge_root_records(root_id: str) -> Dict[str, Any]:
-    """彻底清除属于指定允许根的所有注册表资产、检索索引与缩略图缓存。绝对不触碰用户源文件。"""
+    """彻底清除属于指定允许根的所有注册表资产与检索索引。绝对不触碰用户源文件。"""
     removed_ids: List[str] = []
 
     def mutate(raw: Dict[str, Any]) -> None:
@@ -2968,37 +2968,5 @@ def purge_root_records(root_id: str) -> Dict[str, Any]:
 
     if removed_ids:
         delete_asset_search_documents(removed_ids)
-        try:
-            from gw.media import repository as media_repo
-            media_repo.delete_outputs("thumbnails", {"asset_ids": removed_ids})
-            media_repo.delete_outputs("storyboards", {"asset_ids": removed_ids})
-        except Exception:
-            pass
 
-    try:
-        from gw.settings.service import default_storage_settings_service
-        snapshot = default_storage_settings_service.get_snapshot()
-        remaining_entries = []
-        for entry in snapshot.extra_local_entries:
-            epath = entry.get("path")
-            if epath:
-                try:
-                    eid, _ = storage.location_identity(Path(epath))
-                    if eid == root_id:
-                        continue
-                except Exception:
-                    pass
-            remaining_entries.append(entry)
-        if len(remaining_entries) != len(snapshot.extra_local_entries):
-            from gw.settings.models import StorageSettingsPatchRequest
-            default_storage_settings_service.patch(
-                StorageSettingsPatchRequest(
-                    dirs=dict(snapshot.dirs),
-                    extra_local_entries=remaining_entries,
-                    expected_version=snapshot.revision,
-                )
-            )
-    except Exception:
-        pass
-
-    return {"purged_root_id": root_id, "purged_asset_count": len(removed_ids)}
+    return {"purged_root_id": root_id, "purged_asset_ids": removed_ids, "purged_asset_count": len(removed_ids)}
