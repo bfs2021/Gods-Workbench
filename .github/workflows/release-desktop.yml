@@ -1,0 +1,136 @@
+name: Release Desktop and Full Regression
+
+# QIN-520：大版本发布层。
+# 日常 PR 的 3~5 分钟快速门禁见 `.github/workflows/ci.yml`；本工作流只在大版本
+# 发布时承接被日常 PR 剥离出去的重型能力：
+#   1. 全量 Python 回归（含 tests/e2e 真实浏览器端到端，约 3932 个用例）；
+#   2. 前端契约测试全量重跑；
+#   3. Windows NSIS 桌面安装包完整源码编译、打包与产物上传。
+# 触发方式：发布 Tag（v*）或手动 workflow_dispatch。
+# 注意：刻意不把本工作流命名为 "CI"，避免抢占 c5-review-merge-gate.yml 中
+# 以 workflow_run.name == 'CI' 判定日常门禁的事件。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 全量回归与打包原因
+        required: false
+        default: 大版本发布全量验证
+        type: string
+
+# 发布构建不做并发取消：同一 Tag 重跑应排队执行完毕，不中途掐断产物。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# 延续 CI 只读权限口径（AGENTS.md 第 6 节）：产物走 Actions Artifact，
+# 不在此申请 contents: write，避免发布流水线获得回写仓库的能力。
+permissions:
+  contents: read
+
+jobs:
+  full-regression:
+    name: Full regression (all Python tests and frontend contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 配置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock
+            requirements.lock.hashes
+
+      - name: 安装运行期与测试依赖（消费哈希锁）
+        # 与日常 PR 同一把哈希锁；发布层额外安装 Playwright 浏览器内核，
+        # 供 tests/e2e 全量真实浏览器回归使用。
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements.lock.hashes
+          python -m playwright install --with-deps chromium
+
+      - name: 验证关键依赖可导入
+        run: python -c "import fastapi, httpx, pydantic, pytest, uvicorn, psutil, multipart, PIL, playwright, playwright.sync_api; print('依赖导入通过:', fastapi.__version__, pydantic.__version__, uvicorn.__version__, psutil.__version__, PIL.__version__, playwright.__file__)"
+
+      - name: Ruff 静态检查（零诊断规则集）
+        run: ruff check .
+
+      - name: 运行全量测试（含 Playwright 端到端）
+        # 与日常 PR 的差异只有范围：此处不裁剪任何目录，回归全量用例。
+        run: |
+          export GW_RUNNINGHUB_API_KEY="${GITHUB_SHA}"
+          python -m pytest -v --no-header -p no:cacheprovider
+
+      - name: 校验前端测试清单完整性（防漏门禁）
+        run: |
+          python - <<'PY'
+          import subprocess, sys
+          from pathlib import Path
+
+          tracked = set(subprocess.check_output(
+              ["git", "ls-files", "tests/frontend/*.mjs"],
+              text=True, encoding="utf-8"
+          ).splitlines())
+          tracked = {line.strip().replace("\\", "/") for line in tracked if line.strip()}
+
+          manifest = Path("tests/frontend/node-files.txt").read_text(encoding="utf-8")
+          listed = {line.strip().replace("\\", "/") for line in manifest.splitlines() if line.strip()}
+
+          missing = tracked - listed
+          extra = listed - tracked
+          if missing or extra:
+              if missing:
+                  print("发现未在 tests/frontend/node-files.txt 登记的前端测试:", sorted(missing))
+              if extra:
+                  print("tests/frontend/node-files.txt 中存在多余或未跟踪的条目:", sorted(extra))
+              sys.exit(1)
+          print(f"前端测试防漏检查通过：{len(listed)} 个测试文件全部已登记。")
+          PY
+
+      - name: 运行前端契约回归测试（全量）
+        run: node --test $(cat tests/frontend/node-files.txt | tr -d '\r')
+
+  desktop-installer:
+    name: Windows NSIS installer
+    # 全量回归通过后才产出安装包，避免发布红灯版本的客户端。
+    needs: full-regression
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust formatting
+        run: cargo fmt --check --manifest-path clients/desktop/Cargo.toml
+
+      - name: Run desktop unit tests
+        run: cargo test --locked --manifest-path clients/desktop/Cargo.toml
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.12.3 --locked
+
+      - name: Build Windows NSIS installer
+        working-directory: clients/desktop
+        run: cargo tauri build --bundles nsis --ci -- --locked
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: gods-workbench-desktop-windows
+          path: clients/desktop/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 30

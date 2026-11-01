@@ -1,11 +1,22 @@
 name: CI
 
+# QIN-520：本工作流只承担「日常 PR 快速门禁」。
+# 分层原则：日常 PR 校验规范、哈希锁、二进制白名单、前端全量契约与后端核心契约，
+# 目标 3~5 分钟；全量回归、真实浏览器 E2E 与 Windows NSIS 安装包编译
+# 统一由 `.github/workflows/release-desktop.yml`（Tag v* 或手动触发）承接。
+# 注意：工作流名称 "CI" 被 c5-review-merge-gate.yml 的 workflow_run.name 判定引用，
+# 重命名会切断合并门禁，故必须保留。
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+
+# 同一 PR（或同一分支）再次推送时立即取消旧运行，杜绝队列堆积。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -37,10 +48,13 @@ jobs:
         # requirements.lock.hashes 为跨平台双段：Windows 段本机 CPython 3.11.9 实测，
         # Linux 段由 python:3.11-slim (CPython 3.11.16 / x86_64) 实测，两段均非伪造。
         # ubuntu-latest 按本平台哈希校验；uvloop 带环境标记，仅非 Windows 安装。
+        # QIN-520：日常 PR 不再下载 Playwright 浏览器内核（约 1~2 分钟）。
+        # 本层不跑 tests/e2e；少数契约用例使用系统 Chrome（channel="chrome"，
+        # 镜像已预装），缺失时按既有策略显式 skip，不伪造浏览器证据。
+        # 浏览器内核安装随全量回归下放到 release-desktop.yml。
         run: |
           python -m pip install --upgrade pip
           python -m pip install --require-hashes -r requirements.lock.hashes
-          python -m playwright install --with-deps chromium
 
       - name: 验证关键依赖可导入
         run: python -c "import fastapi, httpx, pydantic, pytest, uvicorn, psutil, multipart, PIL, playwright, playwright.sync_api; print('依赖导入通过:', fastapi.__version__, pydantic.__version__, uvicorn.__version__, psutil.__version__, PIL.__version__, playwright.__file__)"
@@ -96,12 +110,16 @@ jobs:
       - name: Ruff 静态检查（零诊断规则集）
         run: ruff check .
 
-      - name: 运行全量测试
+      - name: 运行后端核心契约与卫生门禁
         # C7 媒体浏览器夹具会在测试内替换 RunningHub 调用与输出传输；
         # 仅为通过配置闸门注入本次提交 SHA，不代表真实供应商验收或凭据。
+        # QIN-520：日常 PR 只跑 `tests/contracts`（八域契约，AGENTS.md 6.3）
+        # 与 `tests/hygiene`（洁净室/白名单/命名门禁）；tests/e2e 真实浏览器长跑、
+        # tests/api、tests/runtime、tests/media、tests/canvas、tests/smoke、
+        # tests/deployment 与 tests/benchmarks 的全量回归由 release-desktop.yml 承接。
         run: |
           export GW_RUNNINGHUB_API_KEY="${GITHUB_SHA}"
-          python -m pytest -v --no-header -p no:cacheprovider
+          python -m pytest tests/contracts tests/hygiene -v --no-header -p no:cacheprovider
 
       - name: 校验前端测试清单完整性（防漏门禁）
         run: |
@@ -182,7 +200,11 @@ jobs:
           PY
 
   desktop:
-    name: Windows desktop tests and installer
+    name: Windows desktop Rust gate
+    # QIN-520：日常 PR 只做 Rust 格式与单测（约 2~3 分钟）。
+    # 原先的 `cargo install tauri-cli` + `cargo tauri build --bundles nsis`
+    # 与安装包上传（约 18 分钟）已整体下放到 release-desktop.yml，
+    # 只在大版本发布（Tag v* 或手动触发）时产出 NSIS 安装包。
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -196,18 +218,3 @@ jobs:
 
       - name: Run desktop unit tests
         run: cargo test --locked --manifest-path clients/desktop/Cargo.toml
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.12.3 --locked
-
-      - name: Build Windows NSIS installer
-        working-directory: clients/desktop
-        run: cargo tauri build --bundles nsis --ci -- --locked
-
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: gods-workbench-desktop-windows
-          path: clients/desktop/target/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
-          retention-days: 30
