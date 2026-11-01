@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -66,6 +67,10 @@ FFMPEG_TIMEOUT = 120
 WAVEFORM_BUCKETS = 240
 #: 允许的内网测试主机（本地 Provider 联调）；其余内网/回环地址一律拒绝。
 ALLOWED_INTERNAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
+#: 缩略图缓存默认子目录名；设置项 cache_folder 为空时回落到该值。
+DEFAULT_CACHE_FOLDER = "god-cache"
+#: 缓存子目录名必须是单段安全 ASCII，禁止路径分隔符、中文与保留设备名。
+_CACHE_FOLDER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def settings_state() -> storage.JsonState:
@@ -233,6 +238,65 @@ def _output_dir(kind: str) -> Path:
     return storage.resolve_output_directory(relative)
 
 
+def _cache_folder_name(settings: dict[str, Any]) -> str:
+    """解析设置里的缓存子目录名；非法即失败关闭，不静默回退。"""
+    raw = str((settings or {}).get("cache_folder") or "").strip() or DEFAULT_CACHE_FOLDER
+    if not _CACHE_FOLDER_PATTERN.fullmatch(raw):
+        raise CleanroomException(
+            400,
+            "INVALID_CACHE_FOLDER",
+            "缓存目录名只接受字母、数字、点、下划线与连字符，且不超过 64 个字符",
+        )
+    return raw
+
+
+def _cache_bucket(settings: dict[str, Any], source: Path) -> str:
+    """缓存分桶键：custom 模式按指定目录，source 模式按素材源目录。
+
+    分桶只决定受管产物内的子目录，不把缓存写到受管目录之外；指定目录必须
+    已登记为允许根，否则失败关闭，避免用户误以为缓存落在外部磁盘。
+    """
+    mode = str((settings or {}).get("mode") or "source")
+    if mode == "custom":
+        directory = str((settings or {}).get("directory") or "").strip()
+        if not directory:
+            raise CleanroomException(
+                400, "INVALID_CACHE_DIRECTORY", "指定缓存目录模式必须提供目录"
+            )
+        resolved = storage.resolve_within_roots(directory)
+        if not resolved.is_dir():
+            raise CleanroomException(
+                404, "CACHE_DIRECTORY_NOT_FOUND", "指定缓存目录不存在或不是目录"
+            )
+        return storage.root_identity_id(resolved)
+    return storage.root_identity_id(source.parent)
+
+
+def _thumbnail_cache_directory(
+    settings: dict[str, Any], source: Path
+) -> tuple[str, Path]:
+    """返回缩略图缓存目录的相对路径与真实路径，按 cache_folder/分桶隔离。"""
+    relative = "media_output/%s/%s" % (
+        _cache_folder_name(settings),
+        _cache_bucket(settings, source),
+    )
+    directory = storage.resolve_output_directory(relative, must_exist=False)
+    directory.mkdir(parents=True, exist_ok=True)
+    return relative, storage.resolve_output_directory(relative)
+
+
+def _cache_is_fresh(target: Path, source: Path) -> bool:
+    """缓存是否可直接复用：存在且不早于源文件修改时间。
+
+    asset_id 命名不含源身份（既有契约按 id 唯一），因此用 mtime 判定过期，
+    源文件被替换后自动重算，不返回过期图。
+    """
+    try:
+        return target.is_file() and target.stat().st_mtime_ns >= source.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
 def _mime(path: Path) -> str:
     return MIME_BY_SUFFIX.get(path.suffix.lower(), "application/octet-stream")
 
@@ -263,38 +327,128 @@ def _thumbnail_bytes(path: Path, width: int) -> bytes:
         _unavailable("/api/media", "THUMBNAIL_FAILED", "无法把该文件解码为图片")
 
 
-def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
-    """真实生成缩略图并落盘；返回可核验的输出文件信息。"""
-    path = _resolve_input(payload)
-    width = int((payload or {}).get("width") or 256)
-    width = max(64, min(2048, width))
-    data = _thumbnail_bytes(path, width)
-    out_dir = _output_dir("thumbnails")
-    key = str((payload or {}).get("asset_id") or "").strip()
-    if not key:
-        # 无 asset_id 时退化为源文件身份摘要，避免多根同名 stem 互相覆盖。
-        stat = path.stat()
-        identity = "|".join(
-            (storage.relative_display(path), str(stat.st_size), str(stat.st_mtime_ns))
-        )
-        key = "media-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
-    target = out_dir / _thumbnail_filename(key, width=width if key.startswith("media-") else None)
-    target = storage.resolve_output_path(
-        target.relative_to(storage.data_root().resolve()).as_posix(), must_exist=False
+def _thumbnail_key(asset_id: str, path: Path) -> str:
+    """派生文件名 key：有 asset_id 用其身份，否则退化为源文件身份摘要。"""
+    key = str(asset_id or "").strip()
+    if key:
+        return key
+    stat = path.stat()
+    identity = "|".join(
+        (storage.relative_display(path), str(stat.st_size), str(stat.st_mtime_ns))
     )
-    _atomic_write_bytes(target, data)
-    return {
-        "asset_id": str((payload or {}).get("asset_id") or ""),
+    return "media-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+
+
+def _generate_one_thumbnail(
+    asset_id: str,
+    payload: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    width: int,
+    replace_existing: bool,
+) -> dict[str, Any]:
+    """生成或复用单个缩略图，返回真实状态项（不抛批量级异常）。"""
+    path = _registry_path(asset_id) if asset_id else _resolve_input(payload)
+    key = _thumbnail_key(asset_id, path)
+    relative_dir, directory = _thumbnail_cache_directory(settings, path)
+    name = _thumbnail_filename(key, width=width if key.startswith("media-") else None)
+    relative = relative_dir + "/" + name
+    target = storage.resolve_output_path(relative, must_exist=False)
+    item: dict[str, Any] = {
+        "asset_id": asset_id,
         "source": storage.relative_display(path),
-        "output": target.relative_to(storage.data_root().resolve()).as_posix(),
+        "output": relative,
         "width": width,
-        "bytes": len(data),
-        "generated": 1,
-        "failed": 0,
-        "data_status": "ok",
-        "data_gaps": [],
+    }
+    if not replace_existing and _cache_is_fresh(target, path):
+        item.update({"status": "cached", "bytes": target.stat().st_size})
+        return item
+    data = _thumbnail_bytes(path, width)
+    _atomic_write_bytes(target, data)
+    item.update({"status": "generated", "bytes": len(data)})
+    return item
+
+
+def _resolved_thumbnail_width(payload: dict[str, Any]) -> int:
+    width = int((payload or {}).get("width") or 256)
+    return max(64, min(2048, width))
+
+
+def _thumbnail_error_item(asset_id: str, exc: CleanroomException) -> dict[str, Any]:
+    return {
+        "asset_id": asset_id,
+        "status": "failed",
+        "error": {"code": exc.code, "message": exc.message},
     }
 
+
+def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
+    """真实生成缩略图并落盘，支持单条与批量（asset_ids）。
+
+    批量时逐项处理并返回真实计数；单项失败不中断整批，也不伪装成功。
+    单条调用保持既有失败关闭语义：失败直接抛出原异常。
+    """
+    settings = get_thumbnail_settings()
+    width = _resolved_thumbnail_width(payload)
+    replace_existing = bool((payload or {}).get("replace_existing"))
+    asset_ids = _asset_ids(payload)
+    items: list[dict[str, Any]] = []
+    first_error: CleanroomException | None = None
+    for asset_id in asset_ids:
+        try:
+            items.append(
+                _generate_one_thumbnail(
+                    asset_id,
+                    payload,
+                    settings,
+                    width=width,
+                    replace_existing=replace_existing,
+                )
+            )
+        except CleanroomException as exc:
+            if first_error is None:
+                first_error = exc
+            items.append(_thumbnail_error_item(asset_id, exc))
+    if not asset_ids:
+        # 无 asset_id 时沿用显式 path 入参（旧调用方与无注册表场景）。
+        try:
+            items.append(
+                _generate_one_thumbnail(
+                    "",
+                    payload,
+                    settings,
+                    width=width,
+                    replace_existing=replace_existing,
+                )
+            )
+        except CleanroomException as exc:
+            first_error = exc
+            items.append(_thumbnail_error_item("", exc))
+    if len(items) == 1 and items[0].get("status") == "failed" and first_error is not None:
+        raise first_error
+    generated = sum(1 for item in items if item.get("status") == "generated")
+    cached = sum(1 for item in items if item.get("status") == "cached")
+    failed = sum(1 for item in items if item.get("status") == "failed")
+    outputs = [item["output"] for item in items if item.get("output")]
+    successful = [item for item in items if item.get("status") != "failed"]
+    head = successful[0] if successful else (items[0] if items else {})
+    return {
+        "asset_id": str((payload or {}).get("asset_id") or "") or head.get("asset_id", ""),
+        "source": head.get("source", ""),
+        "output": head.get("output", ""),
+        "outputs": outputs,
+        "items": items,
+        "width": width,
+        "generated": generated,
+        "cached": cached,
+        "failed": failed,
+        "skipped": 0,
+        "transcoded": 0,
+        "transcode_cached": 0,
+        "transcode_failed": 0,
+        "data_status": "partial" if failed else "ok",
+        "data_gaps": [] if not failed else ["thumbnail_failures_present"],
+    }
 
 
 def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
@@ -616,7 +770,8 @@ def run_background_thumbnail(payload: dict[str, Any]) -> tuple[str, str]:
     任务在返回前已完成，状态为 ``succeeded``，``progress`` 与结果均为真实计数。
     """
     result = generate_thumbnail(payload)
-    file_name = Path(result["output"]).name
+    file_name = Path(result["output"]).name if result.get("output") else ""
+    total = max(1, len(result.get("items") or []))
 
     def mutate(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         raw["sequence"] = int(raw.get("sequence", 0)) + 1
@@ -625,7 +780,7 @@ def run_background_thumbnail(payload: dict[str, Any]) -> tuple[str, str]:
             "job_id": job_id,
             "status": "succeeded",
             "state": "succeeded",
-            "progress": {"processed": 1, "total": 1},
+            "progress": {"processed": total, "total": total},
             "result": result,
             "output": result["output"],
             "output_file": file_name,
@@ -712,18 +867,18 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     from gw.asset_registry import media_probe
 
     candidates = []
+    # 缓存按 cache_folder/分桶分层存储，位置随设置变化；删除按精确文件名索引，
+    # 不假设固定目录层级，也不触碰代理与分镜产物。
+    thumbnail_index: dict[str, list[str]] | None = None
     for asset_id in dict.fromkeys(ids):
         if kind == "thumbnails":
-            relative = "media_output/thumbnails/" + _thumbnail_filename(asset_id)
-            candidate = storage.resolve_output_path(relative, must_exist=False)
-            if candidate.exists():
-                candidates.append(relative)
-            else:
-                # 历史回退 key（源 stem）；产物目录内精确同名匹配。
-                for entry in storage.iter_output_paths("media_output/thumbnails"):
-                    if entry[1].name == asset_id + ".jpg.png":
-                        candidates.append(entry[0])
-                        break
+            if thumbnail_index is None:
+                thumbnail_index = {}
+                for relative, path in storage.iter_output_paths("media_output"):
+                    thumbnail_index.setdefault(path.name, []).append(relative)
+            candidates.extend(
+                thumbnail_index.get(asset_id + ".jpg.png", [])
+            )
         else:
             directory = media_probe.storyboard_directory(asset_id)
             if directory.exists():
