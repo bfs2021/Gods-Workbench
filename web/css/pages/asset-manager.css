@@ -2048,6 +2048,8 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+  transform: none !important;
+  transition: none !important;
   color: #d1d5db !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > span {

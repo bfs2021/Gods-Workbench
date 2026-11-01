@@ -141,12 +141,13 @@ test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流
     const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
     const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
     const toolbar = manager.slice(toolbarStart, toolbarEnd);
-    assert.doesNotMatch(toolbar, /label class="hw-btn registry-toolbar-select"/);
+    assert.match(toolbar, /label class="hw-btn registry-toolbar-select"/);
     assert.match(toolbar, /\$\{coverflowControl\}\s*<button class="hw-btn registry-refresh"/);
     assert.match(toolbar, /options\.hideHeading \? '' :/);
     assert.match(manager, /renderRegistryToolbar\(null, registryCategoryLabel[\s\S]*?\{allowUrl:true,hideHeading:true\}/);
     assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select \{[^}]*border-radius:7px/);
     assert.match(managerCss, /registry-toolbar-select > span \{[\s\S]*?display: flex !important;[\s\S]*?align-items: center !important;[\s\S]*?height: 32px !important/);
+    assert.match(managerCss, /\.registry-toolbar-select \{[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;[\s\S]*?box-shadow: none !important;[\s\S]*?transform: none !important;/);
     assert.match(vaultCss, /registry-toolbar-select \{ height:32px; min-height:32px; align-items:center; \}/);
     assert.match(vaultCss, /registry-coverflow-open \{ order: -3;[^}]*\}/);
     assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select option:hover,[\s\S]*?background: #dfc384; color: #101114/);
