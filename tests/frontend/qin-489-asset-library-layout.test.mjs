@@ -7,6 +7,7 @@ const html = readFileSync(new URL('../../web/pages/assets.html', import.meta.url
 const shell = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
 const manager = readFileSync(new URL('../../web/js/modules/asset-manager.js', import.meta.url), 'utf8');
 const vaultCss = readFileSync(new URL('../../web/css/pages/asset-vault.css', import.meta.url), 'utf8');
+const managerCss = readFileSync(new URL('../../web/css/pages/asset-manager.css', import.meta.url), 'utf8');
 
 function functionSource(name){
     const start = manager.indexOf(`function ${name}(`);
@@ -57,14 +58,205 @@ test('AC3: 智能筛选与资产设置入口固定在左栏底部并转发到现
     assert.match(vaultCss, /asset-manager-root-registry\.asset-registry-filters-collapsed/);
 });
 
-test('AC4: 刷新按钮位于搜索前，搜索宽度限制为可用栏约一半', () => {
+test('AC4: 刷新按钮位于搜索前，搜索框宽度为原来的约一半', () => {
     const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
     const refreshIndex = manager.indexOf('data-refresh-assets', toolbarStart);
     const searchIndex = manager.indexOf('id="registrySearch"', toolbarStart);
     assert.ok(toolbarStart >= 0 && refreshIndex > toolbarStart && searchIndex > refreshIndex);
     assert.match(vaultCss, /registry-refresh \{ order: -2/);
-    assert.match(vaultCss, /asset-search-wrap \{ order: -1; flex: 0 1 calc\(50% - 44px\); max-width: calc\(50% - 44px\)/);
-    assert.match(vaultCss, /flex-basis: calc\(50% - 52px\)/);
+    assert.match(vaultCss, /asset-search-wrap \{ order: -1; flex: 0 1 calc\(25% - 44px\); max-width: calc\(25% - 44px\)/);
+    assert.match(vaultCss, /flex-basis: calc\(25% - 52px\)/);
+});
+
+test('QIN-505 AC1: 扩展名与导入元数据统一映射到素材分类', () => {
+    const extensionStart = manager.indexOf('const REGISTRY_ASSET_CATEGORY_EXTENSIONS =');
+    const categoryStart = manager.indexOf('\nfunction registryAssetCategory(', extensionStart);
+    const categoryEnd = manager.indexOf('\nfunction customAssetLibraryIncludesAsset(', categoryStart);
+    const visualStart = manager.indexOf('\nfunction registryVisualType(', categoryStart);
+    const visualEnd = manager.indexOf('\nfunction registryMediaAspectStyle(', visualStart);
+    const extensionFunctionStart = manager.indexOf('function registryAssetExtension(');
+    assert.ok(extensionStart >= 0 && extensionFunctionStart >= 0 && categoryStart > extensionStart && categoryEnd > categoryStart && visualStart > categoryEnd && visualEnd > visualStart);
+    const categorySources = [
+        manager.slice(extensionFunctionStart, extensionStart),
+        manager.slice(extensionStart, categoryStart),
+        manager.slice(categoryStart, categoryEnd),
+        manager.slice(visualStart, visualEnd),
+    ].join('\n');
+    const buildCategory = new Function('assetFileExtension', 'detailViewerType', `${categorySources}\nreturn {category:registryAssetCategory,visual:registryVisualType};`);
+    const classify = buildCategory(
+        item => String(item.name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '',
+        (_source, item) => item.kind === 'text' ? 'text' : ['image','video','audio','document','model','font'].includes(item.kind) ? item.kind : 'other',
+    );
+    for (const [name, item, expected] of [
+        ['frame.png', {kind:'indexed',name:'frame.png'}, 'image'],
+        ['clip.mov', {kind:'indexed',name:'clip.mov'}, 'video'],
+        ['sound.aiff', {kind:'indexed',name:'sound.aiff'}, 'audio'],
+        ['plan.xlsx', {kind:'indexed',name:'plan.xlsx'}, 'document'],
+        ['model.glb', {kind:'indexed',name:'model.glb'}, 'model'],
+        ['family.woff2', {kind:'indexed',name:'family.woff2'}, 'font'],
+        ['path metadata', {kind:'indexed',display_path:'D:\\library\\frame.exr'}, 'image'],
+        ['extension metadata', {kind:'indexed',metadata:{extension:'.otf'}}, 'font'],
+        ['explicit text kind', {kind:'text'}, 'document'],
+        ['unknown.bin', {kind:'indexed',name:'unknown.bin'}, 'other'],
+    ]) {
+        assert.equal(classify.category(item), expected, name);
+        assert.equal(classify.visual(item), expected === 'document' ? 'text' : expected, name);
+    }
+    assert.match(manager, /\{id:'font', name:'字体'/);
+});
+
+test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流及素材比例', () => {
+    assert.doesNotMatch(managerCss, /\.registry-card::before \{[^}]*height:5px/);
+    assert.match(vaultCss, /registry-card::before \{ display: none !important; \}/);
+    assert.match(managerCss, /\.registry-card-format \{[^}]*background:color-mix\(in hsl,var\(--asset-type-color\) 50%,#000 50%\)/);
+    assert.match(vaultCss, /registry-card \.registry-card-format \{[^}]*background: color-mix\(in hsl,var\(--asset-type-color\) 50%,#000 50%\) !important; color: var\(--vault-accent\) !important/);
+    assert.doesNotMatch(vaultCss, /registry-card\.asset-type-video \.registry-card-format \{[^}]*color:/);
+    assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: var\(--vault-bottom\) !important; border: 1px solid var\(--vault-accent\) !important/);
+    assert.match(managerCss, /\.registry-card\.active \.registry-card-selection-overlay,\.registry-card\.selected \.registry-card-selection-overlay \{ display:none; \}/);
+    assert.match(vaultCss, /grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
+    assert.match(managerCss, /grid-template-columns:repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
+    assert.doesNotMatch(vaultCss, /registry-simple[^}]*aspect-ratio:\s*(?:1|16\/9)/);
+    assert.doesNotMatch(vaultCss, /registry-simple \.registry-card \.asset-thumb :is\(img, video\) \{ position: absolute/);
+    assert.match(managerCss, /\.registry-simple \.registry-card \.asset-card-body \{ display:none !important; \}/);
+    assert.match(vaultCss, /registry-simple \.registry-card \.asset-card-body \{ display: none !important; \}/);
+    const heightStart = manager.indexOf('function registryVirtualCardHeight(');
+    const heightOpen = manager.indexOf('){', heightStart) + 1;
+    let heightDepth = 0;
+    let heightEnd = heightOpen;
+    for(; heightEnd < manager.length; heightEnd += 1){
+        if(manager[heightEnd] === '{') heightDepth += 1;
+        else if(manager[heightEnd] === '}' && --heightDepth === 0){ heightEnd += 1; break; }
+    }
+    assert.ok(heightStart >= 0 && heightOpen > heightStart && heightEnd > heightOpen);
+    const estimateHeight = new Function(
+        'registryVisualType','assetSupportsImagePreview','registryAspect','registrySimple',
+        `${manager.slice(heightStart,heightEnd)}\nreturn registryVirtualCardHeight;`,
+    )(
+        item => item.kind,
+        () => false,
+        'original',
+        true,
+    );
+    assert.ok(estimateHeight({kind:'image',width:600,height:1200},176) > estimateHeight({kind:'image',width:1200,height:600},176), '简洁模式虚拟瀑布流按素材原始比例估高');
+    const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
+    const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
+    const toolbar = manager.slice(toolbarStart, toolbarEnd);
+    assert.match(toolbar, /label class="hw-btn registry-toolbar-select"/);
+    assert.match(toolbar, /\$\{coverflowControl\}\s*<button class="hw-btn registry-refresh"/);
+    assert.match(toolbar, /options\.hideHeading \? '' :/);
+    assert.match(manager, /renderRegistryToolbar\(null, registryCategoryLabel[\s\S]*?\{allowUrl:true,hideHeading:true\}/);
+    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select \{[^}]*border-radius:7px/);
+    assert.match(managerCss, /registry-toolbar-select > span \{[\s\S]*?display: flex !important;[\s\S]*?align-items: center !important;[\s\S]*?height: 32px !important/);
+    assert.match(managerCss, /\.registry-toolbar-select \{[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;[\s\S]*?box-shadow: none !important;[\s\S]*?transform: none !important;/);
+    assert.match(vaultCss, /registry-toolbar-select \{ height:32px; min-height:32px; align-items:center; \}/);
+    assert.match(vaultCss, /registry-coverflow-open \{ order: -3;[^}]*\}/);
+    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select option:hover,[\s\S]*?background: #dfc384; color: #101114/);
+    assert.match(managerCss, /\.asset-search-wrap \{[^}]*border: 0 !important/);
+    assert.match(managerCss, /\.asset-search \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.2\) !important/);
+});
+
+test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
+    const writes = [];
+    let pendingSave;
+    let saveCount = 0;
+    let status = '';
+    let pendingLayout;
+    let masonryCalls = 0;
+    let masonryRemeasureCalls = 0;
+    let virtualCalls = 0;
+    const masonryGrid = {};
+    const content = {style:{setProperty:(key,value) => writes.push([key,value])}};
+    const root = {
+        querySelectorAll:selector => selector === '.registry-content' ? [content] : selector.includes('.registry-grid:not') ? [masonryGrid] : [],
+        querySelector:() => null,
+    };
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+    )(
+        root,
+        {min:120,max:360},
+        () => {},
+        callback => { pendingSave = callback; return 1; },
+        () => { saveCount += 1; },
+        value => { status = value; },
+        callback => { pendingLayout = callback; return 1; },
+        () => { masonryCalls += 1; },
+        () => { virtualCalls += 1; },
+        grid => { assert.equal(grid, masonryGrid); masonryRemeasureCalls += 1; },
+    );
+    let prevented = false;
+    handle.handle({
+        shiftKey:true,ctrlKey:false,metaKey:false,altKey:false,deltaY:1,
+        target:{closest:selector => selector === '[data-registry-zoom-area]' || selector === '.registry-content.registry-layout-grid'},
+        preventDefault:() => { prevented = true; },
+    });
+    assert.equal(prevented, true);
+    assert.equal(handle.size(), 164);
+    assert.deepEqual(writes, [['--registry-card-size','164px']]);
+    pendingLayout();
+    assert.equal(masonryRemeasureCalls, 1, '普通瀑布流在下一帧强制重测所有卡片的新高度');
+    assert.equal(masonryCalls, 1, '非虚拟瀑布流在下一帧立即重测卡片高度');
+    assert.equal(virtualCalls, 0);
+    pendingSave();
+    assert.equal(saveCount, 1);
+    assert.equal(status, '预览大小 164px');
+});
+
+test('QIN-505 AC6: 普通瀑布流缩放会使旧高度跨度失效并重测', () => {
+    const cards = [
+        {dataset:{},classList:{contains:() => false}},
+        {dataset:{},classList:{contains:() => false}},
+    ];
+    const grid = {
+        classList:{contains:() => false},
+        querySelectorAll:selector => selector === ':scope > .registry-card' ? cards : [],
+    };
+    let measured;
+    const remeasure = new Function(
+        'updateRegistryMasonryCards',
+        `${functionSource('remeasureRegistryMasonryGrid')}\nreturn remeasureRegistryMasonryGrid;`,
+    )((actualCards, actualGrid) => { measured = {cards:actualCards,grid:actualGrid}; });
+    remeasure(grid);
+    assert.ok(cards.every(card => card.dataset.registryMasonryDirty === 'true'));
+    assert.deepEqual(measured, {cards,grid});
+});
+
+test('QIN-505 AC6: 虚拟瀑布流缩放后快速重算卡片列与位置', () => {
+    const pendingLayouts = [];
+    let forceCalls = 0;
+    const lastArguments = [];
+    const content = {style:{setProperty:() => {}}};
+    const root = {
+        querySelectorAll:selector => selector === '.registry-content' ? [content] : [],
+        querySelector:selector => selector === '.registry-grid-virtualized' ? {} : null,
+    };
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn handleRegistryCardResizeWheel;`,
+    )(
+        root,
+        {min:120,max:360},
+        () => {},
+        () => 1,
+        () => {},
+        () => {},
+        callback => { pendingLayouts.push(callback); return pendingLayouts.length; },
+        () => assert.fail('虚拟瀑布流不得调用常规高度观察器'),
+        (...args) => { forceCalls += 1; lastArguments.push(args); },
+        () => assert.fail('虚拟瀑布流不得调用普通网格高度重测'),
+    );
+    handle({
+        shiftKey:true,ctrlKey:false,metaKey:false,altKey:false,deltaY:-1,
+        target:{closest:selector => selector === '[data-registry-zoom-area]' || selector === '.registry-content.registry-layout-grid'},
+        preventDefault:() => {},
+    });
+    pendingLayouts.shift()();
+    assert.deepEqual(lastArguments[0], [true,true], '第一帧先用最新宽度估算重排，避免整库离屏测量卡住预览');
+    assert.equal(pendingLayouts.length, 1, '先布局后安排可见卡片精确回测');
+    pendingLayouts.shift()();
+    assert.deepEqual(lastArguments[1], [true,true], '第二帧从当前尺寸的可见卡片回填精确高度并再次排布');
+    assert.equal(forceCalls, 2);
 });
 
 test('AC5: 窄屏时左侧导航转为可横向滚动入口', () => {
@@ -129,13 +321,13 @@ test('QIN-504 AC1: 虚拟网格渲染后重新绑定滚动窗口', () => {
     assert.ok(render.indexOf('scheduleRegistryVirtualWindow();') > render.indexOf('scheduleRegistryMasonryLayout();'));
 });
 
-test('QIN-504 AC2: 虚拟卡片列数沿用实际 CSS 网格列数', () => {
+test('QIN-504 AC2: 虚拟卡片按预览尺寸占用固定宽度列', () => {
     const columnSource = functionSource('registryGridColumnCount');
     const heightKeySource = functionSource('registryVirtualHeightCacheKey');
     const measureSource = functionSource('registryVirtualMeasureCardHeights');
     const layoutSource = functionSource('registryVirtualLayout');
     const grid = {clientWidth:1750,querySelectorAll:() => []};
-    let template = '241.42px 241.42px 241.42px 241.42px 241.42px 241.42px 241.42px';
+    let template = '176px 176px 176px 176px 176px 176px 176px 176px 176px';
     const buildLayout = new Function(
         'root','getComputedStyle','REGISTRY_VIRTUAL_GAP','REGISTRY_CARD_SIZE','registryCardSize','registrySimple','registryAspect','registryVirtualCardHeight','registryVirtualHeightCache','registryVirtualHeightCacheMode',
         `${columnSource}\n${heightKeySource}\n${measureSource}\n${layoutSource}\nreturn registryVirtualLayout;`,
@@ -153,10 +345,10 @@ test('QIN-504 AC2: 虚拟卡片列数沿用实际 CSS 网格列数', () => {
         '',
     );
     const regular = layout([{id:'a'},{id:'b'}]);
-    assert.equal(regular.cols, 7);
-    assert.ok(Math.abs(regular.cardWidth - (1750 - 60) / 7) < 0.01);
-    template = 'repeat(7, minmax(0px, 1fr))';
-    assert.equal(layout([{id:'a'},{id:'b'}]).cols, 7);
+    assert.equal(regular.cols, 9);
+    assert.equal(regular.cardWidth, 176);
+    template = 'repeat(9, minmax(0px, 1fr))';
+    assert.equal(layout([{id:'a'},{id:'b'}]).cols, 9);
 });
 
 test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整覆盖可视区', () => {
@@ -173,7 +365,7 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     );
     const {registryVirtualLayout, registryVirtualRange} = buildVirtualLayout(
         {querySelector:selector => selector === '.registry-grid' ? grid : null},
-        () => ({gridTemplateColumns:'repeat(7, minmax(0px, 1fr))',columnGap:'10px',rowGap:'10px',gridAutoRows:'8px'}),
+        () => ({gridTemplateColumns:'repeat(9, minmax(0px, 1fr))',columnGap:'10px',rowGap:'10px',gridAutoRows:'8px'}),
         10,
         {min:96,max:480,fallback:176},
         176,
@@ -193,10 +385,10 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     const beforeAppend = registryVirtualLayout(items.slice(0,100));
     const layout = registryVirtualLayout(items);
 
-    assert.equal(layout.cols, 7);
-    assert.deepEqual(layout.itemLayouts.slice(0, 7).map(position => position.top), Array(7).fill(0));
-    assert.deepEqual(layout.itemLayouts.slice(0, 7).map(position => position.column), [0,1,2,3,4,5,6]);
-    assert.ok(layout.itemLayouts.slice(7, 21).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
+    assert.equal(layout.cols, 9);
+    assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.top), Array(9).fill(0));
+    assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.column), [0,1,2,3,4,5,6,7,8]);
+    assert.ok(layout.itemLayouts.slice(9, 27).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
     assert.ok(layout.rowTops.every((top,index,tops) => index === 0 || top >= tops[index - 1]), '按素材顺序的 top 位置保持单调，供二分窗口定位');
     assert.deepEqual(
         layout.itemLayouts.slice(0,100).map(({left,top,span}) => [left,top,span]),

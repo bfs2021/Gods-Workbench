@@ -540,6 +540,43 @@ def test_asset_query_filters_and_facets_use_actual_records(client):
     assert next(p for p in projects_after if p["project_id"] == project_id)["asset_count"] == 0
 
 
+def test_asset_categories_infer_imported_types_from_filename_and_extension_metadata(client):
+    path = "/api/asset-registry/assets"
+    items = [
+        {"name": "无扩展名图片", "kind": "indexed", "metadata": {
+            "original_filename": r"C:\catalog\frames\frame.PNG"}},
+        {"name": "clip.MOV", "kind": "indexed"},
+        {"name": "voice.aiff", "kind": "indexed"},
+        {"name": "字幕.VTT", "kind": "indexed"},
+        {"name": "checkpoint.safetensors", "kind": "indexed"},
+        {"name": "brand-font", "kind": "indexed", "metadata": {"extension": ".WOFF2"}},
+        {"name": "unclassified.unknown", "kind": "indexed"},
+        {"name": "纯文本", "kind": "text"},
+    ]
+    response = client.post(path + "/import", headers=AUTH, json={"items": items})
+    assert response.status_code == 200, response.text
+    created = response.json()["asset_ids"]
+
+    def ids(**params):
+        result = client.get(path, headers=AUTH, params=params)
+        assert result.status_code == 200, result.text
+        return [item["asset_id"] for item in result.json()["assets"]]
+
+    expected = {
+        "image": [created[0]], "video": [created[1]], "audio": [created[2]],
+        "document": [created[3], created[7]], "model": [created[4]],
+        "font": [created[5]], "other": [created[6]],
+    }
+    facets = client.get("/api/asset-registry/facets", headers=AUTH).json()
+    assert {item["name"]: item["count"] for item in facets["categories"]} == {
+        name: len(asset_ids) for name, asset_ids in expected.items()
+    }
+    assert facets["kinds"] == facets["categories"]
+    for category, asset_ids in expected.items():
+        assert ids(category=category) == asset_ids
+        assert ids(kind=category) == asset_ids
+
+
 def test_asset_cursor_is_query_and_revision_bound_and_pages_without_duplicates(client):
     path = "/api/asset-registry/assets"
     created = client.post(path + "/import", headers=AUTH, json={"items": [

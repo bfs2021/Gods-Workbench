@@ -5435,21 +5435,24 @@ function registryVirtualStateKey(items=[]){
     ].join(':');
 }
 function registryVirtualCardHeight(item={}, cardWidth=176){
-    if(registrySimple) return Math.ceil((cardWidth - 12) / (registryAspect === 'square' ? 1 : 16 / 9) + 39);
     const type = registryVisualType(item);
     const width = Number(item.width || item.metadata?.width || 0);
     const height = Number(item.height || item.metadata?.height || 0);
-    const ratio = width > 0 && height > 0 ? width / height : type === 'video' ? 16 / 9 : 1.35;
-    const mediaHeight = registryAspect === 'square'
-        ? cardWidth
-        : type === 'video'
-            ? cardWidth / Math.max(.2, ratio)
-            : ['image','video'].includes(type)
-                ? Math.max(96, Math.min(520, cardWidth / Math.max(.2, ratio)))
-                : 150;
+    const ratio = width > 0 && height > 0 ? width / height : type === 'video' ? 16 / 9 : 1;
+    const innerWidth = Math.max(96, cardWidth - 14);
+    const hasImagePreview = type === 'image' || type === 'video' || (type === 'audio' && assetSupportsImagePreview(item));
+    const mediaHeight = hasImagePreview
+        ? registryAspect === 'square' && type === 'video'
+            ? innerWidth
+            : width > 0 && height > 0
+                ? Math.max(96, Math.min(520, innerWidth / Math.max(.2, ratio)))
+                : type === 'video'
+                    ? innerWidth / (16 / 9)
+                    : 96
+        : 150;
     // Reserve enough space for the two-line name, metadata and source label.
     const bodyHeight = registrySimple ? 0 : 92;
-    return Math.max(180, Math.min(720, Math.ceil(mediaHeight + bodyHeight + 24)));
+    return Math.ceil(mediaHeight + bodyHeight + 14);
 }
 function registryVirtualHeightCacheKey(item, index=0, cacheMode=''){
     item = item || {};
@@ -5508,7 +5511,7 @@ function registryVirtualMeasureCardHeights(items=[], options){
     });
     host.remove();
 }
-function registryVirtualLayout(items=[], width=0){
+function registryVirtualLayout(items=[], width=0, measureMissing=true){
     const grid = root.querySelector('.registry-grid');
     const contentWidth = Math.max(320, Number(width) || grid?.clientWidth || root.querySelector('.registry-content')?.clientWidth || window.innerWidth || 1024);
     const gridStyle = grid ? getComputedStyle(grid) : {};
@@ -5516,9 +5519,9 @@ function registryVirtualLayout(items=[], width=0){
     const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
     const rowHeight = Math.max(1, Number.parseFloat(gridStyle.gridAutoRows) || 8);
     const preferred = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, Number(registryCardSize) || REGISTRY_CARD_SIZE.fallback));
-    const cssColumns = grid ? registryGridColumnCount(gridStyle.gridTemplateColumns) : 0;
-    const cols = Math.max(1, cssColumns || Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
-    const cardWidth = Math.max(96, (contentWidth - columnGap * Math.max(0, cols - 1)) / cols);
+    const cols = Math.max(1, Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
+    const availableCardWidth = (contentWidth - columnGap * Math.max(0, cols - 1)) / cols;
+    const cardWidth = Math.max(96, Math.min(preferred, availableCardWidth));
     const pitch = rowHeight + rowGap;
     const cacheMode = `${cardWidth.toFixed(2)}:${registryAspect}:${registrySimple ? 1 : 0}`;
     if(registryVirtualHeightCacheMode !== cacheMode){
@@ -5542,7 +5545,7 @@ function registryVirtualLayout(items=[], width=0){
         if(measuredWidth > 0 && Math.abs(measuredWidth - cardWidth) > 1) return;
         if(id && height > 0) registryVirtualHeightCache.set(registryVirtualHeightCacheKey(entry.item,entry.index,cacheMode), height);
     });
-    registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
+    if(measureMissing) registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
     const occupiedRows = [];
     const itemLayouts = [];
     let cursorRow = 0;
@@ -5697,7 +5700,7 @@ function registryVirtualItemsForActiveBoard(){
     const base = board?.system === false ? registryVisibleAssetList(customAssetLibraryItems(board)) : registryVisibleAssets();
     return {board, items:registryProjectedAssetItems(base)};
 }
-function updateRegistryVirtualWindow(force=false){
+function updateRegistryVirtualWindow(force=false, skipMeasurements=false){
     const grid = root.querySelector('[data-registry-virtual-grid]');
     const scrollRoot = grid?.closest('.registry-assets-scroll');
     if(!grid || !scrollRoot) return false;
@@ -5709,7 +5712,7 @@ function updateRegistryVirtualWindow(force=false){
         && registryVirtualState.key === key
         && registryVirtualState.itemLayouts?.length === items.length
         && Math.abs(Number(registryVirtualState.width || 0) - width) < 1;
-    const layout = canReuseLayout ? registryVirtualState : registryVirtualLayout(items, width);
+    const layout = canReuseLayout ? registryVirtualState : registryVirtualLayout(items, width, !skipMeasurements);
     const range = registryVirtualRange(items, layout, scrollRoot.scrollTop, scrollRoot.clientHeight || 650);
     const sameWindow = !force
         && registryVirtualState.key === key
@@ -7330,6 +7333,12 @@ function updateRegistryMasonryCards(cards=[], grid){
         measureScrollRoot.scrollTop = savedMeasureScrollTop;
     }
 }
+function remeasureRegistryMasonryGrid(grid){
+    if(!grid || grid.classList?.contains('registry-grid-virtualized') || grid.classList?.contains('registry-masonry-fallback')) return;
+    const cards = [...grid.querySelectorAll(':scope > .registry-card')];
+    cards.forEach(card => { card.dataset.registryMasonryDirty = 'true'; });
+    updateRegistryMasonryCards(cards, grid);
+}
 function scheduleRegistryMasonryLayout(){
     const revision = ++registryMasonryScheduleRevision;
     requestAnimationFrame(() => {
@@ -7682,7 +7691,7 @@ function render(){
         const toolbarSubtitle = activeTab === 'registry' || board?.system === false
             ? registryTotalSummary(registryVisibleAssets().length)
             : '统一资产工具';
-        root.insertAdjacentHTML('afterbegin', `${renderRegistryOverview()}${renderRegistryToolbar(null, toolbarTitle, toolbarSubtitle, {allowUrl:true})}`);
+        root.insertAdjacentHTML('afterbegin', `${renderRegistryOverview()}${renderRegistryToolbar(null, toolbarTitle, toolbarSubtitle, {allowUrl:true,hideHeading:activeTab === 'registry'})}`);
     }
     if(activeTab === 'registry' || customLibraryActive) renderRegistryFreshNotice();
     restoreRegistryPreviewImages(registryPreviewCache);
@@ -8338,7 +8347,7 @@ function registryCategoryCount(category){
     return Number(item?.count || 0);
 }
 function registryCategoryLabel(category=''){
-    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',other:'其他'}[category] || '全部资产';
+    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',other:'其他'}[category] || '全部资产';
 }
 function renderRegistryOverviewStats(){
     const globalTotal = (registryFacets.categories || []).reduce((total, item) => total + Number(item.count || 0), 0) || (registryFacets.kinds || []).reduce((total, item) => total + Number(item.count || 0), 0) || registryTotal;
@@ -8350,6 +8359,7 @@ function renderRegistryOverviewStats(){
         {id:'audio', name:'音频', value:registryCategoryCount('audio'), icon:'audio-lines'},
         {id:'document', name:'文档', value:registryCategoryCount('document'), icon:'files'},
         {id:'model', name:'模型', value:registryCategoryCount('model'), icon:'box'},
+        {id:'font', name:'字体', value:registryCategoryCount('font'), icon:'type'},
         {id:'reference-canvas', name:'参考画布', value:referenceCanvasTotal, icon:'map', canvasType:true},
         {id:'other', name:'其他', value:registryCategoryCount('other'), icon:'package-open'},
     ];
@@ -8383,16 +8393,32 @@ function renderRegistryOverview(){
     return `<section class="registry-overview-shell">${renderRegistryOverviewStats()}</section>`;
 }
 function registryAssetExtension(item={}){
-    return assetFileExtension(item);
+    const existing = assetFileExtension(item);
+    if(existing) return existing;
+    const source = String(item.display_path || item.canonical_relpath || item.relative_path || item.metadata?.original_filename || item.metadata?.file_name || item.metadata?.filename || '').split('?')[0].split('#')[0];
+    const match = source.toLowerCase().match(/\.([a-z0-9]+)$/);
+    if(match) return match[1];
+    return String(item.metadata?.extension || item.metadata?.file_extension || '').trim().toLowerCase().replace(/^\./, '');
 }
+const REGISTRY_ASSET_CATEGORY_EXTENSIONS = Object.freeze({
+    image:new Set(['jpg','jpeg','png','gif','webp','bmp','tif','tiff','heic','heif','avif','raw','svg','eps','psd','ai','cdr','hdr','exr']),
+    video:new Set(['mp4','mov','mkv','avi','webm','m4v','flv','wmv']),
+    audio:new Set(['mp3','wav','flac','aac','ogg','m4a','aiff','aif','wma','opus']),
+    document:new Set(['txt','csv','tsv','json','xml','html','htm','md','markdown','rtf','doc','docx','odt','ppt','pptx','odp','xls','xlsx','ods','pdf','srt','vtt','zip']),
+    model:new Set(['stl','3mf','obj','fbx','gltf','glb','usd','usdz','step','stp','iges','igs','dxf','ply','3ds','dae','ifc','wrl','vrml','blend','c4d','max','ma','mb','ckpt','safetensors','pt','pth','onnx','gguf']),
+    font:new Set(['ttf','otf','ttc','otc','woff','woff2']),
+});
 function registryAssetCategory(item={}){
     const extension = registryAssetExtension(item);
-    if((ASSET_LIBRARY_PRESETS.find(value => value.id === 'model')?.extensions || []).includes(extension)) return 'model';
-    if(['ttf','otf','woff','woff2'].includes(extension)) return 'other';
-    const kind = String(item.kind || '').toLowerCase();
-    if(['image','video','audio'].includes(kind)) return kind;
-    if(['document','workflow'].includes(kind)) return 'document';
-    return 'other';
+    for(const [category, extensions] of Object.entries(REGISTRY_ASSET_CATEGORY_EXTENSIONS)){
+        if(extensions.has(extension)) return category;
+    }
+    const type = detailViewerType('registry', item);
+    if(type === 'text') return 'document';
+    if(['image','video','audio','document','model','font'].includes(type)) return type;
+    const kind = String(item.kind || item.media_type || item.type || '').toLowerCase();
+    if(['image','video','audio','document','model','font'].includes(kind)) return kind;
+    return kind === 'text' ? 'document' : 'other';
 }
 function customAssetLibraryIncludesAsset(board,item={}){
     if(!board || board.system !== false || !item?.id) return false;
@@ -8847,8 +8873,8 @@ function renderRegistryTagGroups(){
     </section>`).join('');
 }
 function registryVisualType(item={}){
-    const type = detailViewerType('registry', item);
-    return ['font','image','video','text'].includes(type) ? type : 'other';
+    const category = registryAssetCategory(item);
+    return category === 'document' ? 'text' : category;
 }
 function registryMediaAspectStyle(item={}){
     if(!['image','video'].includes(registryVisualType(item))) return '';
@@ -9091,11 +9117,13 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
     const selectedGroupIds = selectedRegistryCustomGroupIds(board);
     const searchLabel = board?.name || '全部资产';
     const coverflowAvailable = registryCoverflowAssets(board).length > 0;
-    const coverflowControl = board ? `<button class="hw-btn registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} title="${coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频'}"><i data-lucide="images"></i><span>Coverflow</span></button>` : '';
+    const coverflowLabel = coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频';
+    const coverflowControl = `<button class="hw-btn registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} aria-label="${coverflowLabel}" title="${coverflowLabel}"><i data-lucide="images"></i><span>Coverflow</span></button>`;
     return `<div class="content-toolbar registry-toolbar">
-        <div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>
+        ${options.hideHeading ? '' : `<div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>`}
         <div class="registry-toolbar-controls">
             ${!board && document.documentElement.classList.contains('vault-shell-embedded') ? '<button class="hw-btn hw-btn-icon vault-filters-toggle" type="button" popovertarget="registryFacetPopover" title="智能筛选" aria-label="智能筛选"><i data-lucide="filter"></i></button>' : ''}
+            ${coverflowControl}
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
@@ -9103,7 +9131,6 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <label class="hw-btn registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select></label>
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
-            ${coverflowControl}
             ${options.allowUrl ? '<button class="hw-btn" type="button" data-registry-add-url><i data-lucide="link"></i><span>添加 URL</span></button>' : ''}
             <button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
             <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>
@@ -9325,11 +9352,9 @@ function renderRegistryDetail(){
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
     const classifiedCount = registryAssets.filter(item => (item.tags || []).length || item.metadata?.classification || item.classification?.summary).length;
-    const coverflowAvailable = registryCoverflowAssets().length > 0;
-    const coverflowLabel = coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频';
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
     root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}<aside class="asset-panel asset-nav registry-nav" ${embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="智能筛选"' : ''}>
-        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div><button class="hw-btn hw-btn-icon registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} aria-label="${coverflowLabel}" title="${coverflowLabel}"><i data-lucide="images"></i></button></div>
+        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div></div>
         <div class="nav-scroll registry-facets">
             <section class="registry-facet-section"><div class="registry-facet-title"><strong>快捷入口</strong></div>
                 ${renderRegistryFacetRow({id:'7',name:'最近 7 天',count:''}, 'recent', String(registryRecentDays || ''))}
@@ -9353,7 +9378,7 @@ function renderRegistryManager(){
         </div>
     </aside>
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
-        ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true})}
+        ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
         <div data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, null, '没有符合条件的资产。可以清空排除条件。')}${renderRegistryPagination()}</div>
@@ -19025,19 +19050,40 @@ document.addEventListener('keydown', event => {
 });
 document.addEventListener('wheel', navigateDetailPreviewWheel, {passive:false});
 let registryCardSizeSaveTimer = 0;
-document.addEventListener('wheel', event => {
+let registryCardSizeLayoutFrame = 0;
+let registryCardSizeVirtualMeasureRevision = 0;
+function handleRegistryCardResizeWheel(event){
     if(!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
-    if(!event.target?.closest?.('[data-registry-zoom-area]')) return;
-    if(!event.target.closest('.registry-content.registry-layout-grid')) return;
+    const target = event.target;
+    if(!target?.closest?.('[data-registry-zoom-area]')) return;
+    if(!target.closest('.registry-content.registry-layout-grid')) return;
     event.preventDefault();
     registryCardSize = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, registryCardSize + (event.deltaY > 0 ? -12 : 12)));
     root.querySelectorAll('.registry-content').forEach(node => node.style.setProperty('--registry-card-size', registryCardSize + 'px'));
+    registryCardSizeVirtualMeasureRevision += 1;
+    if(!registryCardSizeLayoutFrame){
+        registryCardSizeLayoutFrame = requestAnimationFrame(() => {
+            registryCardSizeLayoutFrame = 0;
+            if(root.querySelector('.registry-grid-virtualized')){
+                updateRegistryVirtualWindow(true, true);
+                const virtualMeasureRevision = registryCardSizeVirtualMeasureRevision;
+                requestAnimationFrame(() => {
+                    if(virtualMeasureRevision !== registryCardSizeVirtualMeasureRevision) return;
+                    if(root.querySelector('.registry-grid-virtualized')) updateRegistryVirtualWindow(true, true);
+                });
+            } else {
+                root.querySelectorAll('.registry-content.registry-layout-grid .registry-grid:not(.registry-grid-virtualized)').forEach(remeasureRegistryMasonryGrid);
+                scheduleRegistryMasonryLayout();
+            }
+        });
+    }
     clearTimeout(registryCardSizeSaveTimer);
     registryCardSizeSaveTimer = setTimeout(() => {
         saveRegistryViewSettings();
         setStatus('预览大小 ' + registryCardSize + 'px');
     }, 240);
-}, {passive:false});
+}
+document.addEventListener('wheel', handleRegistryCardResizeWheel, {passive:false});
 document.addEventListener('scroll', event => {
     if(event.target?.matches?.('[data-detail-media-library-grid]')) detailViewerState.mediaCanvasLibraryScrollTop = event.target.scrollTop;
     const registryScroll = event.target?.closest?.('.registry-assets-scroll');

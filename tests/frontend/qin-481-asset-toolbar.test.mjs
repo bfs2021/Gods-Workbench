@@ -51,25 +51,28 @@ assert.match(
   '加入分组应保留 disabled 禁用态（虚线灰字来源）'
 );
 
-// 4. asset-manager.css 覆盖块：搜索框压回 32px 硬件材质，去除 vault 内凹黑影。
+// 4. AC4：外层搜索标签透明且无框，边框仅由输入框本身提供。
+const searchWrapperStyle = css.match(
+  /body\.gw-signal\.gw-page--asset-manager #assetManagerRoot \.registry-toolbar \.asset-search-wrap \{([^}]*)\}/s
+);
+assert.ok(searchWrapperStyle, '搜索框外层样式应由 asset-manager.css 明确控制');
+assert.match(searchWrapperStyle[1], /height: 32px !important/);
+assert.match(searchWrapperStyle[1], /border: 0 !important/);
+assert.match(searchWrapperStyle[1], /background: transparent !important/);
+assert.match(searchWrapperStyle[1], /box-shadow: none !important/);
 assert.match(
   css,
-  /#assetManagerRoot \.asset-panel\.registry-content \.registry-toolbar \.asset-search-wrap \{[^}]*height: 32px !important[^}]*background: linear-gradient\(180deg,#1e222d 0%,#11131a 100%\)/s,
-  '搜索框应压回 32px 硬件按钮同款材质'
+  /\.registry-toolbar \.asset-search-wrap \.asset-search \{[^}]*border: 1px solid rgb\(223 195 132 \/ \.2\) !important[^}]*border-radius: 8px !important/s,
+  '搜索框应只保留输入框自身的圆角边框'
 );
 assert.match(
   css,
-  /#assetManagerRoot \.asset-panel\.registry-content \.registry-toolbar \.asset-search-wrap \{[^}]*box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.1\) !important/s,
-  '搜索框应使用硬件高光内阴影而非黑色内凹'
-);
-assert.match(
-  css,
-  /#assetManagerRoot \.asset-panel\.registry-content \.registry-toolbar \.registry-toolbar-select \{[^}]*height: 32px !important/s,
+  /body\.gw-signal\.gw-page--asset-manager #assetManagerRoot \.registry-toolbar \.registry-toolbar-select \{[^}]*height: 32px !important/s,
   '排序/分组标签应压回 32px 与按钮排对齐'
 );
 assert.match(
   css,
-  /#assetManagerRoot \.asset-panel\.registry-content \.registry-toolbar \.registry-layout-switch \{[^}]*padding: 3px !important/s,
+  /body\.gw-signal\.gw-page--asset-manager #assetManagerRoot \.registry-toolbar \.registry-layout-switch \{[^}]*padding: 3px !important/s,
   '视图切换 deck 应恢复 recessed 内衬间距'
 );
 
