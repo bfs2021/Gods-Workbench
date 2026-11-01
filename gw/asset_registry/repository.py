@@ -1821,8 +1821,12 @@ def get_asset_media(asset_id: str) -> Dict[str, Any]:
     return {"asset_id": asset_id, "versions": readable, "data_status": DATA_STATUS_OK}
 
 
-def derived_files(asset_id: str) -> Dict[str, Path]:
-    """返回已登记派生物的稳定名称到产物路径映射。"""
+def derived_files(asset_id: str, *, cache_root: str | None = None) -> Dict[str, Path]:
+    """返回已登记派生物的稳定名称到产物路径映射。
+
+    分镜产物位于媒体缓存根内，缓存根由调用方注入；未注入时只列旧版固定根，
+    本模块不反向依赖 gw.media（避免领域循环导入）。
+    """
     result: Dict[str, Path] = {}
     raw = state().read()
     item = raw["assets"].get(asset_id)
@@ -1839,14 +1843,20 @@ def derived_files(asset_id: str) -> Dict[str, Path]:
                 continue
             if path.is_file():
                 result[str(name)] = path
-    try:
-        storyboard_dir = media_probe.storyboard_directory(asset_id)
-        if storyboard_dir.exists():
+    storyboard_dirs = [media_probe.legacy_storyboard_directory(asset_id)]
+    if cache_root:
+        storyboard_dirs.insert(
+            0, media_probe.storyboard_directory(asset_id, cache_root=cache_root)
+        )
+    for storyboard_dir in storyboard_dirs:
+        try:
+            if not storyboard_dir.exists():
+                continue
             for path in sorted(storyboard_dir.iterdir()):
                 if path.is_file() and media_probe.is_storyboard_cache_name(path.name):
                     result[path.name] = path
-    except (CleanroomException, OSError):
-        pass
+        except (CleanroomException, OSError):
+            continue
     return result
 
 

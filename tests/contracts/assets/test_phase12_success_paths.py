@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gw.api.app import create_app
 from gw.core import storage
+from gw.media import repository as media_repo
 
 AUTH = {"Authorization": "Bearer cleanroom-test", "X-User-Role": "editor"}
 GOV = {**AUTH, "X-User-Role": "governor"}
@@ -242,8 +243,11 @@ def test_real_ffmpeg_registered_frame_storyboard_clip_and_transcode(tmp_path, mo
             assert image.getpixel((80, 60))[0] > 200
         storyboard = client.get(path + "/" + created + "/video/storyboard", headers=AUTH)
         assert storyboard.status_code == 200, storyboard.text
-        assert storyboard.json()["count"] == 1
-        assert (data_root / storyboard.json()["frames"][0]["output_name"]).is_file()
+        # 九宫格固定 9 帧（首帧、尾帧与 7 个等分中间帧），与视频时长无关。
+        assert storyboard.json()["count"] == 9
+        # 中间帧只作合成输入：合成成功后删除，只留一张固定横板 3×3 单图。
+        assert storyboard.json()["frames"] == []
+        assert (data_root / storyboard.json()["image"]).is_file()
         clipped = client.post(path + "/" + created + "/video/clip", headers=AUTH,
                               json={"start_seconds": 0, "end_seconds": 1})
         assert clipped.status_code == 200, clipped.text
@@ -260,12 +264,16 @@ def test_real_ffmpeg_registered_frame_storyboard_clip_and_transcode(tmp_path, mo
             metadata = json.loads(probe.stdout)
             assert metadata["streams"][0]["codec_name"] == "h264"
             assert 0 < float(metadata["format"]["duration"]) <= maximum
-        story_output = storyboard.json()["frames"][0]["output_name"]
-        assert story_output.startswith("media_output/storyboards/" + created + "/")
+        story_output = storyboard.json()["image"]
+        # 分镜与缩略图共用 cache_folder 受管缓存根（QIN-510），按稳定 ID 分区。
+        assert story_output.startswith(
+            media_repo.cache_root_relative() + "/storyboards/" + created + "/"
+        )
         story_bytes = client.get("/api/download-output", headers=AUTH, params={"path": story_output})
         assert story_bytes.status_code == 200
         assert story_bytes.content == (data_root / story_output).read_bytes()
         deleted = client.post("/api/asset-thumbnails/delete-storyboards", headers=AUTH, json={"asset_ids": [created]})
+        # 中间帧已随合成删除，这里只剩那张 3×3 合成单图。
         assert deleted.status_code == 200 and deleted.json()["removed"] == 1
         assert deleted.json()["data_gaps"] == ["legacy_shared_frames_preserved"]
         assert client.get("/api/download-output", headers=AUTH, params={"path": story_output}).status_code == 404

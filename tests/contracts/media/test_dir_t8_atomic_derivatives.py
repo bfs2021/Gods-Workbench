@@ -81,7 +81,8 @@ def _thumbnails_dir(runtime: dict[str, Path]) -> Path:
 
 
 def _storyboards_dir(runtime: dict[str, Path]) -> Path:
-    return runtime["data"] / "media_output" / "storyboards"
+    # 分镜与缩略图共用 cache_folder 受管缓存根（QIN-510）。
+    return runtime["data"] / media_repo.cache_root_relative() / "storyboards"
 
 
 def test_thumbnail_different_sources_same_stem_produce_distinct_files(
@@ -149,12 +150,19 @@ def test_storyboard_directory_is_version_scoped(
 ) -> None:
     """同一资产不同 version 映射到独立缓存目录，缺失版本走默认桶。"""
     asset_id = "ast_v1"
-    default_dir = media_probe.storyboard_directory(asset_id, None)
-    version_one = media_probe.storyboard_directory(asset_id, "1710000000")
-    version_two = media_probe.storyboard_directory(asset_id, "1719999999")
+    cache_root = media_repo.cache_root_relative()
+    default_dir = media_probe.storyboard_directory(asset_id, None, cache_root=cache_root)
+    version_one = media_probe.storyboard_directory(
+        asset_id, "1710000000", cache_root=cache_root
+    )
+    version_two = media_probe.storyboard_directory(
+        asset_id, "1719999999", cache_root=cache_root
+    )
     assert default_dir != version_one
     assert version_one != version_two
-    assert version_one.is_relative_to(media_probe.storyboard_directory(asset_id, None))
+    assert version_one.is_relative_to(
+        media_probe.storyboard_directory(asset_id, None, cache_root=cache_root)
+    )
 
 
 def test_storyboard_cache_isolated_per_version(
@@ -180,12 +188,14 @@ def test_storyboard_cache_isolated_per_version(
 
     monkeypatch.setattr(media_probe, "_run", fake_run)
 
-    first = media_probe.storyboard(asset_id, "1710000000")
-    second = media_probe.storyboard(asset_id, "1719999999")
+    cache_root = media_repo.cache_root_relative()
+    first = media_probe.storyboard(asset_id, "1710000000", cache_root=cache_root)
+    second = media_probe.storyboard(asset_id, "1719999999", cache_root=cache_root)
     assert first["version"] == "1710000000"
     assert second["version"] == "1719999999"
-    first_parent = Path(first["frames"][0]["output_name"]).parts
-    second_parent = Path(second["frames"][0]["output_name"]).parts
+    # 中间帧合成后即删除，产物路径以合成单图为锚点判断版本隔离。
+    first_parent = Path(first["image"]).parts
+    second_parent = Path(second["image"]).parts
     assert first_parent != second_parent
 
 
@@ -325,7 +335,9 @@ def test_storyboard_delete_outputs_removes_versioned_cache(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(media_probe, "_run", fake_run)
-    media_probe.storyboard(asset_id, "1710000000")
+    media_probe.storyboard(
+        asset_id, "1710000000", cache_root=media_repo.cache_root_relative()
+    )
 
     removed = media_repo.delete_outputs("storyboards", {"asset_ids": [asset_id]})
     assert removed["removed"] >= 1

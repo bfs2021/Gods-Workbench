@@ -298,12 +298,21 @@ def _cache_bucket(settings: dict[str, Any], source: Path) -> str:
     return storage.root_identity_id(source.parent)
 
 
+def cache_root_relative() -> str:
+    """受管缓存根相对路径（``media_output/<cache_folder>``）。
+
+    缩略图、预览与视频分镜共用同一口径：换缓存目录名时全部产物一起换根，
+    不允许各模块自行推导缓存位置。
+    """
+    return "media_output/" + _cache_folder_name(get_thumbnail_settings())
+
+
 def _thumbnail_cache_directory(
     settings: dict[str, Any], source: Path
 ) -> tuple[str, Path]:
     """返回缩略图缓存目录的相对路径与真实路径，按 cache_folder/分桶隔离。"""
-    relative = "media_output/%s/%s" % (
-        _cache_folder_name(settings),
+    relative = "%s/%s" % (
+        cache_root_relative(),
         _cache_bucket(settings, source),
     )
     directory = storage.resolve_output_directory(relative, must_exist=False)
@@ -964,6 +973,115 @@ def run_background_thumbnail(payload: dict[str, Any]) -> tuple[str, str]:
     return job_id, "/api/asset-thumbnails/jobs/%s" % job_id
 
 
+def _storyboard_error_item(asset_id: str, exc: CleanroomException) -> dict[str, Any]:
+    return {
+        "asset_id": asset_id,
+        "status": "failed",
+        "error": {"code": exc.code, "message": exc.message},
+    }
+
+
+def generate_storyboards(payload: dict[str, Any]) -> dict[str, Any]:
+    """批量预生成视频九宫格与片段缩略图，并把真实路径回写注册表。
+
+    逐项处理并返回真实 ``generated / cached / failed`` 计数：单项失败不中断整批，
+    失败项的 ``video_segments[].thumbnail`` 保持原值（由 media_probe 失败关闭保证）。
+    """
+    from gw.asset_registry import media_probe
+
+    asset_ids = _asset_ids(payload)
+    if not asset_ids:
+        raise CleanroomException(400, "INVALID_REQUEST", "缺少 asset_ids")
+    force = bool((payload or {}).get("force"))
+    items: list[dict[str, Any]] = []
+    first_error: CleanroomException | None = None
+    for asset_id in dict.fromkeys(asset_ids):
+        try:
+            result = media_probe.storyboard_thumbnails(
+                asset_id, cache_root=cache_root_relative(), force=force
+            )
+        except CleanroomException as exc:
+            if first_error is None:
+                first_error = exc
+            items.append(_storyboard_error_item(asset_id, exc))
+            continue
+        produced = int(result.get("generated") or 0)
+        grid = result.get("storyboard") or {}
+        items.append(
+            {
+                "asset_id": asset_id,
+                "status": "generated" if produced else "cached",
+                # 中间帧合成后即删除，对外产物是那张固定横板的 3×3 单图。
+                "output": grid.get("image", ""),
+                "frames": int(result.get("frames") or 0),
+                "frames_generated": int(grid.get("generated") or 0),
+                "segment_total": int(result.get("segment_total") or 0),
+                "segments_updated": int(result.get("segments_updated") or 0),
+            }
+        )
+    if len(items) == 1 and items[0].get("status") == "failed" and first_error is not None:
+        raise first_error
+    generated = sum(1 for item in items if item.get("status") == "generated")
+    cached = sum(1 for item in items if item.get("status") == "cached")
+    failed = sum(1 for item in items if item.get("status") == "failed")
+    outputs = [item["output"] for item in items if item.get("output")]
+    successful = [item for item in items if item.get("status") != "failed"]
+    head = successful[0] if successful else {}
+    if successful:
+        # 真有分镜产物才把能力开关置真：前端据此显示九宫格入口。
+        from gw.asset_registry import repository as registry
+
+        try:
+            registry.update_feature("video_storyboard", True)
+        except CleanroomException:
+            # 能力开关写失败不影响已落盘产物，但不得虚报开关已生效。
+            pass
+    return {
+        "asset_id": head.get("asset_id", ""),
+        "output": head.get("output", ""),
+        "outputs": outputs,
+        "items": items,
+        "generated": generated,
+        "cached": cached,
+        "failed": failed,
+        "frames": sum(int(item.get("frames") or 0) for item in items),
+        "segments_updated": sum(int(item.get("segments_updated") or 0) for item in items),
+        "data_status": "partial" if failed else "ok",
+        "data_gaps": ["storyboard_failures_present"] if failed else [],
+    }
+
+
+def run_background_storyboards(payload: dict[str, Any]) -> tuple[str, str]:
+    """真实生成分镜并登记为可回读的后台任务（返回稳定 job_id + poll_hint）。"""
+    result = generate_storyboards(payload)
+    outputs = result.get("outputs") or []
+    file_name = Path(outputs[0]).name if outputs else ""
+    total = max(1, len(result.get("items") or []))
+
+    def mutate(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        raw["sequence"] = int(raw.get("sequence", 0)) + 1
+        job_id = "sjob_%04d" % raw["sequence"]
+        record = {
+            "job_id": job_id,
+            "kind": "storyboards",
+            "status": "succeeded",
+            "state": "succeeded",
+            "progress": {"processed": total, "total": total},
+            "result": result,
+            "output": result.get("output", ""),
+            "output_file": file_name,
+            "error": None,
+            "created_at": storage.now_iso(),
+            "finished_at": storage.now_iso(),
+        }
+        raw.setdefault("jobs", {})[job_id] = record
+        raw["revision"] = int(raw.get("revision") or 1) + 1
+        return job_id, dict(record)
+
+    job_id, _ = _job_state().mutate(mutate)
+    return job_id, "/api/asset-thumbnails/jobs/%s" % job_id
+
+
 def get_job(job_id: str) -> dict[str, Any]:
     """读取后台缩略图任务；不存在一律 404，不返回伪造状态。"""
     job = _job_state().read().get("jobs", {}).get(str(job_id))
@@ -1035,6 +1153,7 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     from gw.asset_registry import media_probe
 
     candidates = []
+    owners: dict[str, str] = {}
     # 缓存按 cache_folder/分桶分层存储，位置随设置变化；删除按精确文件名索引，
     # 不假设固定目录层级，也不触碰代理与分镜产物。
     thumbnail_index: dict[str, list[str]] | None = None
@@ -1055,8 +1174,16 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
                 ):
                     candidates.extend(relatives)
         else:
-            directory = media_probe.storyboard_directory(asset_id)
-            if directory.exists():
+            # 新缓存根（cache_folder 口径）与旧固定根一并扫描：历史产物不留孤儿，
+            # 同时保留「先解析目录准入、再匹配精确文件名」的链接拒绝语义。
+            for directory in (
+                media_probe.storyboard_directory(
+                    asset_id, cache_root=cache_root_relative()
+                ),
+                media_probe.legacy_storyboard_directory(asset_id),
+            ):
+                if not directory.exists():
+                    continue
                 # 版本桶与默认桶一并清理；逐文件准入校验，不跟随链接。
                 for child in sorted(directory.rglob("*")):
                     if not child.is_file():
@@ -1067,6 +1194,7 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
                     storage.resolve_output_path(relative)
                     if media_probe.is_storyboard_cache_name(child.name):
                         candidates.append(relative)
+                        owners.setdefault(relative, asset_id)
     removed, failed = [], []
     for relative in candidates:
         try:
@@ -1077,14 +1205,88 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
             failed.append({"name": relative, "code": "CACHE_PATH_CHANGED"})
         except OSError:
             failed.append({"name": relative, "code": "CACHE_DELETE_FAILED"})
+    metadata_cleared = 0
+    if kind == "storyboards":
+        metadata_cleared = _clear_storyboard_metadata(
+            ids, owners, {item["name"] for item in failed}
+        )
+        _sync_storyboard_feature()
     return {
         "kind": kind,
         "asset_ids": ids,
         "removed": len(removed),
         "removed_files": removed,
         "failed": failed,
+        "metadata_cleared": metadata_cleared,
         "data_status": "partial" if failed else "ok",
         "data_gaps": ["legacy_shared_frames_preserved"]
         if kind == "storyboards"
         else [],
     }
+
+
+#: 分镜产物路径特征；只清理本模块写出的缩略图字段，不误清其他来源的登记值。
+_STORYBOARD_PATH_MARKER = "/storyboards/"
+
+
+def _is_storyboard_thumbnail(value: Any) -> bool:
+    text = str(value or "").replace("\\", "/")
+    return _STORYBOARD_PATH_MARKER in text
+
+
+def _clear_storyboard_metadata(
+    asset_ids: list[str], owners: dict[str, str], failed: set[str]
+) -> int:
+    """删除分镜缓存后清空对应 ``video_segments[].thumbnail``，不留指向空文件的路径。"""
+    from gw.asset_registry import repository as registry
+
+    cleared = 0
+    for asset_id in dict.fromkeys(asset_ids):
+        try:
+            record = registry.get_asset(asset_id)
+        except CleanroomException:
+            continue
+        metadata = record.get("metadata")
+        segments = metadata.get("video_segments") if isinstance(metadata, dict) else None
+        if not isinstance(segments, list) or not segments:
+            continue
+        updated: list[Any] = []
+        changed = False
+        for segment in segments:
+            if not isinstance(segment, dict) or not _is_storyboard_thumbnail(
+                segment.get("thumbnail")
+            ):
+                updated.append(segment)
+                continue
+            thumb = str(segment["thumbnail"])
+            if owners.get(thumb, asset_id) != asset_id or thumb in failed:
+                # 该帧删除失败或不属于本素材时保留原值，避免元数据与磁盘不一致。
+                updated.append(segment)
+                continue
+            updated.append({**segment, "thumbnail": None})
+            changed = True
+        if not changed:
+            continue
+        try:
+            registry.update_asset(asset_id, {"video_segments": updated})
+        except CleanroomException:
+            continue
+        cleared += 1
+    return cleared
+
+
+def _sync_storyboard_feature() -> None:
+    """分镜产物全部清空后把能力开关置假，保证开关状态与磁盘一致。"""
+    from gw.asset_registry import repository as registry
+
+    for relative, _path in storage.iter_output_paths("media_output"):
+        normalized = relative.replace("\\", "/")
+        if _STORYBOARD_PATH_MARKER not in normalized:
+            continue
+        # 帧文件（.png）与九宫格合成单图（.jpg）任一类还在，就说明产物未清空。
+        if normalized.endswith(".png") or normalized.endswith(".jpg"):
+            return
+    try:
+        registry.update_feature("video_storyboard", False)
+    except CleanroomException:
+        pass
