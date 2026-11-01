@@ -109,6 +109,11 @@ KNOWN_IMPLEMENTED = frozenset(
         # 2026-10-15 C4-AC5b：未归属收件箱与移到项目（后端 IN-5）。
         "/api/assets/unassigned",
         "/api/assets/{p}/move-to-project",
+        # 2026-11-02 QIN-514：资产设置旧 JPEG 的无损 JXL 扫描与持久转码任务。
+        "/api/assets/transcode-jpeg-lossless",
+        "/api/assets/transcode-jpeg-lossless/scan",
+        "/api/assets/transcode-jpeg-lossless/jobs/{p}",
+        "/api/assets/transcode-jpeg-lossless/jobs/{p}/cancel",
         "/api/asset-library",
         "/api/asset-library/categories",
         "/api/asset-library/libraries",

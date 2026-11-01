@@ -313,7 +313,7 @@ def test_static_layer_has_no_legacy_integration_markers(repo_root: Path):
 # 任何票增删自己的分片都不需要重算下面这个常量，也就不会形成并行 PR 的热点。
 ADMISSION_METADATA_PATH = ADMISSION_BASE_METADATA_PATH
 ADMISSION_BASE_METADATA_SHA256 = (
-    "5797e0b66946aac71f033d97e9b2dbfab5ece00c5f5f37adb72845a7289578d9"
+    "97be7b419d7f003da1086d11e3b6e8319ca49d4c2798894ca68789b5fc2e9387"
 )
 QUARANTINED_PROMPT_ORIGINAL_PATH = (
     "web/system-prompts/infinite-canvas-prompt-templates.md"
@@ -790,7 +790,7 @@ def test_admission_metadata_hashes_match_current_files(repo_root: Path):
     assert len(entries) == 110, (
         "当前准入登记数量必须包含 H01、已批准规范、QIN-376 测试覆盖清单、QIN-382 方案"
         "、MVP1-T4a 嵌入基准冒烟测试、QIN-347 回归测试、QIN-440 产物来源链契约测试"
-        "与 QIN-443 NLE 导出黄金夹具、QIN-521 快捷键使用指南"
+        "、QIN-443 NLE 导出黄金夹具、QIN-521 快捷键使用指南与 QIN-514 P8-A1 治理报告"
     )
     for entry in entries:
         path = repo_root / entry["path"]
@@ -903,6 +903,7 @@ def test_accepted_doc_slices_match_migration_manifest(repo_root: Path):
         "docs/design/DESIGN-SYSTEM-GUIDE.md",
         "docs/design/BUTTON-SYSTEM-SPEC.md",
         "docs/governance/PROJECT-GOVERNANCE.md",
+        "docs/governance/agent-reports-2026-09-21/P8-A1-FRONTEND-BACKEND-API-GAP.md",
         "docs/governance/GLOBAL-NAMING-SPEC.md",
         "docs/governance/LOCAL-DIRECTORY-SPEC.md",
         "docs/contracts/PROVIDER-PROTOCOL-BOUNDARIES.md",
