@@ -425,6 +425,7 @@ const videoStoryboardImageCache = new Map();
 let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', savedMode:'source', savedDirectory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, error:'', cacheBlocked:null, grantingRoot:false};
 // 切换缓存目录的确认弹窗：迁移 / 删除 / 取消（取消不改设置，继续用原目录）。
 let thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
+let assetJxlTranscodeState = {loading:false, starting:false, cancelling:false, scan:null, job:null, pollingJobId:'', error:''};
 let thumbnailCacheVersion = 0; // 【修复问题1】仅作为无 asset_id 的旧版 URL 的会话级版本，任务完成不再全局变化
 let projects = [];
 function requestedRegistryProjectId(){
@@ -1300,7 +1301,123 @@ function renderAssetPreviewSettingsBody(){
             <button class="hw-btn hw-btn-danger" type="button" data-board-thumbnail-delete ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="image-off"></i><span>${thumbnailGeneratorState.deleting ? '正在删除…' : `删除缩略图 ${ids.length}`}</span></button>
             <button class="hw-btn hw-btn-gold" type="button" data-board-thumbnail-run ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.submittingBackground ? 'loader-2' : 'circle-play'}"></i><span>${thumbnailGeneratorState.submittingBackground ? '正在提交…' : `后台重新生成 ${ids.length}`}</span></button>
         </div>
+        <div class="board-settings-divider" aria-hidden="true"></div>
+        ${renderJxlLosslessTranscodeSettingsBody()}
     </section>`;
+}
+function renderJxlLosslessTranscodeSettingsBody(){
+    const state = assetJxlTranscodeState;
+    const scan = state.scan || {};
+    const tools = scan.tool_status || {};
+    const encoder = tools.cjxl || {};
+    const decoder = tools.djxl || {};
+    const job = state.job || null;
+    const running = Boolean(job && ['queued','running'].includes(job.status));
+    const ready = Boolean(encoder.available && decoder.available);
+    const toolLabel = tools.status === 'ready' ? '已就绪' : tools.status === 'error' ? '探测失败' : '未安装';
+    const progress = job?.progress || {};
+    const progressTotal = Math.max(1, Number(progress.total || 0));
+    const progressCompleted = Math.min(progressTotal, Number(progress.completed || 0));
+    const progressText = `${progressCompleted} / ${Number(progress.total || 0)}`;
+    const statusText = job ? ({queued:'排队中',running:'处理中',succeeded:'已完成',failed:'失败',cancelled:'已取消',interrupted:'服务重启后中断'}[job.status] || job.status) : '';
+    const guidance = tools.guidance || '请安装官方 libjxl 工具，并确保 cjxl 与 djxl 位于 PATH 或应用 bin/ 目录。';
+    return `<section class="asset-jxl-transcode" data-jxl-transcode-settings aria-busy="${state.loading || state.starting || state.cancelling}">
+        <div class="asset-pref-title"><i data-lucide="file-output"></i><span>旧 JPEG 无损转码</span><small>${escapeHtml(state.loading ? '正在扫描…' : toolLabel)}</small></div>
+        <p class="board-settings-hint">使用官方 cjxl 生成 JXL，并以 djxl 还原校验 SHA256。原 JPEG 始终保留。</p>
+        <div class="thumbnail-cache-summary board-thumbnail-summary">
+            <span>工具：cjxl ${escapeHtml(encoder.version || encoder.code || '未探测')} · djxl ${escapeHtml(decoder.version || decoder.code || '未探测')}</span>
+            <small>登记 JPEG ${Number(scan.jpeg_assets || 0)} 项 · 待转码 ${Number(scan.pending_count || 0)} 项 · 预计节省 ${escapeHtml(formatFileSize(scan.estimated_savings_min_bytes || 0))}–${escapeHtml(formatFileSize(scan.estimated_savings_max_bytes || 0))}</small>
+        </div>
+        ${!ready ? `<p class="board-settings-hint">${escapeHtml(guidance)} ${tools.download_url ? `<a href="${escapeAttr(tools.download_url)}" target="_blank" rel="noopener noreferrer">官方发布页</a>` : ''}</p>` : ''}
+        ${scan.unavailable_count ? `<p class="board-settings-hint">${Number(scan.unavailable_count)} 项源文件当前不可读取，已跳过。</p>` : ''}
+        ${state.error ? `<div class="thumbnail-cache-error board-thumbnail-error" role="alert">${escapeHtml(state.error)}</div>` : ''}
+        ${job ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status" aria-live="polite"><span>${escapeHtml(statusText)} · ${escapeHtml(progressText)} · 已节省 ${escapeHtml(formatFileSize(progress.saved_bytes || 0))}</span><progress class="board-jxl-transcode-progress" max="${progressTotal}" value="${progressCompleted}" aria-label="JPEG XL 无损转码进度"></progress><small>${progress.failed ? `失败 ${Number(progress.failed)} 项` : ''}${job.error_code ? ` · ${escapeHtml(job.error_code)}` : ''}${job.cancel_requested ? ' · 当前文件结束后停止' : ''}</small></div>` : ''}
+        <div class="board-thumbnail-actions">
+            <button class="hw-btn" type="button" data-jxl-transcode-scan ${state.loading || state.starting || state.cancelling ? 'disabled' : ''}><i data-lucide="${state.loading ? 'loader-2' : 'refresh-cw'}"></i><span>重新扫描</span></button>
+            ${running
+                ? `<button class="hw-btn hw-btn-danger" type="button" data-jxl-transcode-cancel ${state.cancelling || job.cancel_requested ? 'disabled' : ''}><i data-lucide="ban"></i><span>${state.cancelling ? '正在取消…' : '完成当前项后取消'}</span></button>`
+                : `<button class="hw-btn hw-btn-gold" type="button" data-jxl-transcode-start ${!ready || state.loading || state.starting || !Number(scan.pending_count || 0) ? 'disabled' : ''}><i data-lucide="${state.starting ? 'loader-2' : 'file-output'}"></i><span>${state.starting ? '正在提交…' : `开始无损转码 ${Number(scan.pending_count || 0)} 项`}</span></button>`}
+        </div>
+    </section>`;
+}
+async function loadJxlTranscodeScan(){
+    assetJxlTranscodeState = {...assetJxlTranscodeState, loading:true, error:''};
+    if(storageSettingsState.open) renderStorageSettingsModal();
+    try {
+        const scan = await apiJsonResponse(assetManagerHttp.request('/api/assets/transcode-jpeg-lossless/scan', {method:'GET', credentials:'same-origin'}));
+        const activeJob = scan.active_job && ['queued','running'].includes(scan.active_job.status) ? scan.active_job : null;
+        const shouldStartPoll = Boolean(activeJob && assetJxlTranscodeState.pollingJobId !== activeJob.job_id);
+        assetJxlTranscodeState = {
+            ...assetJxlTranscodeState,
+            scan,
+            job:activeJob || assetJxlTranscodeState.job,
+            pollingJobId:activeJob?.job_id || assetJxlTranscodeState.pollingJobId,
+            loading:false,
+        };
+        if(shouldStartPoll && activeJob){
+            void pollJxlTranscodeJob(activeJob.job_id, Number(scan.active_job.poll_hint?.interval_ms || 500));
+        }
+    } catch(error){
+        assetJxlTranscodeState = {...assetJxlTranscodeState, loading:false, error:error.message || 'JPEG 扫描失败'};
+    }
+    if(storageSettingsState.open) renderStorageSettingsModal();
+}
+async function pollJxlTranscodeJob(jobId, intervalMs=500){
+    if(!jobId) return;
+    try {
+        const job = await apiJsonResponse(assetManagerHttp.request(`/api/assets/transcode-jpeg-lossless/jobs/${encodeURIComponent(jobId)}`, {method:'GET', credentials:'same-origin'}));
+        if(assetJxlTranscodeState.job?.job_id !== jobId) return;
+        assetJxlTranscodeState = {...assetJxlTranscodeState, job, pollingJobId:['queued','running'].includes(job.status) ? jobId : ''};
+        if(storageSettingsState.open) renderStorageSettingsModal();
+        if(['queued','running'].includes(job.status)){
+            window.setTimeout(() => void pollJxlTranscodeJob(jobId, intervalMs), intervalMs);
+        } else {
+            await loadJxlTranscodeScan();
+        }
+    } catch(error){
+        if(assetJxlTranscodeState.job?.job_id !== jobId) return;
+        if([401,403,404].includes(error.status)){
+            assetJxlTranscodeState = {...assetJxlTranscodeState, pollingJobId:'', error:error.message || '转码任务不可读取'};
+            if(storageSettingsState.open) renderStorageSettingsModal();
+            return;
+        }
+        assetJxlTranscodeState = {...assetJxlTranscodeState, error:error.message || '读取转码进度失败'};
+        if(storageSettingsState.open) renderStorageSettingsModal();
+        window.setTimeout(() => void pollJxlTranscodeJob(jobId, Math.max(intervalMs, 1500)), Math.max(intervalMs, 1500));
+    }
+}
+async function startJxlLosslessTranscode(){
+    if(assetJxlTranscodeState.starting || Number(assetJxlTranscodeState.scan?.pending_count || 0) < 1) return;
+    assetJxlTranscodeState = {...assetJxlTranscodeState, starting:true, error:''};
+    renderStorageSettingsModal();
+    try {
+        const accepted = await apiJsonResponse(assetManagerHttp.request('/api/assets/transcode-jpeg-lossless', {
+            method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})
+        }));
+        assetJxlTranscodeState = {...assetJxlTranscodeState, starting:false, job:accepted.job || null, pollingJobId:accepted.job_id || ''};
+        renderStorageSettingsModal();
+        if(accepted.job_id) void pollJxlTranscodeJob(accepted.job_id, Number(accepted.poll_hint?.interval_ms || 500));
+    } catch(error){
+        assetJxlTranscodeState = {...assetJxlTranscodeState, starting:false, error:`${error.code ? `${error.code}：` : ''}${error.message || '提交转码失败'}`};
+        renderStorageSettingsModal();
+    }
+}
+async function cancelJxlLosslessTranscode(){
+    const jobId = assetJxlTranscodeState.job?.job_id;
+    if(!jobId || assetJxlTranscodeState.cancelling) return;
+    assetJxlTranscodeState = {...assetJxlTranscodeState, cancelling:true, error:''};
+    renderStorageSettingsModal();
+    try {
+        const job = await apiJsonResponse(assetManagerHttp.request(`/api/assets/transcode-jpeg-lossless/jobs/${encodeURIComponent(jobId)}/cancel`, {
+            method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})
+        }));
+        assetJxlTranscodeState = {...assetJxlTranscodeState, cancelling:false, job};
+        renderStorageSettingsModal();
+        if(!['queued','running'].includes(job.status)) await loadJxlTranscodeScan();
+    } catch(error){
+        assetJxlTranscodeState = {...assetJxlTranscodeState, cancelling:false, error:error.message || '取消转码失败'};
+        renderStorageSettingsModal();
+    }
 }
 function renderAssetVideoSettingsBody(){
     const features = Array.isArray(registryStatus?.overview?.features) ? registryStatus.overview.features : [];
@@ -2605,6 +2722,7 @@ async function openStorageSettings(tab='boards'){
         setStatus(thumbnailGeneratorState.error);
         renderStorageSettingsModal();
     }
+    void loadJxlTranscodeScan();
 }
 function applyAssetProxySettings(policy={}){
     assetProxySettingsState = {
@@ -11621,6 +11739,9 @@ async function handleClick(event){
         return;
     }
     if(target.closest?.('[data-board-proxy-save]')){ await saveAssetProxySettings(); return; }
+    if(target.closest?.('[data-jxl-transcode-scan]')){ await loadJxlTranscodeScan(); return; }
+    if(target.closest?.('[data-jxl-transcode-start]')){ await startJxlLosslessTranscode(); return; }
+    if(target.closest?.('[data-jxl-transcode-cancel]')){ await cancelJxlLosslessTranscode(); return; }
     const boardThumbnailMode = target.closest?.('[data-board-thumbnail-mode]');
     if(boardThumbnailMode){
         syncStorageSettingsInputsToState();

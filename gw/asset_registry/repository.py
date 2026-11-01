@@ -1944,6 +1944,83 @@ def register_derived_asset(asset_id: str, name: str, raw_path: str) -> Dict[str,
     return state().mutate(mutate)
 
 
+def record_jxl_lossless_transcodes(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """CAS 记账已通过 SHA256 往返校验的 JPEG XL 派生物。"""
+    if not isinstance(items, list):
+        raise CleanroomException(400, "INVALID_REQUEST", "转码记录必须是数组")
+
+    def mutate(raw: Dict[str, Any]) -> Dict[str, Any]:
+        results = []
+        changed = False
+        for entry in items:
+            asset_id = str(entry.get("asset_id") or "").strip()
+            record = raw.get("assets", {}).get(asset_id)
+            if record is None or not _visible(record):
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "ASSET_NOT_FOUND"})
+                continue
+            expected = entry.get("expected_version")
+            current = int(record.get("version", 1))
+            if type(expected) is not int or expected < 1:
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "INVALID_REQUEST"})
+                continue
+            if expected != current:
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "VERSION_CONFLICT"})
+                continue
+
+            output = str(entry.get("output") or "")
+            source_sha256 = str(entry.get("source_sha256") or "")
+            verified_sha256 = str(entry.get("verified_sha256") or "")
+            if (
+                not output.startswith("media_output/jxl-lossless/")
+                or not output.lower().endswith(".jxl")
+                or len(source_sha256) != 64
+                or any(char not in "0123456789abcdef" for char in source_sha256.lower())
+                or source_sha256 != verified_sha256
+                or entry.get("verified") is not True
+            ):
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "LOSSLESS_VERIFICATION_FAILED"})
+                continue
+            try:
+                derived = storage.resolve_output_path(output, must_exist=True)
+                output_size = derived.stat().st_size
+            except (CleanroomException, OSError):
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "JXL_OUTPUT_NOT_FOUND"})
+                continue
+            if output_size <= 0:
+                results.append({"asset_id": asset_id, "recorded": False, "error_code": "JXL_OUTPUT_INVALID"})
+                continue
+
+            metadata = record.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                record["metadata"] = metadata
+            metadata["jxl_lossless_transcode"] = {
+                "output": output,
+                "source_sha256": source_sha256,
+                "verified_sha256": verified_sha256,
+                "source_size_bytes": int(entry.get("source_size_bytes", 0)),
+                "source_mtime_ns": int(entry.get("source_mtime_ns", 0)),
+                "output_size_bytes": output_size,
+                "saved_bytes": int(entry.get("saved_bytes", 0)),
+                "verified": True,
+                "verified_at": str(entry.get("verified_at") or storage.now_iso()),
+            }
+            record["version"] = current + 1
+            record["updated_at"] = storage.now_iso()
+            changed = True
+            results.append({"asset_id": asset_id, "recorded": True})
+        if changed:
+            _bump(raw)
+        return {
+            "items": results,
+            "revision": int(raw.get("revision", 1)),
+            "data_status": DATA_STATUS_OK,
+            "data_gaps": [],
+        }
+
+    return state().mutate(mutate)
+
+
 def open_local(asset_id: str) -> Dict[str, Any]:
     """只做路径准入校验，不启动任何外部程序。"""
     item = _require(state().read(), asset_id)

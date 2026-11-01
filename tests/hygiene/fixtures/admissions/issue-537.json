@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 537,
+  "authorization_basis": "GitHub Issue #537, 2026-11-02",
+  "files": [
+    "gw/core/jxl_tool.py",
+    "gw/api/routes_asset_registry.py",
+    "gw/asset_registry/repository.py",
+    "web/js/modules/asset-manager.js",
+    "tests/contracts/assets/test_jxl_lossless_transcode.py",
+    "tests/hygiene/fixtures/admissions/issue-537.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_jxl_lossless_transcode.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #537, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-514：官方 cjxl/djxl 适配、JPEG XL 无损往返校验和持久批量转码任务。"
+}
