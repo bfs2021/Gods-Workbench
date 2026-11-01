@@ -142,6 +142,43 @@ def _visible(record: Dict[str, Any]) -> bool:
     return asset_visible(record)
 
 
+def _removed_root_ids() -> set[str]:
+    removed: set[str] = set()
+    try:
+        from gw.asset_registry import index_jobs
+        for facet in index_jobs.root_facets():
+            if str(facet.get("availability") or "") == "removed":
+                if facet.get("id"):
+                    removed.add(str(facet["id"]))
+                if facet.get("root_id"):
+                    removed.add(str(facet["root_id"]))
+                if facet.get("storage_root_id"):
+                    removed.add(str(facet["storage_root_id"]))
+    except Exception:
+        pass
+    try:
+        from gw.settings.service import default_storage_allowed_roots_service
+        snapshot = default_storage_allowed_roots_service.get_snapshot()
+        for root in snapshot.roots:
+            if not root.active:
+                removed.add(str(root.id))
+    except Exception:
+        pass
+    return removed
+
+
+def _is_removed_asset(asset: Dict[str, Any], removed_root_ids: set[str]) -> bool:
+    if asset.get("root_availability") == "removed":
+        return True
+    root_id = str(asset.get("root_id") or "")
+    if root_id and root_id in removed_root_ids:
+        return True
+    storage_root_id = str(asset.get("storage_root_id") or "")
+    if storage_root_id and storage_root_id in removed_root_ids:
+        return True
+    return False
+
+
 def _require(raw: Dict[str, Any], asset_id: str) -> Dict[str, Any]:
     item = raw["assets"].get(asset_id)
     if item is None or not _visible(item):
@@ -765,6 +802,7 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
             filters=filters,
             sort=sort,
             include=include,
+            include_removed=include_removed,
         )
     cutoff = None
     if recent_days is not None:
@@ -850,7 +888,11 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
                                      expose_extra_fields={"expected_version", "current_version"})
         offset = decoded["offset"]
     from gw.core.asset_visibility import asset_visible
-    items = [dict(a) for a in raw["assets"].values() if asset_visible(a)]
+    removed_ids = set() if include_removed else _removed_root_ids()
+    items = [
+        dict(a) for a in raw["assets"].values()
+        if asset_visible(a) and (include_removed or not _is_removed_asset(a, removed_ids))
+    ]
     root_facets = []
     if root_id or any(
         not item.get("is_remote") and (item.get("storage_root_id") or item.get("root_id"))
@@ -1252,6 +1294,7 @@ def _list_structured_assets(
     filters: Any,
     sort: Optional[str],
     include: Any,
+    include_removed: bool = False,
 ) -> Dict[str, Any]:
     cinematography_filters, legacy_filters = _separate_cinematography_filters(filters)
     normalized = normalize_asset_query(
@@ -1334,7 +1377,12 @@ def _list_structured_assets(
 
     from gw.core.asset_visibility import asset_visible
 
-    items = [dict(asset) for asset in raw["assets"].values() if asset_visible(asset)]
+    removed_ids = set() if include_removed else _removed_root_ids()
+    items = [
+        dict(asset)
+        for asset in raw["assets"].values()
+        if asset_visible(asset) and (include_removed or not _is_removed_asset(asset, removed_ids))
+    ]
     needle = normalized["text"].casefold()
     if needle:
         def _matches_text(asset: Dict[str, Any]) -> bool:
@@ -1517,8 +1565,9 @@ def list_unassigned_assets(owner_key: str, limit: int = 100, offset: int = 0, *,
         owner = _record_owner(record)
         return owner == owner_key if owner is not None else admin_inbox
 
+    removed_ids = _removed_root_ids()
     items = [_annotate_inbox_asset(dict(a)) for a in raw["assets"].values()
-             if _visible(a) and asset_is_unassigned(a) and inbox_member(a)]
+             if _visible(a) and not _is_removed_asset(a, removed_ids) and asset_is_unassigned(a) and inbox_member(a)]
     items.sort(key=lambda a: a["asset_id"])
     total = len(items)
     page = items[offset:offset + limit]
@@ -1584,9 +1633,10 @@ def project_asset_counts() -> Dict[str, int]:
     """统计各可见项目关联的资产总数。"""
     raw = state().read()
     from gw.core.asset_visibility import asset_visible
+    removed_ids = _removed_root_ids()
     counts: Counter[str] = Counter()
     for a in raw["assets"].values():
-        if not asset_visible(a):
+        if not asset_visible(a) or _is_removed_asset(a, removed_ids):
             continue
         pids = set(a.get("project_ids") or [])
         if a.get("project_id"):
@@ -1600,7 +1650,11 @@ def project_asset_counts() -> Dict[str, int]:
 def facets() -> Dict[str, Any]:
     raw = state().read()
     from gw.core.asset_visibility import asset_visible
-    assets = [a for a in raw["assets"].values() if asset_visible(a)]
+    removed_ids = _removed_root_ids()
+    assets = [
+        a for a in raw["assets"].values()
+        if asset_visible(a) and not _is_removed_asset(a, removed_ids)
+    ]
     kinds = Counter(_asset_category(asset) for asset in assets)
     categories = Counter(_asset_category(asset) for asset in assets)
     tag_counts = Counter(tag for asset in assets for tag in set(asset.get("tags", [])))

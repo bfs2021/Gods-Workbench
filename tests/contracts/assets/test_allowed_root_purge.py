@@ -247,3 +247,113 @@ def test_list_assets_filters_removed_roots_by_default(
     all_item_ids = {x["asset_id"] for x in resp_all.json()["items"]}
     assert "ast_active" in all_item_ids
     assert "ast_removed" in all_item_ids
+
+
+def test_unassigned_and_facets_filter_removed_roots(
+    client: TestClient, tmp_path: Path
+):
+    """测试未归属收件箱与分类统计在允许根移除后自动联动过滤。"""
+    active_root = tmp_path / "active_vault_2"
+    removed_root = tmp_path / "removed_vault_2"
+    active_root.mkdir()
+    removed_root.mkdir()
+
+    roots_service = routes.default_storage_allowed_roots_service
+    roots_service.add_root(StorageAllowedRootRequest(path=str(active_root), expected_version=1))
+    roots_service.add_root(StorageAllowedRootRequest(path=str(removed_root), expected_version=2))
+
+    active_root_id = storage.root_identity_id(active_root)
+    removed_root_id = storage.root_identity_id(removed_root)
+
+    # 登记资产（无 project_id，属于未归属）
+    asset_repo.state().mutate(
+        lambda raw: raw["assets"].update(
+            {
+                "ast_unassigned_active": asset_repo._plain_asset(
+                    "ast_unassigned_active", "active.png", "image",
+                    root_id=active_root_id, storage_root_id=active_root_id,
+                    canonical_relpath="active.png", display_path="active.png",
+                ),
+                "ast_unassigned_removed": asset_repo._plain_asset(
+                    "ast_unassigned_removed", "removed.png", "image",
+                    root_id=removed_root_id, storage_root_id=removed_root_id,
+                    canonical_relpath="removed.png", display_path="removed.png",
+                ),
+            }
+        )
+    )
+
+    # 移除第二个根
+    roots_service.remove_root(
+        removed_root_id, StorageAllowedRootDeleteRequest(expected_version=3)
+    )
+
+    # 1. 验证未归属收件箱
+    unassigned_resp = client.get("/api/assets/unassigned", headers=ADMIN)
+    assert unassigned_resp.status_code == 200, unassigned_resp.text
+    unassigned_ids = {x["asset_id"] for x in unassigned_resp.json()["assets"]}
+    assert "ast_unassigned_active" in unassigned_ids
+    assert "ast_unassigned_removed" not in unassigned_ids
+
+    # 2. 验证 facets 分类统计
+    facets_resp = client.get("/api/asset-registry/facets", headers=ADMIN)
+    assert facets_resp.status_code == 200, facets_resp.text
+    categories = {c["name"]: c["count"] for c in facets_resp.json()["categories"]}
+    assert categories.get("image") == 1  # 只有 active 的那张图片，被移除的不计入
+
+    # 3. 验证结构化查询
+    structured_data = asset_repo.list_assets(
+        limit=50,
+        offset=0,
+        query=None,
+        kind=None,
+        archived=None,
+        structured=True,
+        scope=None,
+        text="",
+        filters={"status": {"asset": ["active"]}},
+    )
+    structured_ids = {x["asset_id"] for x in structured_data["items"]}
+    assert "ast_unassigned_active" in structured_ids
+    assert "ast_unassigned_removed" not in structured_ids
+
+
+def test_allowed_root_duplicate_records_cleaned_automatically(
+    client: TestClient, tmp_path: Path
+):
+    """测试历史遗留的多条相同路径记录在读取和操作时被自动去重合并。"""
+    roots_file = tmp_path / "data" / "allowed_roots.json"
+    roots_file.parent.mkdir(parents=True, exist_ok=True)
+    dup_path = str(tmp_path / "dup_folder")
+    dup_alias = str(tmp_path / "dup_alias")
+    Path(dup_path).mkdir(exist_ok=True)
+    Path(dup_alias).mkdir(exist_ok=True)
+    root_id = storage.root_identity_id(Path(dup_path))
+
+    # 写入模拟的脏数据：同一路径存在 3 条记录
+    dirty_state = {
+        "schema_version": 1,
+        "revision": 5,
+        "system_aliases": {},
+        "roots": [
+            {"id": root_id, "path": dup_path, "active": False, "aliases": []},
+            {"id": root_id, "path": dup_path, "active": False, "aliases": []},
+            {"id": root_id, "path": dup_path, "active": False, "aliases": [dup_alias]},
+        ],
+    }
+    roots_file.write_text(json.dumps(dirty_state), encoding="utf-8")
+
+    # 1. 读 snapshot -> 必须自动去重为 1 条
+    service = StorageAllowedRootsService()
+    snapshot = service.get_snapshot()
+    matching = [r for r in snapshot.roots if r.id == root_id]
+    assert len(matching) == 1
+    assert matching[0].active is False
+    assert dup_alias in matching[0].aliases
+
+    # 2. 执行恢复操作 -> 文件内容必须被彻底清洗为单条活跃记录
+    service.restore_root(root_id, StorageAllowedRootDeleteRequest(expected_version=5))
+    saved = json.loads(roots_file.read_text(encoding="utf-8"))
+    assert len(saved["roots"]) == 1
+    assert saved["roots"][0]["id"] == root_id
+    assert saved["roots"][0]["active"] is True

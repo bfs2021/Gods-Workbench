@@ -2645,7 +2645,6 @@ function renderRemovedRootsModal(removedRoots){
         <div class="removed-root-info">
             <code title="${escapeAttr(root.path)}">${escapeHtml(root.path)}</code>
             <small class="allowed-root-status allowed-root-status--removed">已移除 · MOUNT_ROOT_REMOVED</small>
-            <small>允许根已移除；已有索引与源文件保留</small>
         </div>
         <div class="removed-root-actions">
             <button type="button" class="hw-btn hw-btn-sm hw-btn-gold" data-storage-root-restore="${escapeAttr(root.id)}" title="恢复授权并重新比对同步" ${allowedRootSettingsState.saving ? 'disabled' : ''}>
@@ -2657,11 +2656,11 @@ function renderRemovedRootsModal(removedRoots){
         </div>
     </article>`).join('') : '<p class="directory-status">暂无已移除的登记目录</p>';
 
-    return `<div class="removed-roots-modal-backdrop" data-modal-backdrop="removed-roots">
-        <div class="removed-roots-modal" role="dialog" aria-modal="true" aria-labelledby="removedRootsTitle">
+    return `<div class="removed-roots-modal-backdrop" data-floating-surface="removed-roots-modal" data-modal-backdrop="removed-roots">
+        <div class="removed-roots-modal" data-floating-content role="dialog" aria-modal="true" aria-labelledby="removedRootsTitle">
             <header class="removed-roots-modal-header">
                 <h2 id="removedRootsTitle"><i data-lucide="archive"></i><span>已移除登记目录</span><em class="badge">${removedRoots.length}</em></h2>
-                <button type="button" class="hw-btn hw-btn-icon hw-modal-close" data-modal-close="removed-roots" aria-label="关闭"><i data-lucide="x"></i></button>
+                <button type="button" class="hw-btn hw-btn-icon hw-modal-close" data-floating-close data-modal-close="removed-roots" aria-label="关闭"><i data-lucide="x"></i></button>
             </header>
             <div class="removed-roots-modal-body">
                 <p class="board-settings-hint">以下为已撤销扫描授权的允许根。可选择恢复授权并重新比对素材，或彻底从系统中删除（保留本地源文件）。</p>
@@ -2673,17 +2672,17 @@ function renderRemovedRootsModal(removedRoots){
 
 function renderPurgeConfirmModal(){
     if(!pendingPurgeRoot) return '';
-    return `<div class="removed-roots-modal-backdrop" data-modal-backdrop="purge-confirm">
-        <div class="removed-roots-modal" style="max-width:480px" role="alertdialog" aria-modal="true" aria-labelledby="purgeTitle">
+    return `<div class="removed-roots-modal-backdrop" data-floating-surface="purge-confirm-modal" data-modal-backdrop="purge-confirm">
+        <div class="removed-roots-modal" style="max-width:480px" data-floating-content role="alertdialog" aria-modal="true" aria-labelledby="purgeTitle">
             <header class="removed-roots-modal-header">
                 <h2 id="purgeTitle" style="color:var(--gw-error)"><i data-lucide="alert-triangle"></i><span>确认彻底移除允许根？</span></h2>
-                <button type="button" class="hw-btn hw-btn-icon hw-modal-close" data-purge-cancel aria-label="取消"><i data-lucide="x"></i></button>
+                <button type="button" class="hw-btn hw-btn-icon hw-modal-close" data-floating-close data-purge-cancel aria-label="取消"><i data-lucide="x"></i></button>
             </header>
             <div class="removed-roots-modal-body">
                 <p style="margin:0;line-height:1.6">确定彻底删除允许根 <code style="overflow-wrap:anywhere">${escapeHtml(pendingPurgeRoot.path)}</code> 吗？</p>
                 <p class="board-settings-hint" style="color:var(--gw-warning, #f59e0b);margin:4px 0 0">此操作将清空本系统生成的关于该素材库的所有元数据记录、搜索索引及缩略图缓存，但<b>绝不会删除您的磁盘原始素材文件</b>。</p>
                 <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
-                    <button type="button" class="hw-btn" data-purge-cancel>取消</button>
+                    <button type="button" class="hw-btn" data-floating-close data-purge-cancel>取消</button>
                     <button type="button" class="hw-btn hw-btn-danger" data-purge-confirm="${escapeAttr(pendingPurgeRoot.id)}">彻底删除</button>
                 </div>
             </div>
@@ -2695,8 +2694,16 @@ function renderAllowedRootsSettings(){
     if(!canManageAllowedRoots()) return '';
     const statusLabel = root => root.availability === 'available' ? '在线'
         : root.availability === 'removed' ? '已移除' : root.availability === 'invalid' ? '无效' : '离线';
-    const activeRoots = allowedRootSettingsState.roots.filter(r => r.active);
-    const removedRoots = allowedRootSettingsState.roots.filter(r => !r.active);
+    const seenPaths = new Set();
+    const uniqueRoots = [];
+    for(const r of (allowedRootSettingsState.roots || [])){
+        const norm = (r.path || '').toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '');
+        if(seenPaths.has(norm)) continue;
+        seenPaths.add(norm);
+        uniqueRoots.push(r);
+    }
+    const activeRoots = uniqueRoots.filter(r => r.active);
+    const removedRoots = uniqueRoots.filter(r => !r.active);
 
     const roots = activeRoots.map(root => `<article class="allowed-root-row" data-allowed-root="${escapeAttr(root.id)}">
         <div class="allowed-root-info"><strong>${escapeHtml(root.readOnly ? '系统根（只读）' : '持久允许根')}</strong><code title="${escapeAttr(root.path)}">${escapeHtml(root.path)}</code>

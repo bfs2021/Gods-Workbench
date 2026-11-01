@@ -501,8 +501,8 @@ html.directory-settings-page.workspace-embedded body.gw-signal.gw-page--asset-ma
 .removed-roots-modal-header .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: rgba(255, 255, 255, 0.1); color: var(--gold-flare, #eddab3); font-size: var(--gw-type-label-sm); }
 .removed-roots-modal-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .removed-roots-list { display: grid; gap: 8px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
-.removed-root-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--gw-border); border-radius: 8px; background: var(--gw-surface-card); }
-.removed-root-info { display: grid; min-width: 0; gap: 4px; }
+.removed-root-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--gw-border); border-radius: 8px; background: var(--gw-surface-card); }
+.removed-root-info { display: grid; min-width: 0; gap: 2px; }
 .removed-root-info code { overflow-wrap: anywhere; color: var(--gw-text); font-size: var(--gw-type-body-sm); }
 .removed-root-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .hw-btn-danger { color: var(--gw-error) !important; border-color: rgba(239, 68, 68, 0.3) !important; }

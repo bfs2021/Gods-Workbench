@@ -1149,6 +1149,7 @@ def test_qin_517_allowed_roots_files_are_registered(repo_root: Path):
         "gw/asset_registry/repository.py",
         "gw/settings/service.py",
         "web/css/pages/directory-settings.css",
+        "web/js/controllers/assets-controller.js",
         "web/js/modules/asset-manager.js",
         "tests/contracts/assets/test_allowed_root_purge.py",
         "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",

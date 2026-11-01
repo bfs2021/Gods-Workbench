@@ -462,6 +462,28 @@ class StorageSettingsService:
         return normalized
 
 
+def _deduplicate_root_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for item in records:
+        path = str(item.get("path") or "").strip()
+        key = storage.directory_path_key(path) if path else str(item.get("id") or "")
+        if key not in merged:
+            entry = dict(item)
+            entry["aliases"] = list(item.get("aliases") or [])
+            merged[key] = entry
+        else:
+            if item.get("active"):
+                merged[key]["active"] = True
+                if path:
+                    merged[key]["path"] = path
+            for alias in item.get("aliases") or []:
+                if alias not in merged[key]["aliases"]:
+                    merged[key]["aliases"].append(alias)
+            if item.get("network_mount"):
+                merged[key]["network_mount"] = True
+    return list(merged.values())
+
+
 class StorageAllowedRootsService:
     """环境变量只读根与持久化允许根的 CAS 管理服务。"""
 
@@ -526,7 +548,8 @@ class StorageAllowedRootsService:
                     **self._path_status(path_text),
                 )
             )
-        for record in state.get("roots", []):
+        clean_records = _deduplicate_root_records(state.get("roots", []))
+        for record in clean_records:
             active = bool(record.get("active"))
             path_text = str(record.get("path") or "")
             if active:
@@ -576,6 +599,7 @@ class StorageAllowedRootsService:
 
         def update(state: dict[str, Any]) -> None:
             current = self._expected_version(state, payload.expected_version)
+            state["roots"] = _deduplicate_root_records(state.get("roots", []))
             existing_active = None
             existing_inactive = None
             for record in state.get("roots", []):
@@ -619,6 +643,7 @@ class StorageAllowedRootsService:
 
         def update(state: dict[str, Any]) -> None:
             current = self._expected_version(state, payload.expected_version)
+            state["roots"] = _deduplicate_root_records(state.get("roots", []))
             record = next(
                 (item for item in state.get("roots", []) if item.get("id") == root_id and item.get("active")),
                 None,
@@ -644,6 +669,7 @@ class StorageAllowedRootsService:
         def update(state: dict[str, Any]) -> None:
             nonlocal restored_path
             current = self._expected_version(state, payload.expected_version)
+            state["roots"] = _deduplicate_root_records(state.get("roots", []))
             record = next(
                 (item for item in state.get("roots", []) if item.get("id") == root_id),
                 None,
@@ -674,6 +700,7 @@ class StorageAllowedRootsService:
 
         def update(state: dict[str, Any]) -> None:
             current = self._expected_version(state, payload.expected_version)
+            state["roots"] = _deduplicate_root_records(state.get("roots", []))
             record = next(
                 (item for item in state.get("roots", []) if item.get("id") == root_id),
                 None,
@@ -681,7 +708,14 @@ class StorageAllowedRootsService:
             if record is None:
                 raise CleanroomException(404, "ROOT_NOT_FOUND", "允许根不存在")
 
-            state["roots"] = [item for item in state.get("roots", []) if item.get("id") != root_id]
+            target_path = str(record.get("path") or "")
+            target_key = storage.directory_path_key(target_path) if target_path else None
+            state["roots"] = [
+                item
+                for item in state.get("roots", [])
+                if item.get("id") != root_id
+                and (not target_key or storage.directory_path_key(str(item.get("path") or "")) != target_key)
+            ]
             state["revision"] = current + 1
 
         self._state.mutate(update)
