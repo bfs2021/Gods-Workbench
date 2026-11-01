@@ -1,0 +1,47 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 539,
+  "authorization_basis": "GitHub Issue #539, 2026-11-01",
+  "files": [
+    "gw/core/storage.py",
+    "gw/media/repository.py",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "web/embeds/asset-manager.html",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "tests/frontend/node-files.txt",
+    "tests/contracts/media/test_asset_thumbnail_cache.py",
+    "tests/contracts/media/test_asset_thumbnail_custom_root.py",
+    "tests/contracts/assets/test_storage_allowed_root_cache.py",
+    "tests/frontend/asset-manager-thumbnail-root-prompt.mjs",
+    "tests/hygiene/fixtures/admissions/issue-539.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_asset_thumbnail_custom_root.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #539, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/contracts/assets/test_storage_allowed_root_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #539, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/asset-manager-thumbnail-root-prompt.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #539, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/contracts/media/test_asset_thumbnail_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #539, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-515：自定义缓存根真实写入所选目录，越界用 CACHE_DIRECTORY_NOT_ALLOWED 失败关闭，前端引导登记允许根后原参数重试。"
+}

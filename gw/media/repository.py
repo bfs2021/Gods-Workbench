@@ -39,7 +39,7 @@ import socket
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
 
 from gw.core import storage
@@ -314,26 +314,63 @@ def _cache_folder_name(settings: dict[str, Any]) -> str:
     return raw
 
 
-def _cache_bucket(settings: dict[str, Any], source: Path) -> str:
-    """缓存分桶键：custom 模式按指定目录，source 模式按素材源目录。
+def _cache_directory_not_allowed(exc: CleanroomException) -> CleanroomException:
+    """把通用路径准入错误翻译成缓存场景专用码（QIN-515 AC3）。
 
-    分桶只决定受管产物内的子目录，不把缓存写到受管目录之外；指定目录必须
-    已登记为允许根，否则失败关闭，避免用户误以为缓存落在外部磁盘。
+    不回显调用方原始路径；前端用自己手上的目录文案说清「写哪里失败、为什么」。
     """
+    if exc.code == "LOCAL_FILE_ACCESS_NOT_ADMITTED":
+        message = "尚未配置允许根目录，缓存无法写入所选目录；请管理员先在 设置 › 允许根 登记该目录"
+    else:
+        message = "所选缓存目录不在允许根目录内，缓存无法写入；请管理员把该目录加入允许根后重试"
+    translated = CleanroomException(403, "CACHE_DIRECTORY_NOT_ALLOWED", message)
+    translated.__cause__ = exc
+    return translated
+
+
+def _custom_cache_directory(settings: dict[str, Any], folder: str) -> tuple[str, Path]:
+    """指定目录模式的真实落盘位置：``<所选目录>/<cache_folder>``（必须在允许根内）。"""
+    directory = str((settings or {}).get("directory") or "").strip()
+    if not directory:
+        raise CleanroomException(
+            400, "INVALID_CACHE_DIRECTORY", "指定缓存目录模式必须提供目录"
+        )
+    try:
+        root = storage.resolve_within_roots(directory)
+    except CleanroomException as exc:
+        raise _cache_directory_not_allowed(exc) from exc
+    if not root.is_dir():
+        raise CleanroomException(
+            404, "CACHE_DIRECTORY_NOT_FOUND", "指定缓存目录不存在或不是目录"
+        )
+    try:
+        # cache_folder 已通过单段 ASCII 校验，拼接后仍是根内固定一层子目录。
+        target = storage.resolve_cache_write_directory(str(root / folder))
+    except CleanroomException as exc:
+        if exc.code in ("PATH_OUTSIDE_ALLOWED_ROOTS", "LOCAL_FILE_ACCESS_NOT_ADMITTED"):
+            raise _cache_directory_not_allowed(exc) from exc
+        raise
+    return storage.relative_display(target), target
+
+
+def resolve_cache_directory(
+    settings: dict[str, Any], source: Path
+) -> tuple[str, Path]:
+    """缓存目录唯一解析入口（生成 / 预览 / 删除共用，QIN-515 单一口径）。
+
+    - ``mode=source``：受管数据目录 ``media_output/<cache_folder>/<源目录分桶>``；
+    - ``mode=custom``：用户所选允许根内 ``<所选目录>/<cache_folder>``，真实写入。
+
+    返回 ``(脱敏展示路径, 真实目录)``；越界一律失败关闭，磁盘零写入。
+    """
+    folder = _cache_folder_name(settings)
     mode = str((settings or {}).get("mode") or "source")
     if mode == "custom":
-        directory = str((settings or {}).get("directory") or "").strip()
-        if not directory:
-            raise CleanroomException(
-                400, "INVALID_CACHE_DIRECTORY", "指定缓存目录模式必须提供目录"
-            )
-        resolved = storage.resolve_within_roots(directory)
-        if not resolved.is_dir():
-            raise CleanroomException(
-                404, "CACHE_DIRECTORY_NOT_FOUND", "指定缓存目录不存在或不是目录"
-            )
-        return storage.root_identity_id(resolved)
-    return storage.root_identity_id(source.parent)
+        return _custom_cache_directory(settings, folder)
+    relative = "%s/%s" % (cache_root_relative(), storage.root_identity_id(source.parent))
+    directory = storage.resolve_output_directory(relative, must_exist=False)
+    directory.mkdir(parents=True, exist_ok=True)
+    return relative, storage.resolve_output_directory(relative)
 
 
 def cache_root_relative() -> str:
@@ -343,19 +380,6 @@ def cache_root_relative() -> str:
     不允许各模块自行推导缓存位置。
     """
     return "media_output/" + _cache_folder_name(get_thumbnail_settings())
-
-
-def _thumbnail_cache_directory(
-    settings: dict[str, Any], source: Path
-) -> tuple[str, Path]:
-    """返回缩略图缓存目录的相对路径与真实路径，按 cache_folder/分桶隔离。"""
-    relative = "%s/%s" % (
-        cache_root_relative(),
-        _cache_bucket(settings, source),
-    )
-    directory = storage.resolve_output_directory(relative, must_exist=False)
-    directory.mkdir(parents=True, exist_ok=True)
-    return relative, storage.resolve_output_directory(relative)
 
 
 def _cache_is_fresh(target: Path, source: Path) -> bool:
@@ -551,15 +575,16 @@ def _generate_one_thumbnail(
     """生成或复用单个缩略图，返回真实状态项（不抛批量级异常）。"""
     path = _registry_path(asset_id) if asset_id else _resolve_input(payload)
     key = _thumbnail_key(asset_id, path)
-    relative_dir, directory = _thumbnail_cache_directory(settings, path)
+    cache_label, directory = resolve_cache_directory(settings, path)
     image_format = _thumbnail_format(settings)
     name = _thumbnail_filename(
         key,
         width=width if key.startswith("media-") else None,
         image_format=image_format,
     )
-    relative = relative_dir + "/" + name
-    target = storage.resolve_output_path(relative, must_exist=False)
+    relative = cache_label + "/" + name
+    # 目录已由唯一解析入口校验（source 走受管产物根，custom 走允许根内真实目录）。
+    target = directory / name
     item: dict[str, Any] = {
         "asset_id": asset_id,
         "source": storage.relative_display(path),
@@ -753,7 +778,7 @@ def _canonical_generated_hit(
     ``asset_id`` 命名的产物不含宽度，必须核对真实像素宽度，避免把其它宽度的图
     当成本次请求的宽度返回；``media-`` 命名的产物已带宽度，直接以新鲜度判定。
     """
-    _, directory = _thumbnail_cache_directory(settings, source)
+    _, directory = resolve_cache_directory(settings, source)
     name = _thumbnail_filename(
         key,
         width=width if key.startswith("media-") else None,
@@ -822,7 +847,7 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
         settings = get_thumbnail_settings()
         image_format = _thumbnail_format(settings)
         media_type = MIME_BY_SUFFIX["." + image_format]
-        _, directory = _thumbnail_cache_directory(settings, path)
+        _, directory = resolve_cache_directory(settings, path)
         target = directory / _preview_cache_name(
             key, width, identity, video=video, image_format=image_format
         )
@@ -1387,6 +1412,51 @@ def _atomic_write_bytes(target: Path, data: bytes) -> None:
         partial.unlink(missing_ok=True)
 
 
+def _thumbnail_cache_names(asset_id: str, names: Iterable[str]) -> list[str]:
+    """按资产匹配缩略图产物名（精确名 + 预览派生前缀；不误命中其他素材）。"""
+    extensions = (".jpg.png", ".jxl", ".webp")
+    hits = [asset_id + extension for extension in extensions if asset_id + extension in names]
+    # 预览派生缓存（QIN-509 命名）：<asset_id>-w<宽度>-<源身份>.<格式> / .frame.jpg。
+    # 素材 id 不含 "-w"，因此该前缀只会命中同一素材的预览产物。
+    hits.extend(
+        name
+        for name in names
+        if name.startswith(asset_id + "-w")
+        and name.endswith((".jpg.png", ".jxl", ".webp", ".frame.jpg"))
+    )
+    return hits
+
+
+def _thumbnail_cache_index() -> dict[str, list[tuple[str, str | None, Path | None]]]:
+    """按当前缓存模式建立「文件名 → 候选位置」索引。
+
+    自定义根模式只覆盖所选目录本身，切换模式后不会误删受管根下的同名产物；
+    受管根模式沿用全量扫描，历史 cache_folder 遗留产物也能清理。
+    """
+    settings = get_thumbnail_settings()
+    mode = str((settings or {}).get("mode") or "source")
+    index: dict[str, list[tuple[str, str | None, Path | None]]] = {}
+    if mode == "custom":
+        label, directory = _custom_cache_directory(settings, _cache_folder_name(settings))
+        try:
+            entries = sorted(entry for entry in directory.iterdir() if entry.is_file())
+        except OSError:
+            entries = []
+        for entry in entries:
+            index.setdefault(entry.name, []).append(
+                (label + "/" + entry.name, None, entry)
+            )
+        return index
+    for relative, path in storage.iter_output_paths("media_output"):
+        index.setdefault(path.name, []).append((relative, relative, None))
+    return index
+
+
+def _verified_cache_file(path: Path) -> Path:
+    """自定义根内文件删除前的再校验：仍必须落在允许根内，链接逃逸即拒绝。"""
+    return storage.resolve_within_roots(str(path))
+
+
 def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     """仅删除本模块精确生成的缓存；所有候选先预检，失败不虚报整批完成。"""
     if kind not in ("thumbnails", "storyboards"):
@@ -1398,26 +1468,17 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise CleanroomException(400, "INVALID_REQUEST", "缺少asset_ids")
     from gw.asset_registry import media_probe
 
-    candidates = []
+    candidates: list[tuple[str, str | None, Path | None]] = []
     owners: dict[str, str] = {}
     # 缓存按 cache_folder/分桶分层存储，位置随设置变化；删除按精确文件名索引，
     # 不假设固定目录层级，也不触碰代理与分镜产物。
-    thumbnail_index: dict[str, list[str]] | None = None
+    thumbnail_index: dict[str, list[tuple[str, str | None, Path | None]]] | None = None
     for asset_id in dict.fromkeys(ids):
         if kind == "thumbnails":
             if thumbnail_index is None:
-                thumbnail_index = {}
-                for relative, path in storage.iter_output_paths("media_output"):
-                    thumbnail_index.setdefault(path.name, []).append(relative)
-            for extension in (".jpg.png", ".jxl", ".webp"):
-                candidates.extend(thumbnail_index.get(asset_id + extension, []))
-            # 预览派生缓存（QIN-509 命名）：<asset_id>-w<宽度>-<源身份>.<格式> / .frame.jpg。
-            # 素材 id 不含 "-"，因此该前缀只会命中同一素材的预览产物。
-            for name, relatives in thumbnail_index.items():
-                if name.startswith(asset_id + "-w") and (
-                    name.endswith((".jpg.png", ".jxl", ".webp", ".frame.jpg"))
-                ):
-                    candidates.extend(relatives)
+                thumbnail_index = _thumbnail_cache_index()
+            for name in _thumbnail_cache_names(asset_id, thumbnail_index.keys()):
+                candidates.extend(thumbnail_index.get(name, []))
         else:
             # 新缓存根（cache_folder 口径）与旧固定根一并扫描：历史产物不留孤儿，
             # 同时保留「先解析目录准入、再匹配精确文件名」的链接拒绝语义。
@@ -1438,18 +1499,22 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
                     ).as_posix()
                     storage.resolve_output_path(relative)
                     if media_probe.is_storyboard_cache_name(child.name):
-                        candidates.append(relative)
+                        candidates.append((relative, relative, None))
                         owners.setdefault(relative, asset_id)
     removed, failed = [], []
-    for relative in candidates:
+    for display, relative, absolute in candidates:
         try:
-            target = storage.resolve_output_path(relative)
+            target = (
+                storage.resolve_output_path(relative)
+                if relative is not None
+                else _verified_cache_file(absolute)
+            )
             target.unlink()
-            removed.append(relative)
+            removed.append(display)
         except CleanroomException:
-            failed.append({"name": relative, "code": "CACHE_PATH_CHANGED"})
+            failed.append({"name": display, "code": "CACHE_PATH_CHANGED"})
         except OSError:
-            failed.append({"name": relative, "code": "CACHE_DELETE_FAILED"})
+            failed.append({"name": display, "code": "CACHE_DELETE_FAILED"})
     metadata_cleared = 0
     if kind == "storyboards":
         metadata_cleared = _clear_storyboard_metadata(
