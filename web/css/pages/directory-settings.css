@@ -227,6 +227,57 @@ html.directory-settings-page.workspace-embedded body.gw-signal.gw-page--asset-ma
   flex-shrink: 0;
   color: var(--gold-primary);
 }
+.directory-page .thumbnail-format-options {
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+  min-width: 0;
+  padding: 0;
+}
+.directory-page .thumbnail-format-options legend {
+  color: var(--muted);
+  font-size: var(--gw-type-label-md);
+  margin-bottom: 7px;
+  padding: 0;
+}
+.directory-page .thumbnail-format-option {
+  align-items: center;
+  background: linear-gradient(170deg, #161922 0%, #0d0f15 100%);
+  border: 1px solid rgba(223, 195, 132, 0.2);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  transition: all 0.15s ease;
+}
+.directory-page .thumbnail-format-option.is-active {
+  background: linear-gradient(180deg, #241e14 0%, #14110a 100%);
+  border-color: rgba(223, 195, 132, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 12px rgba(223, 195, 132, 0.18);
+  color: var(--gold-bright);
+}
+.directory-page .thumbnail-format-option input {
+  accent-color: var(--gold-primary);
+  flex: 0 0 auto;
+}
+.directory-page .thumbnail-format-option strong,
+.directory-page .thumbnail-format-option small {
+  display: block;
+}
+.directory-page .thumbnail-format-option strong {
+  font-size: var(--gw-type-label-md);
+  font-weight: 700;
+}
+.directory-page .thumbnail-format-option small {
+  color: var(--muted);
+  font-size: var(--gw-type-label-md);
+  margin-top: 2px;
+}
 .directory-page .thumbnail-cache-directory {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

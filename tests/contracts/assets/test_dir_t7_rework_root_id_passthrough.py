@@ -172,9 +172,21 @@ def test_single_root_media_proxy_and_preview_accept_relative_path_without_root_i
         "/api/media-proxy/content", headers=EDITOR, params={"path": "p2.png"}
     )
     assert content.status_code == 200, content.text
+    thumbnail_settings = client.get("/api/asset-thumbnails/settings", headers=EDITOR)
+    assert thumbnail_settings.status_code == 200, thumbnail_settings.text
+    updated = client.patch(
+        "/api/asset-thumbnails/settings",
+        headers=EDITOR,
+        json={
+            "format": "webp",
+            "expected_version": thumbnail_settings.json()["revision"],
+        },
+    )
+    assert updated.status_code == 200, updated.text
     preview = client.get("/api/media-preview", headers=EDITOR, params={"path": "p2.png"})
     assert preview.status_code == 200, preview.text
-    assert preview.content[:4] == b"\x89PNG"
+    assert preview.headers["content-type"].startswith("image/webp")
+    assert preview.content.startswith(b"RIFF") and preview.content[8:12] == b"WEBP"
 
 
 # ---------------------------------------------------------------------------

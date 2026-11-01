@@ -1,0 +1,34 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 536,
+  "authorization_basis": "GitHub Issue #536, 2026-11-01",
+  "files": [
+    "gw/media/repository.py",
+    "gw/api/routes_media.py",
+    "web/js/modules/asset-manager.js",
+    "web/js/modules/asset-manager/api.js",
+    "web/css/pages/directory-settings.css",
+    "tests/contracts/media/test_thumbnail_settings.py",
+    "tests/contracts/media/test_asset_thumbnail_cache.py",
+    "tests/contracts/media/test_media_preview_cache.py",
+    "tests/frontend/jxl-thumbnail-settings.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-536.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_thumbnail_settings.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #536, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/jxl-thumbnail-settings.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #536, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-513：缩略图默认 JXL，支持 WebP 过渡格式与设置 CAS。"
+}

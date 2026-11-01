@@ -39,7 +39,7 @@ import socket
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from gw.core import storage
@@ -53,6 +53,7 @@ MIME_BY_SUFFIX = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
+    ".jxl": "image/jxl",
     ".gif": "image/gif",
     ".bmp": "image/bmp",
     ".mp4": "video/mp4",
@@ -113,6 +114,7 @@ def settings_state() -> storage.JsonState:
                 "directory": "",
                 "cache_folder": "god-cache",
                 "width": 256,
+                "format": "jxl",
             },
         }
 
@@ -189,20 +191,56 @@ def patch_proxy_settings(payload: dict[str, Any]) -> dict[str, Any]:
 
 def get_thumbnail_settings() -> dict[str, Any]:
     raw = settings_state().read()
+    thumbnails = dict(raw.get("thumbnails") or {})
+    if thumbnails.get("format") not in ("jxl", "webp"):
+        thumbnails["format"] = "jxl"
     return {
-        **dict(raw["thumbnails"]),
+        **thumbnails,
         "revision": raw["revision"],
         "data_status": "ok",
         "data_gaps": [],
     }
 
 
-def patch_thumbnail_settings(payload: dict[str, Any]) -> dict[str, Any]:
+def patch_thumbnail_settings(
+    payload: dict[str, Any], *, require_expected_version: bool = False
+) -> dict[str, Any]:
+    payload = payload or {}
+    expected_version = payload.get("expected_version")
+    if require_expected_version and expected_version is None:
+        raise CleanroomException(
+            400, "INVALID_REQUEST", "更新缩略图设置必须携带 expected_version"
+        )
+
     def mutate(raw: dict[str, Any]) -> dict[str, Any]:
+        revision = int(raw.get("revision") or 1)
+        if expected_version is not None:
+            if (
+                isinstance(expected_version, bool)
+                or not isinstance(expected_version, int)
+                or expected_version < 1
+            ):
+                raise CleanroomException(
+                    400, "INVALID_REQUEST", "expected_version 必须是正整数"
+                )
+            if expected_version != revision:
+                raise CleanroomException(
+                    409,
+                    "VERSION_CONFLICT",
+                    "缩略图设置已变化，请重新读取后重试",
+                )
         current = raw["thumbnails"]
+        current.setdefault("format", "jxl")
         for key in ("mode", "directory", "cache_folder"):
             if payload.get(key) is not None:
                 current[key] = str(payload.get(key))
+        if payload.get("format") is not None:
+            image_format = payload.get("format")
+            if image_format not in ("jxl", "webp"):
+                raise CleanroomException(
+                    400, "INVALID_REQUEST", 'format 只接受 "jxl" 或 "webp"'
+                )
+            current["format"] = image_format
         if payload.get("width") is not None:
             width = int(payload.get("width"))
             current["width"] = max(64, min(2048, width))
@@ -210,8 +248,8 @@ def patch_thumbnail_settings(payload: dict[str, Any]) -> dict[str, Any]:
             raise CleanroomException(
                 400, "INVALID_REQUEST", "mode 只接受 source/custom"
             )
-        raw["revision"] = int(raw.get("revision") or 1) + 1
-        return dict(current)
+        raw["revision"] = revision + 1
+        return {**dict(current), "revision": raw["revision"]}
 
     data = settings_state().mutate(mutate)
     return {**data, "data_status": "ok", "data_gaps": []}
@@ -341,21 +379,149 @@ def _mime(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _thumbnail_bytes(path: Path, width: int) -> bytes:
+ThumbnailFormat = Literal["jxl", "webp"]
+MAX_THUMBNAIL_BYTES = 15 * 1024
+
+
+def _decode_jxl_source(path: Path) -> bytes:
+    ffmpeg = _tool("ffmpeg")
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ],
+            capture_output=True,
+            timeout=FFMPEG_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        _unavailable("/api/media", "JXL_DECODE_FAILED", "JXL 素材解码失败")
+    if result.returncode != 0 or not result.stdout:
+        _unavailable("/api/media", "JXL_DECODE_FAILED", "JXL 素材解码失败")
+    return result.stdout
+
+
+def _encode_jxl_thumbnail(png_bytes: bytes) -> bytes:
+    ffmpeg = _tool("ffmpeg")
+    result_bytes = b""
+    for distance in (2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 13.0, 15.0):
+        try:
+            result = subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "image2pipe",
+                    "-vcodec",
+                    "png",
+                    "-i",
+                    "pipe:0",
+                    "-frames:v",
+                    "1",
+                    "-c:v",
+                    "libjxl",
+                    "-distance",
+                    str(distance),
+                    "-effort",
+                    "4",
+                    "-f",
+                    "image2pipe",
+                    "pipe:1",
+                ],
+                input=png_bytes,
+                capture_output=True,
+                timeout=FFMPEG_TIMEOUT,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            _unavailable(
+                "/api/media", "JXL_ENCODING_FAILED", "JXL 缩略图编码失败"
+            )
+        if result.returncode != 0 or not result.stdout:
+            _unavailable("/api/media", "JXL_ENCODING_FAILED", "JXL 缩略图编码失败")
+        result_bytes = result.stdout
+        if len(result_bytes) <= MAX_THUMBNAIL_BYTES:
+            return result_bytes
+    return result_bytes
+
+
+def _thumbnail_bytes(
+    path: Path, width: int, image_format: Literal["png", "jxl", "webp"] = "png"
+) -> bytes:
     Image = _pil()
     if Image is None:
         _unavailable("/api/media", "PIL_NOT_AVAILABLE", "未安装 PIL，缩略图能力不可用")
+    import io as _io
+
     try:
-        with Image.open(path) as image:
+        try:
+            image_source = Image.open(path)
+        except Exception:
+            if path.suffix.lower() != ".jxl":
+                raise
+            image_source = Image.open(_io.BytesIO(_decode_jxl_source(path)))
+        with image_source as image:
             image = image.convert("RGBA")
             ratio = max(1, int(width)) / float(image.width or 1)
             height = max(1, int(round(image.height * ratio)))
             resized = image.resize((max(1, int(width)), height))
-            import io as _io
-
             buffer = _io.BytesIO()
-            resized.save(buffer, format="PNG")
-            return buffer.getvalue()
+            if image_format == "webp":
+                for quality in (72, 60, 48, 36, 32, 28, 24):
+                    buffer = _io.BytesIO()
+                    resized.save(buffer, format="WEBP", quality=quality, method=6)
+                    if buffer.tell() <= MAX_THUMBNAIL_BYTES or quality == 24:
+                        result_bytes = buffer.getvalue()
+                        break
+            elif image_format == "jxl":
+                resized.save(buffer, format="PNG")
+                result_bytes = _encode_jxl_thumbnail(buffer.getvalue())
+            else:
+                resized.save(buffer, format="PNG")
+                return buffer.getvalue()
+
+            while len(result_bytes) > MAX_THUMBNAIL_BYTES:
+                scale = min(
+                    0.9,
+                    (MAX_THUMBNAIL_BYTES / len(result_bytes)) ** 0.5 * 0.9,
+                )
+                reduced_width = max(1, int(resized.width * scale))
+                reduced_height = max(1, int(resized.height * scale))
+                if (reduced_width, reduced_height) == resized.size:
+                    if resized.width >= resized.height and resized.width > 1:
+                        reduced_width -= 1
+                    elif resized.height > 1:
+                        reduced_height -= 1
+                    else:
+                        _unavailable(
+                            "/api/media",
+                            "THUMBNAIL_SIZE_LIMIT",
+                            "缩略图无法压缩至 15 KiB 以内",
+                        )
+                resized = resized.resize((reduced_width, reduced_height))
+                if image_format == "webp":
+                    buffer = _io.BytesIO()
+                    resized.save(buffer, format="WEBP", quality=24, method=6)
+                    result_bytes = buffer.getvalue()
+                else:
+                    buffer = _io.BytesIO()
+                    resized.save(buffer, format="PNG")
+                    result_bytes = _encode_jxl_thumbnail(buffer.getvalue())
+            return result_bytes
     except CleanroomException:
         raise
     except Exception:
@@ -386,7 +552,12 @@ def _generate_one_thumbnail(
     path = _registry_path(asset_id) if asset_id else _resolve_input(payload)
     key = _thumbnail_key(asset_id, path)
     relative_dir, directory = _thumbnail_cache_directory(settings, path)
-    name = _thumbnail_filename(key, width=width if key.startswith("media-") else None)
+    image_format = _thumbnail_format(settings)
+    name = _thumbnail_filename(
+        key,
+        width=width if key.startswith("media-") else None,
+        image_format=image_format,
+    )
     relative = relative_dir + "/" + name
     target = storage.resolve_output_path(relative, must_exist=False)
     item: dict[str, Any] = {
@@ -394,11 +565,12 @@ def _generate_one_thumbnail(
         "source": storage.relative_display(path),
         "output": relative,
         "width": width,
+        "format": image_format,
     }
     if not replace_existing and _cache_is_fresh(target, path):
         item.update({"status": "cached", "bytes": target.stat().st_size})
         return item
-    data = _thumbnail_bytes(path, width)
+    data = _thumbnail_bytes(path, width, image_format=image_format)
     _atomic_write_bytes(target, data)
     item.update({"status": "generated", "bytes": len(data)})
     return item
@@ -474,6 +646,7 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
         "outputs": outputs,
         "items": items,
         "width": width,
+        "format": _thumbnail_format(settings),
         "generated": generated,
         "cached": cached,
         "failed": failed,
@@ -502,13 +675,27 @@ def _preview_cache_stem(key: str, width: int) -> str:
     return _thumbnail_filename(key, width=width)[: -len(".jpg.png")]
 
 
-def _preview_cache_name(key: str, width: int, identity: str, *, video: bool) -> str:
-    """预览缓存文件名：``<key>-w<宽度>-<源身份>.jpg.png``（视频为 .frame.jpg）。
+def _preview_cache_name(
+    key: str,
+    width: int,
+    identity: str,
+    *,
+    video: bool,
+    image_format: Literal["png", "jxl", "webp"] = "png",
+) -> str:
+    """预览缓存文件名包含格式；视频帧预览继续使用 ``.frame.jpg``。
 
     宽度进入文件名，保证 256 / 512 各自独立命中互不覆盖（AC5）。
     """
     stem = _preview_cache_stem(key, width)
-    return ("%s-%s.frame.jpg" if video else "%s-%s.jpg.png") % (stem, identity)
+    if video:
+        return "%s-%s.frame.jpg" % (stem, identity)
+    extension = {"png": ".jpg.png", "jxl": ".jxl", "webp": ".webp"}.get(
+        image_format
+    )
+    if extension is None:
+        raise CleanroomException(400, "INVALID_REQUEST", "缩略图格式不受支持")
+    return "%s-%s%s" % (stem, identity, extension)
 
 
 def _cached_preview_bytes(target: Path) -> bytes | None:
@@ -518,6 +705,12 @@ def _cached_preview_bytes(target: Path) -> bytes | None:
     except OSError:
         return None
     if not data:
+        return None
+    if target.suffix.lower() == ".jxl":
+        if data.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n") or data.startswith(
+            b"\xff\x0a"
+        ):
+            return data
         return None
     Image = _pil()
     if Image is None:
@@ -541,6 +734,14 @@ def _image_pixel_width(target: Path) -> int | None:
         with Image.open(target) as image:
             return int(image.size[0])
     except Exception:
+        if target.suffix.lower() == ".jxl":
+            import io as _io
+
+            try:
+                with Image.open(_io.BytesIO(_decode_jxl_source(target))) as image:
+                    return int(image.size[0])
+            except Exception:
+                return None
         return None
 
 
@@ -553,7 +754,11 @@ def _canonical_generated_hit(
     当成本次请求的宽度返回；``media-`` 命名的产物已带宽度，直接以新鲜度判定。
     """
     _, directory = _thumbnail_cache_directory(settings, source)
-    name = _thumbnail_filename(key, width=width if key.startswith("media-") else None)
+    name = _thumbnail_filename(
+        key,
+        width=width if key.startswith("media-") else None,
+        image_format=_thumbnail_format(settings),
+    )
     target = directory / name
     if not _cache_is_fresh(target, source):
         return None
@@ -565,7 +770,7 @@ def _canonical_generated_hit(
 def _prune_stale_preview_cache(directory: Path, name_prefix: str, keep: Path) -> None:
     """清理同素材同宽度的旧预览缓存（源身份变化后残留的孤儿文件）。"""
     try:
-        entries = list(directory.glob(name_prefix + "*.jpg*"))
+        entries = list(directory.glob(name_prefix + "*"))
     except OSError:
         return
     for entry in entries:
@@ -578,11 +783,21 @@ def _prune_stale_preview_cache(directory: Path, name_prefix: str, keep: Path) ->
             continue
 
 
-def _live_preview_bytes(path: Path, width: int, *, video: bool) -> tuple[bytes, str]:
+def _live_preview_bytes(
+    path: Path,
+    width: int,
+    *,
+    video: bool,
+    image_format: Literal["png", "jxl", "webp"] = "png",
+) -> tuple[bytes, str]:
     """实时生成预览（缓存不可用时唯一出路），不写盘。"""
     if video:
         return _video_frame_bytes(path, width), "image/jpeg"
-    return _thumbnail_bytes(path, width), "image/png"
+    extension = {"png": ".png", "jxl": ".jxl", "webp": ".webp"}[image_format]
+    return (
+        _thumbnail_bytes(path, width, image_format=image_format),
+        MIME_BY_SUFFIX[extension],
+    )
 
 
 def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
@@ -596,7 +811,8 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
     width = int((payload or {}).get("w") or 256)
     width = max(64, min(2048, width))
     video = path.suffix.lower() in _VIDEO_SUFFIXES
-    media_type = "image/jpeg" if video else "image/png"
+    image_format: Literal["png", "jxl", "webp"] = "jxl"
+    media_type = "image/jpeg" if video else MIME_BY_SUFFIX[".jxl"]
     asset_id = str((payload or {}).get("asset_id") or "").strip()
     key = _thumbnail_key(asset_id, path)
     source = storage.relative_display(path)
@@ -604,18 +820,27 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         identity = _preview_source_identity(path)
         settings = get_thumbnail_settings()
+        image_format = _thumbnail_format(settings)
+        media_type = MIME_BY_SUFFIX["." + image_format]
         _, directory = _thumbnail_cache_directory(settings, path)
-        target = directory / _preview_cache_name(key, width, identity, video=video)
+        target = directory / _preview_cache_name(
+            key, width, identity, video=video, image_format=image_format
+        )
     except (CleanroomException, OSError):
         # 缓存目录不可解析（未登记允许根、目录被移除、磁盘不可用）：降级实时生成。
         _count_preview_cache("degraded")
-        data, media_type = _live_preview_bytes(path, width, video=video)
+        data, media_type = _live_preview_bytes(
+            path, width, video=video, image_format=image_format
+        )
         return {"bytes": data, "media_type": media_type, "source": source}
 
     if _cache_is_fresh(target, path):
         cached = _cached_preview_bytes(target)
         if cached is not None:
             _count_preview_cache("hit")
+            _prune_stale_preview_cache(
+                directory, _preview_cache_stem(key, width) + "-", target
+            )
             return {"bytes": cached, "media_type": media_type, "source": source}
         # 坏缓存（截断 / 非图片）：清掉后按未命中重算。
         try:
@@ -632,10 +857,16 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
             cached = _cached_preview_bytes(canonical)
             if cached is not None:
                 _count_preview_cache("hit")
+                _prune_stale_preview_cache(
+                    directory, _preview_cache_stem(key, width) + "-", canonical
+                )
+                media_type = MIME_BY_SUFFIX.get(canonical.suffix.lower(), media_type)
                 return {"bytes": cached, "media_type": media_type, "source": source}
 
     _count_preview_cache("miss")
-    data, media_type = _live_preview_bytes(path, width, video=video)
+    data, media_type = _live_preview_bytes(
+        path, width, video=video, image_format=image_format
+    )
     try:
         _atomic_write_bytes(target, data)
         _prune_stale_preview_cache(
@@ -1116,7 +1347,17 @@ def _asset_ids(payload: dict[str, Any]) -> list[str]:
     return [str(item).strip() for item in raw if str(item).strip()]
 
 
-def _thumbnail_filename(asset_id: str, *, width: int | None = None) -> str:
+def _thumbnail_format(settings: dict[str, Any]) -> ThumbnailFormat:
+    image_format = (settings or {}).get("format")
+    return image_format if image_format in ("jxl", "webp") else "jxl"
+
+
+def _thumbnail_filename(
+    asset_id: str,
+    *,
+    width: int | None = None,
+    image_format: Literal["png", "jxl", "webp"] = "png",
+) -> str:
     if (
         not asset_id
         or len(asset_id) > 128
@@ -1124,7 +1365,12 @@ def _thumbnail_filename(asset_id: str, *, width: int | None = None) -> str:
     ):
         raise CleanroomException(400, "INVALID_ASSET_ID", "素材标识不是安全单段")
     suffix = "-w%04d" % width if width else ""
-    return "%s%s.jpg.png" % (asset_id, suffix)
+    extension = {"png": ".jpg.png", "jxl": ".jxl", "webp": ".webp"}.get(
+        image_format
+    )
+    if extension is None:
+        raise CleanroomException(400, "INVALID_REQUEST", "缩略图格式不受支持")
+    return "%s%s%s" % (asset_id, suffix, extension)
 
 
 def _atomic_write_bytes(target: Path, data: bytes) -> None:
@@ -1163,14 +1409,13 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
                 thumbnail_index = {}
                 for relative, path in storage.iter_output_paths("media_output"):
                     thumbnail_index.setdefault(path.name, []).append(relative)
-            candidates.extend(
-                thumbnail_index.get(asset_id + ".jpg.png", [])
-            )
-            # 预览派生缓存（QIN-509 命名）：<asset_id>-w<宽度>-<源身份>.jpg.png / .frame.jpg。
+            for extension in (".jpg.png", ".jxl", ".webp"):
+                candidates.extend(thumbnail_index.get(asset_id + extension, []))
+            # 预览派生缓存（QIN-509 命名）：<asset_id>-w<宽度>-<源身份>.<格式> / .frame.jpg。
             # 素材 id 不含 "-"，因此该前缀只会命中同一素材的预览产物。
             for name, relatives in thumbnail_index.items():
                 if name.startswith(asset_id + "-w") and (
-                    name.endswith(".jpg.png") or name.endswith(".frame.jpg")
+                    name.endswith((".jpg.png", ".jxl", ".webp", ".frame.jpg"))
                 ):
                     candidates.extend(relatives)
         else:

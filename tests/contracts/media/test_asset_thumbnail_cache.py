@@ -44,7 +44,13 @@ def media_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setenv("GW_LOCAL_AUTH_DB", str(tmp_path / "gw-auth" / "auth.sqlite3"))
     monkeypatch.setenv("GW_VIDEO_DATA_DIR", str(tmp_path / "gw-video"))
     media_repo.patch_thumbnail_settings(
-        {"mode": "source", "directory": "", "cache_folder": "god-cache", "width": 256}
+        {
+            "mode": "source",
+            "directory": "",
+            "cache_folder": "god-cache",
+            "width": 256,
+            "format": "webp",
+        }
     )
     return {"data": data_root, "roots": allowed_root}
 
@@ -77,7 +83,13 @@ def _three_assets(runtime: dict[str, Path]) -> list[str]:
 
 def _cache_files(runtime: dict[str, Path], folder: str = "god-cache") -> list[Path]:
     base = runtime["data"] / "media_output" / folder
-    return sorted(base.rglob("*.jpg.png")) if base.exists() else []
+    if not base.exists():
+        return []
+    return sorted(
+        path
+        for path in base.rglob("*")
+        if path.is_file() and path.name.endswith((".jpg.png", ".jxl", ".webp"))
+    )
 
 
 def test_batch_generate_accepts_asset_ids_and_reports_true_counts(
@@ -239,6 +251,6 @@ def test_single_path_payload_still_supported(
     large = media_repo.generate_thumbnail({"path": str(source), "width": 256})
 
     assert small["generated"] == 1 and small["failed"] == 0
-    assert Path(small["output"]).name.endswith("-w0128.jpg.png")
-    assert Path(large["output"]).name.endswith("-w0256.jpg.png")
+    assert Path(small["output"]).name.endswith("-w0128.webp")
+    assert Path(large["output"]).name.endswith("-w0256.webp")
     assert small["output"] != large["output"]

@@ -299,6 +299,14 @@ def test_image_version_bytes_archive_alias_and_governance_restore(tmp_path, monk
             json={"source_path": str(image)}).json()["version"]
         downloaded = client.get(resource + "/image-versions/" + version["version_id"] + "/media", headers=AUTH)
         assert downloaded.status_code == 200 and downloaded.content == payload
+        settings = client.get("/api/asset-thumbnails/settings", headers=AUTH)
+        assert settings.status_code == 200, settings.text
+        updated = client.patch(
+            "/api/asset-thumbnails/settings",
+            headers=AUTH,
+            json={"format": "webp", "expected_version": settings.json()["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
         thumb = client.post("/api/asset-thumbnails/generate", headers=AUTH,
             json={"path": str(image), "width": 64})
         assert thumb.status_code == 200

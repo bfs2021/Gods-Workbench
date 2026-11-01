@@ -293,6 +293,14 @@ def test_thumbnail_generation_and_deletion_use_exact_asset_id(tmp_path, monkeypa
             ).status_code
             == 200
         )
+        settings = client.get("/api/asset-thumbnails/settings", headers=AUTH)
+        assert settings.status_code == 200, settings.text
+        updated = client.patch(
+            "/api/asset-thumbnails/settings",
+            headers=AUTH,
+            json={"format": "webp", "expected_version": settings.json()["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
         created = client.post(
             "/api/asset-thumbnails/generate",
             headers=AUTH,
@@ -300,7 +308,7 @@ def test_thumbnail_generation_and_deletion_use_exact_asset_id(tmp_path, monkeypa
         )
         assert created.status_code == 200, created.text
         output = created.json()["output"]
-        assert output.endswith("/" + asset_id + ".jpg.png")
+        assert output.endswith("/" + asset_id + ".webp")
         # 同前缀文件夹具只能证明精确删除，不冒充它具有注册表业务来源。
         protected = write_fixture("media_output/thumbnails/" + asset_id + "0.jpg.png")
         result = client.post(

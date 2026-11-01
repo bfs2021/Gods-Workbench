@@ -66,8 +66,11 @@ def test_b5_auth_and_readonly_boundary():
 
 def test_b5_settings_write_readback():
     with TestClient(create_app()) as c:
+        settings = c.get("/api/asset-thumbnails/settings", headers=AUTH)
+        assert settings.status_code == 200, settings.text
         r = c.patch("/api/asset-thumbnails/settings", headers=AUTH,
-                    json={"mode": "custom", "cache_folder": "god-cache", "width": 320})
+                    json={"mode": "custom", "cache_folder": "god-cache", "width": 320,
+                          "expected_version": settings.json()["revision"]})
         assert r.status_code == 200, r.text
         assert r.json()["width"] == 320
         g = c.get("/api/asset-thumbnails/settings", headers=AUTH)
@@ -92,6 +95,14 @@ def test_b5_local_file_read_write_and_thumbnail(tmp_path, monkeypatch):
     monkeypatch.setenv("GW_ALLOWED_ROOTS", str(roots))
 
     with TestClient(create_app()) as c:
+        settings = c.get("/api/asset-thumbnails/settings", headers=AUTH)
+        assert settings.status_code == 200, settings.text
+        updated = c.patch(
+            "/api/asset-thumbnails/settings",
+            headers=AUTH,
+            json={"format": "webp", "expected_version": settings.json()["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
         r = c.post("/api/asset-thumbnails/generate", headers=AUTH,
                    json={"path": str(source), "width": 128})
         assert r.status_code == 200, r.text
@@ -101,7 +112,7 @@ def test_b5_local_file_read_write_and_thumbnail(tmp_path, monkeypatch):
         Path(r.json()["output"])
         # output 是相对展示串；真实文件落在 GW_DATA_DIR 内，按 cache_folder/分桶分层。
         real = Path(os.environ["GW_DATA_DIR"]) / Path(r.json()["output"]).parent
-        files = list(real.glob("*.png"))
+        files = list(real.glob("*.webp"))
         assert files, list(real.glob("*"))
         with Image.open(files[0]) as image:
             assert image.width == 128 and image.height == 64
@@ -120,7 +131,7 @@ def test_b5_local_file_read_write_and_thumbnail(tmp_path, monkeypatch):
         d = c.post("/api/asset-thumbnails/delete", headers=AUTH,
                    json={"asset_ids": [Path(data["output"]).stem.split(".")[0]]})
         assert d.status_code == 200 and d.json()["removed"] >= 1
-        assert not list(real.glob("pic*.png"))
+        assert not list(real.glob("pic*.webp"))
 
         # 越界 → 403，且不回显绝对路径。
         outside = tmp_path / "outside.png"

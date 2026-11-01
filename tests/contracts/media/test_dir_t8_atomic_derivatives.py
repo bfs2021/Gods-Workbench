@@ -48,6 +48,7 @@ def media_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setenv("GW_RUNTIME_MODE", "test")
     monkeypatch.setenv("GW_LOCAL_AUTH_DB", str(tmp_path / "gw-auth" / "auth.sqlite3"))
     monkeypatch.setenv("GW_VIDEO_DATA_DIR", str(tmp_path / "gw-video"))
+    media_repo.patch_thumbnail_settings({"format": "webp"})
     return {"data": data_root, "roots": allowed_root}
 
 
@@ -122,8 +123,8 @@ def test_thumbnail_payload_with_asset_id_keeps_fingerprint_key(
     first = media_repo.generate_thumbnail(payload)
     second = media_repo.generate_thumbnail({**payload, "width": 256})
 
-    assert Path(first["output"]).name == f"{asset_id}.jpg.png"
-    assert Path(second["output"]).name == f"{asset_id}.jpg.png"
+    assert Path(first["output"]).name == f"{asset_id}.webp"
+    assert Path(second["output"]).name == f"{asset_id}.webp"
     assert first["output"] == second["output"]
 
 

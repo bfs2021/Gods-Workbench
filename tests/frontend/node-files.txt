@@ -27,6 +27,7 @@ tests/frontend/canvas-lifecycle.test.mjs
 tests/frontend/canvas-workspace.test.mjs
 tests/frontend/http-transport-asset-helpers.test.mjs
 tests/frontend/i18n-core-date-range.test.mjs
+tests/frontend/jxl-thumbnail-settings.test.mjs
 tests/frontend/local-account-recovery-copy.test.mjs
 tests/frontend/local-account-recovery.test.mjs
 tests/frontend/mvp1-board-create-errors.test.mjs
