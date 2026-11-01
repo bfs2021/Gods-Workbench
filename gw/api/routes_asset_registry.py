@@ -742,7 +742,12 @@ def get_video_storyboard(
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
     _read_auth(authorization, x_user_role)
-    return media_probe.storyboard(asset_id, version)
+    # 缓存根由媒体仓储统一解析（cache_folder 口径），本模块不反向依赖其内部路径规则。
+    from gw.media import repository as media_repo
+
+    return media_probe.storyboard(
+        asset_id, version, cache_root=media_repo.cache_root_relative()
+    )
 
 
 @router.get("/facets", summary="读取素材筛选维度", status_code=status.HTTP_200_OK)

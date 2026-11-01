@@ -166,6 +166,26 @@ async def delete_thumbs(
     return repo.delete_outputs("thumbnails", await _json(request))
 
 
+@router.post(
+    "/api/asset-thumbnails/generate-storyboards", status_code=status.HTTP_202_ACCEPTED
+)
+async def generate_storyboards_background(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """后台预生成视频九宫格与片段缩略图：返回稳定 job_id + poll_hint。"""
+    _write(authorization, x_user_role)
+    job_id, poll_hint = repo.run_background_storyboards(await _json(request))
+    return {
+        "task": {"id": job_id, "job_id": job_id, "poll_hint": poll_hint},
+        "job_id": job_id,
+        "poll_hint": poll_hint,
+        "data_status": "ok",
+        "data_gaps": [],
+    }
+
+
 @router.post("/api/asset-thumbnails/delete-storyboards", status_code=status.HTTP_200_OK)
 async def delete_storyboards(
     request: Request,

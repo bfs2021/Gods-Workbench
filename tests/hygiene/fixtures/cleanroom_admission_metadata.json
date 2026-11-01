@@ -381,7 +381,7 @@
       "path": "docs/contracts/ASSET-REGISTRY-INTERFACE-CATALOG.yaml",
       "classification": "frozen_interface_contract",
       "authorization_basis": "cleanroom_frozen_input; GitHub_Issue_366_2026-10-28",
-      "sha256": "707836d70b204f1999df3bb9412df3f77dfe5c7097677ee8b4e191fd25c344c1",
+      "sha256": "1c11ab769f0945a47892e9485521ade19c07827a383b20bcdf22afc310aeaf08",
       "admission": "accepted"
     },
     {
@@ -465,7 +465,7 @@
       "path": "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
       "classification": "frozen_interface_contract",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "0180d7bcd34b7aeb14b596b616262549b6b7e0cb7026995be72b7f944dc57a08",
+      "sha256": "61700546ffb2c732ef3065a28261ed1053985eb8f38dfed5529cafbc6660c845",
       "admission": "accepted"
     },
     {
@@ -843,7 +843,7 @@
       "path": "docs/fixtures/phase11-b5-media-boundary.json",
       "classification": "golden_fixture",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "e7729ad04a742c01850172780c237ef4b97f45b62c21dbdb019f1acbcd86b364",
+      "sha256": "10751554b6eabb1a3b98f8599ba1573a850476b955c8d7ee1c4db7cecea7af26",
       "admission": "accepted"
     },
     {

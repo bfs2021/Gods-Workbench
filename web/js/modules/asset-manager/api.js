@@ -249,6 +249,15 @@ export function createAssetManagerApi(http) {
                 credentials: 'same-origin',
             });
         },
+        getRegistryVideoStoryboard(assetId, version = '', init = {}) {
+            const suffix = version === '' || version === null || version === undefined
+                ? ''
+                : `?version=${encodeURIComponent(version)}`;
+            return transport.request(`/api/asset-registry/assets/${encodeURIComponent(assetId)}/video/storyboard${suffix}`, {
+                ...init,
+                credentials: 'same-origin',
+            });
+        },
         updateRegistryAsset(assetId, payload, init = {}) {
             return transport.request(`/api/asset-registry/assets/${encodeURIComponent(assetId)}`, {
                 ...jsonInit(payload, {...init, method: 'PATCH'}),
@@ -845,6 +854,12 @@ export function createAssetManagerApi(http) {
         },
         deleteThumbnailStoryboards(payload, init = {}) {
             return transport.request('/api/asset-thumbnails/delete-storyboards', {
+                ...jsonInit(payload, {...init, method: 'POST'}),
+                credentials: 'same-origin',
+            });
+        },
+        generateThumbnailStoryboards(payload, init = {}) {
+            return transport.request('/api/asset-thumbnails/generate-storyboards', {
                 ...jsonInit(payload, {...init, method: 'POST'}),
                 credentials: 'same-origin',
             });

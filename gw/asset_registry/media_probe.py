@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -36,6 +37,25 @@ from gw.core.errors import CleanroomException
 VIDEO_SUFFIXES = frozenset(".mp4 .mov .mkv .avi .webm .m4v .flv .wmv".split())
 FFPROBE_TIMEOUT = 20
 FFMPEG_TIMEOUT = 120
+#: 旧版分镜根（QIN-510 前固定目录）；只读与删除兼容，新人不再写入。
+LEGACY_STORYBOARD_ROOT = "media_output/storyboards"
+#: 分镜产物在受管缓存根内的固定子目录名。
+STORYBOARD_NAMESPACE = "storyboards"
+#: 九宫格固定 9 帧：首帧、尾帧与 7 个逐级二分的中间帧。
+STORYBOARD_FRAME_COUNT = 9
+#: 九宫格合成单图：3 列 × 3 行，按素材原画幅正常拼接（不补边、不拉伸），
+#: 单格宽度上限 720。适配前端固定 16:9 小窗是展示层用 object-fit:contain 完成的。
+STORYBOARD_COLUMNS = 3
+STORYBOARD_MAX_WIDTH = 2160
+STORYBOARD_TILE_WIDTH = STORYBOARD_MAX_WIDTH // STORYBOARD_COLUMNS
+STORYBOARD_IMAGE_NAME = "storyboard.jpg"
+STORYBOARD_IMAGE_QUALITY = 88
+#: 中间帧精确定名规则：合成完成后按此规则删除，不误删片段缩略图以外的文件。
+_STORYBOARD_FRAME_PATTERN = re.compile(r"frame_[0-9]+_[0-9]{3}\.png")
+#: 尾帧留出的短尾窗，避免 ``-ss`` 落在 EOF 上抽不到帧。
+STORYBOARD_TAIL_WINDOW_MIN_SEC = 0.04
+STORYBOARD_TAIL_WINDOW_RATIO = 0.02
+STORYBOARD_TAIL_WINDOW_MAX_SEC = 1.0
 
 
 def _ffmpeg(name: str) -> str:
@@ -99,7 +119,7 @@ def probe(video: Path) -> dict[str, Any]:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height,duration",
+            "stream=width,height,duration,r_frame_rate",
             "-of",
             "default=noprint_wrappers=1",
             str(video),
@@ -111,6 +131,7 @@ def probe(video: Path) -> dict[str, Any]:
         )
     width = height = None
     duration = None
+    fps = None
     for line in completed.stdout.decode("utf-8", "replace").splitlines():
         if "=" not in line:
             continue
@@ -124,7 +145,30 @@ def probe(video: Path) -> dict[str, Any]:
                 duration = float(value)
             except ValueError:
                 duration = None
-    return {"width": width, "height": height, "duration_seconds": duration}
+        elif key == "r_frame_rate":
+            fps = _parse_rate(value)
+    return {
+        "width": width,
+        "height": height,
+        "duration_seconds": duration,
+        "fps": fps,
+    }
+
+
+def _parse_rate(raw: str) -> float | None:
+    """解析 ffprobe 的分数式帧率（如 30000/1001）；无法解析返回 None。"""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    numerator, _, denominator = text.partition("/")
+    try:
+        top = float(numerator)
+        bottom = float(denominator) if denominator else 1.0
+    except (TypeError, ValueError):
+        return None
+    if top <= 0 or bottom <= 0 or not math.isfinite(top / bottom):
+        return None
+    return top / bottom
 
 
 JXL_HEADER_READ_BYTES = 64 * 1024
@@ -341,26 +385,68 @@ def probe_jxl_metadata(path: Path) -> dict[str, Any] | None:
     return metadata if metadata is not None else _probe_jxl_ffprobe(path)
 
 
-def storyboard_directory(asset_id: str, version: str | None = None) -> Path:
-    """专用分镜根按精确稳定ID分区，禁止路径别名及目录链接。"""
+def _storyboard_asset_id(asset_id: str) -> str:
     if (
         not asset_id
         or len(asset_id) > 128
         or not all(ch.isalnum() or ch in "_-" for ch in asset_id)
     ):
         raise CleanroomException(400, "INVALID_ASSET_ID", "素材标识不是安全单段")
-    if version is None:
-        relative = "media_output/storyboards/" + asset_id
+    return asset_id
+
+
+def storyboard_relative(
+    asset_id: str,
+    version: str | None = None,
+    *,
+    cache_root: str | None,
+    legacy: bool = False,
+) -> str:
+    """分镜目录相对路径：与图片缩略图共用同一 cache_folder 受管缓存根。
+
+    缓存根由调用方显式注入（``cache_root``），本模块不反向依赖媒体仓储，
+    避免 asset_registry → media 的领域循环导入。
+    旧版固定 ``media_output/storyboards`` 的缓存仍可被读取与删除（legacy=True），
+    避免升级后历史产物变成无人清理的孤儿文件。
+    """
+    _storyboard_asset_id(asset_id)
+    if legacy:
+        root = LEGACY_STORYBOARD_ROOT
+    elif not cache_root:
+        raise CleanroomException(
+            503, "CACHE_ROOT_UNAVAILABLE", "分镜缓存根未解析，无法确定落盘位置"
+        )
     else:
-        # 版本桶：同一资产不同版本走独立目录，避免复用旧帧。
-        digest = hashlib.sha256(str(version).encode("utf-8")).hexdigest()[:12]
-        relative = "media_output/storyboards/%s/v-%s" % (asset_id, digest)
-    return storage.resolve_output_directory(relative, must_exist=False)
+        root = str(cache_root).strip("/") + "/" + STORYBOARD_NAMESPACE
+    if version is None:
+        return root + "/" + asset_id
+    # 版本桶：同一资产不同版本走独立目录，避免复用旧帧。
+    digest = hashlib.sha256(str(version).encode("utf-8")).hexdigest()[:12]
+    return "%s/%s/v-%s" % (root, asset_id, digest)
+
+
+def storyboard_directory(
+    asset_id: str, version: str | None = None, *, cache_root: str | None
+) -> Path:
+    """专用分镜根按精确稳定ID分区，禁止路径别名及目录链接。"""
+    return storage.resolve_output_directory(
+        storyboard_relative(asset_id, version, cache_root=cache_root), must_exist=False
+    )
+
+
+def legacy_storyboard_directory(asset_id: str, version: str | None = None) -> Path:
+    """旧版分镜根：仅用于清理历史缓存，不再写入。"""
+    return storage.resolve_output_directory(
+        storyboard_relative(asset_id, version, cache_root=None, legacy=True),
+        must_exist=False,
+    )
 
 
 def is_storyboard_cache_name(name: str) -> bool:
     """与本模块抽帧生成命名共享精确规则，不删除任意扩展名或前缀。"""
-    if re.fullmatch(r"frame_[0-9]+_[0-9]{3}\.png", name):
+    if _STORYBOARD_FRAME_PATTERN.fullmatch(name):
+        return True
+    if name == STORYBOARD_IMAGE_NAME or name == ".part-" + STORYBOARD_IMAGE_NAME:
         return True
     return name.endswith(".part.png")
 
@@ -375,12 +461,18 @@ def _extract_frame(
     *,
     storyboard_cache: bool,
     version: str | None = None,
+    cache_root: str | None = None,
+    scale_width: int | None = None,
 ) -> dict[str, Any]:
-    """在指定时间点真实抽帧并落盘，返回真实输出文件信息。"""
+    """在指定时间点真实抽帧并落盘，返回真实输出文件信息。
+
+    ``scale_width`` 仅用于分镜链路：图幅收到九宫格单格宽度，避免为合成单图
+    保留 4K 级中间帧（9 帧 × 247 素材会白占几百 MB）。
+    """
     video = _local_video(asset_id)
     ffmpeg = _ffmpeg("ffmpeg")
     directory = (
-        storyboard_directory(asset_id, version)
+        storyboard_directory(asset_id, version, cache_root=cache_root)
         if storyboard_cache
         else _output_dir(asset_id)
     )
@@ -395,20 +487,19 @@ def _extract_frame(
             out.relative_to(storage.data_root().resolve()).as_posix(), must_exist=False
         )
     partial = out.parent / (out.stem + ".part" + out.suffix)
+    command = [
+        ffmpeg,
+        "-y",
+        "-ss",
+        "%.3f" % float(at),
+        "-i",
+        str(video),
+    ]
+    if scale_width:
+        command += ["-vf", "scale=%d:-2" % int(scale_width)]
+    command += ["-frames:v", "1", str(partial)]
     try:
-        completed = _run(
-            [
-                ffmpeg,
-                "-y",
-                "-ss",
-                "%.3f" % float(at),
-                "-i",
-                str(video),
-                "-frames:v",
-                "1",
-                str(partial),
-            ]
-        )
+        completed = _run(command)
         if completed.returncode != 0 or not partial.is_file():
             repo._unavailable(
                 "/api/asset-registry", "MEDIA_PROCESS_FAILED", "抽帧失败"
@@ -428,8 +519,52 @@ def _extract_frame(
     return payload
 
 
-def storyboard(asset_id: str, version: str | None) -> dict[str, Any]:
-    """按等分时间点真实抽帧生成分镜；帧数依据真实时长计算。"""
+def storyboard_frame_name(at: float) -> str:
+    """分镜帧文件名：与 is_storyboard_cache_name 共享同一精确规则。"""
+    return ("frame_%.3f.png" % float(at)).replace(".", "_", 1)
+
+
+def _reusable_frame(
+    asset_id: str,
+    at: float,
+    video: Path,
+    version: str | None,
+    cache_root: str | None,
+) -> dict[str, Any] | None:
+    """已生成帧是否可直接复用：存在、非空且不早于源视频修改时间。"""
+    directory = storyboard_directory(asset_id, version, cache_root=cache_root)
+    relative = (
+        directory.relative_to(storage.data_root().resolve()).as_posix()
+        + "/"
+        + storyboard_frame_name(at)
+    )
+    try:
+        target = storage.resolve_output_path(relative)
+        stat = target.stat()
+    except (CleanroomException, OSError):
+        return None
+    if stat.st_size <= 0:
+        return None
+    try:
+        if stat.st_mtime_ns < video.stat().st_mtime_ns:
+            return None
+    except OSError:
+        return None
+    return {"output_name": relative, "size_bytes": stat.st_size}
+
+
+def storyboard(
+    asset_id: str,
+    version: str | None,
+    *,
+    cache_root: str | None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """按九宫格时间点生成分镜；合成图未过期即复用，不重复抽帧。
+
+    中间帧只是合成输入：合成成功后立即删除，目录里只留一张 ``storyboard.jpg``。
+    仍被 ``video_segments[].thumbnail`` 引用的帧会保留，避免元数据指向空文件。
+    """
     video = _local_video(asset_id)
     meta = probe(video)
     duration = meta.get("duration_seconds")
@@ -439,32 +574,484 @@ def storyboard(asset_id: str, version: str | None) -> dict[str, Any]:
             "MEDIA_PROBE_FAILED",
             "无法确定视频时长，无法生成分镜",
         )
-    count = max(1, min(12, int(duration // 2) or 1))
-    step = duration / (count + 1)
-    frames = []
-    for index in range(1, count + 1):
-        frame = _extract_frame(
-            asset_id, step * index, storyboard_cache=True, version=version
+    stamps = storyboard_timestamps(duration, meta.get("fps"))
+    extract_width = _storyboard_extract_width(meta.get("width"))
+    if not force:
+        cached_image = _reusable_storyboard_image(
+            asset_id, version, cache_root, video, meta
         )
+        if cached_image is not None:
+            # 命中即短路：中间帧已按策略删除，不能为了回显帧清单再抽一遍。
+            removed = _purge_storyboard_frames(asset_id, version, cache_root=cache_root)
+            return _storyboard_payload(
+                asset_id,
+                version,
+                meta,
+                duration,
+                stamps,
+                cached_image,
+                generated=0,
+                cached=len(stamps),
+                extract_width=extract_width,
+                removed=removed,
+            )
+    frames = []
+    generated = 0
+    for index, at in enumerate(stamps, start=1):
+        frame = _extract_frame(
+            asset_id,
+            at,
+            storyboard_cache=True,
+            version=version,
+            cache_root=cache_root,
+            scale_width=extract_width,
+        )
+        generated += 1
         frames.append(
             {
                 "index": index,
-                "at_seconds": round(step * index, 3),
+                "at_seconds": round(at, 3),
                 "output_name": frame["output_name"],
                 "size_bytes": frame["size_bytes"],
+                "status": "generated",
             }
         )
+    image = _compose_storyboard(
+        asset_id,
+        frames,
+        version=version,
+        cache_root=cache_root,
+        video=video,
+        meta=meta,
+        force=force,
+    )
+    removed = _purge_storyboard_frames(asset_id, version, cache_root=cache_root)
+    return _storyboard_payload(
+        asset_id,
+        version,
+        meta,
+        duration,
+        stamps,
+        image,
+        generated=generated,
+        cached=0,
+        extract_width=extract_width,
+        removed=removed,
+    )
+
+
+def _storyboard_payload(
+    asset_id: str,
+    version: str | None,
+    meta: dict[str, Any],
+    duration: float,
+    stamps: list[float],
+    image: dict[str, Any],
+    *,
+    generated: int,
+    cached: int,
+    extract_width: int,
+    removed: int,
+) -> dict[str, Any]:
+    """统一九宫格响应：``frames`` 恒为空（中间帧不保留），只回合成单图。"""
     return {
         "asset_id": asset_id,
         "version": version,
         "duration_seconds": duration,
         "width": meta.get("width"),
         "height": meta.get("height"),
-        "frames": frames,
-        "count": len(frames),
+        "fps": meta.get("fps"),
+        "frames": [],
+        "count": len(stamps),
+        "generated": generated,
+        "cached": cached,
+        "image": image["output_name"],
+        "image_width": image["width"],
+        "image_height": image["height"],
+        "image_status": image["status"],
+        "tile_width": image.get("tile_width", image["width"] // STORYBOARD_COLUMNS),
+        "tile_height": image.get("tile_height", image["height"] // STORYBOARD_COLUMNS),
+        "extract_width": extract_width,
+        "frames_removed": removed,
+        "data_status": "ok",
+        "data_gaps": []
+        if len(stamps) == STORYBOARD_FRAME_COUNT
+        else ["storyboard_frames_reduced"],
+    }
+
+
+def _storyboard_extract_width(source_width: Any) -> int:
+    """抽帧宽度：不超过单格 720，窄源不放大（拼接按原画幅，不做补边）。"""
+    try:
+        width = int(source_width)
+    except (TypeError, ValueError):
+        return STORYBOARD_TILE_WIDTH
+    if width <= 0:
+        return STORYBOARD_TILE_WIDTH
+    return min(width, STORYBOARD_TILE_WIDTH)
+
+
+def _segment_thumbnail_paths(asset_id: str) -> set[str]:
+    """片段缩略图引用的帧路径：清理中间帧时必须保留，否则元数据指向空文件。"""
+    try:
+        record = repo.get_asset(asset_id)
+    except CleanroomException:
+        return set()
+    metadata = record.get("metadata")
+    segments = metadata.get("video_segments") if isinstance(metadata, dict) else None
+    if not isinstance(segments, list):
+        return set()
+    return {
+        str(segment.get("thumbnail")).replace("\\", "/").strip()
+        for segment in segments
+        if isinstance(segment, dict) and segment.get("thumbnail")
+    }
+
+
+def _purge_storyboard_frames(
+    asset_id: str, version: str | None, *, cache_root: str | None
+) -> int:
+    """合成完成后删除 9 张中间帧；只按精确帧名匹配，不碰合成图与其他产物。"""
+    try:
+        directory = storyboard_directory(asset_id, version, cache_root=cache_root)
+    except CleanroomException:
+        return 0
+    if not directory.is_dir():
+        return 0
+    keep = _segment_thumbnail_paths(asset_id)
+    data_root = storage.data_root().resolve()
+    removed = 0
+    for child in sorted(directory.iterdir()):
+        if not child.is_file() or not _STORYBOARD_FRAME_PATTERN.fullmatch(child.name):
+            continue
+        try:
+            relative = child.relative_to(data_root).as_posix()
+        except ValueError:
+            continue
+        if relative in keep:
+            continue
+        try:
+            storage.resolve_output_path(relative).unlink()
+        except (CleanroomException, OSError):
+            continue
+        removed += 1
+    return removed
+
+
+def storyboard_image_relative(
+    asset_id: str,
+    version: str | None = None,
+    *,
+    cache_root: str | None,
+) -> str:
+    """九宫格合成单图在数据根内的相对路径。"""
+    return (
+        storyboard_directory(asset_id, version, cache_root=cache_root)
+        .relative_to(storage.data_root().resolve())
+        .as_posix()
+        + "/"
+        + STORYBOARD_IMAGE_NAME
+    )
+
+
+def _reusable_storyboard_image(
+    asset_id: str,
+    version: str | None,
+    cache_root: str | None,
+    video: Path,
+    meta: dict[str, Any],
+) -> dict[str, Any] | None:
+    """已合成的九宫格能否直接复用：新鲜、非空且画幅与源视频一致。
+
+    画幅与源视频不一致说明是「固定横板补边」等旧口径缓存，按未命中处理重合成，
+    避免升级后继续显示带黑边的旧图。
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    relative = storyboard_image_relative(asset_id, version, cache_root=cache_root)
+    try:
+        target = storage.resolve_output_path(relative)
+        stat = target.stat()
+        if stat.st_size <= 0 or stat.st_mtime_ns < video.stat().st_mtime_ns:
+            return None
+        with Image.open(target) as cached:
+            size = cached.size
+    except (CleanroomException, OSError, UnidentifiedImageError):
+        return None
+    if size[0] % STORYBOARD_COLUMNS or size[1] % STORYBOARD_COLUMNS:
+        return None
+    ratio = _storyboard_source_ratio(meta)
+    if ratio is not None and abs(size[0] / size[1] - ratio) / ratio > 0.01:
+        return None
+    return {
+        "output_name": relative,
+        "width": size[0],
+        "height": size[1],
+        "tile_width": size[0] // STORYBOARD_COLUMNS,
+        "tile_height": size[1] // STORYBOARD_COLUMNS,
+        "status": "cached",
+    }
+
+
+def _storyboard_source_ratio(meta: dict[str, Any]) -> float | None:
+    """源视频宽高比；拿不到就返回 None（此时不做画幅校验）。"""
+    try:
+        width = float(meta.get("width") or 0)
+        height = float(meta.get("height") or 0)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width / height
+
+
+def _compose_storyboard(
+    asset_id: str,
+    frames: list[dict[str, Any]],
+    *,
+    version: str | None,
+    cache_root: str | None,
+    video: Path,
+    meta: dict[str, Any],
+    force: bool = False,
+) -> dict[str, Any]:
+    """把 9 帧按素材原画幅正常拼成一张 3×3 单图；未过期则直接复用。
+
+    拼接不做任何补边或变形：画幅就是「3 格 × 3 格」的自然尺寸，
+    横屏素材出横图、竖屏素材出竖图。适配不同画幅是**展示层**的事——
+    前端固定 16:9 小窗用 `object-fit:contain` 等比缩入，不裁切原图。
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    relative = storyboard_image_relative(asset_id, version, cache_root=cache_root)
+    target = storage.resolve_output_path(relative, must_exist=False)
+    if not force:
+        cached = _reusable_storyboard_image(asset_id, version, cache_root, video, meta)
+        if cached is not None:
+            return cached
+    if not frames:
+        repo._unavailable(
+            "/api/asset-registry", "MEDIA_PROCESS_FAILED", "没有可分镜的帧"
+        )
+    images = []
+    try:
+        for frame in frames:
+            images.append(
+                Image.open(storage.resolve_output_path(frame["output_name"])).convert(
+                    "RGB"
+                )
+            )
+    except (CleanroomException, OSError, UnidentifiedImageError):
+        for image in images:
+            image.close()
+        repo._unavailable(
+            "/api/asset-registry", "MEDIA_PROCESS_FAILED", "九宫格合成失败"
+        )
+    tile_width = max(image.width for image in images)
+    tile_height = max(image.height for image in images)
+    canvas = Image.new(
+        "RGB",
+        (tile_width * STORYBOARD_COLUMNS, tile_height * STORYBOARD_COLUMNS),
+        (0, 0, 0),
+    )
+    for index, image in enumerate(images[: STORYBOARD_FRAME_COUNT]):
+        row, column = divmod(index, STORYBOARD_COLUMNS)
+        # 同一素材的帧尺寸一致；万一个别帧尺寸不同，缩小居中贴入，不拉伸不变形。
+        tile = image
+        if (image.width, image.height) != (tile_width, tile_height):
+            tile = image.resize((tile_width, tile_height), Image.Resampling.LANCZOS)
+        canvas.paste(
+            tile,
+            (
+                column * tile_width + (tile_width - tile.width) // 2,
+                row * tile_height + (tile_height - tile.height) // 2,
+            ),
+        )
+        if tile is not image:
+            tile.close()
+    partial = target.parent / (".part-" + STORYBOARD_IMAGE_NAME)
+    canvas_width = tile_width * STORYBOARD_COLUMNS
+    canvas_height = tile_height * STORYBOARD_COLUMNS
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial.unlink(missing_ok=True)
+        canvas.save(partial, format="JPEG", quality=STORYBOARD_IMAGE_QUALITY, optimize=True)
+        partial.replace(target)
+    except OSError:
+        repo._unavailable(
+            "/api/asset-registry", "MEDIA_PROCESS_FAILED", "九宫格保存失败"
+        )
+    finally:
+        for image in images:
+            image.close()
+        canvas.close()
+        partial.unlink(missing_ok=True)
+    return {
+        "output_name": relative,
+        "width": canvas_width,
+        "height": canvas_height,
+        "tile_width": tile_width,
+        "tile_height": tile_height,
+        "status": "generated",
+    }
+
+
+def _storyboard_tail_window(span: float, fps: Any) -> float:
+    """尾帧安全窗：``-ss`` 落在最后一帧之后（仍在容器时长内）会抽不到帧。
+
+    有帧率时按 1.5 帧留窗，否则退回按时长比例留窗，并夹在配置上下限之间。
+    """
+    if isinstance(fps, (int, float)) and math.isfinite(float(fps)) and float(fps) > 0:
+        tail = min(STORYBOARD_TAIL_WINDOW_MAX_SEC, 1.5 / float(fps))
+    else:
+        tail = min(
+            STORYBOARD_TAIL_WINDOW_MAX_SEC,
+            max(STORYBOARD_TAIL_WINDOW_MIN_SEC, float(span) * STORYBOARD_TAIL_WINDOW_RATIO),
+        )
+    return max(
+        STORYBOARD_TAIL_WINDOW_MIN_SEC,
+        min(STORYBOARD_TAIL_WINDOW_MAX_SEC, tail),
+    )
+
+
+def storyboard_timestamps(duration: float, fps: float | None = None) -> list[float]:
+    """九宫格抽帧时间点：首帧、尾帧与 7 个逐级二分中间帧，共 9 个。
+
+    等价于用户口径的递归二分：先取首/中/尾三帧，再在相邻帧之间补中间帧，
+    连续补两级后正好得到 9 个等距点。
+
+    尾部留出短尾窗：``-ss`` 落在最后一帧之后（但仍在容器时长内）会抽不到帧，
+    让整批失败关闭，因此九等分的区间取 ``duration - 尾窗``。
+    极短视频去重后可能少于 9 帧，此时由调用方在 ``data_gaps`` 如实标注。
+    """
+    span = float(duration)
+    if not math.isfinite(span) or span <= 0:
+        raise CleanroomException(400, "INVALID_TIME_RANGE", "视频时长不合法")
+    effective = max(0.0, span - _storyboard_tail_window(span, fps))
+    stamps = [
+        round(effective * index / (STORYBOARD_FRAME_COUNT - 1), 3)
+        for index in range(STORYBOARD_FRAME_COUNT)
+    ]
+    deduped: list[float] = []
+    for at in stamps:
+        if not deduped or at > deduped[-1]:
+            deduped.append(at)
+    return deduped
+
+
+def _valid_segment_range(segment: Any) -> tuple[float, float] | None:
+    """只接受时间戳合法的片段；非法片段保持原值，不伪造缩略图。"""
+    if not isinstance(segment, dict):
+        return None
+    start, end = segment.get("start_sec"), segment.get("end_sec")
+    if isinstance(start, bool) or isinstance(end, bool):
+        return None
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        return None
+    try:
+        start_sec, end_sec = float(start), float(end)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (math.isfinite(start_sec) and math.isfinite(end_sec)):
+        return None
+    if start_sec < 0 or end_sec <= start_sec:
+        return None
+    return start_sec, end_sec
+
+
+def _clamped_frame_moment(at: float, grid: dict[str, Any]) -> float:
+    """把抽帧时刻夹进可解码区间。
+
+    极短尾段（如 14.958–15.0 秒，只有一帧）的中点会落在最后一帧之后，
+    ``-ss`` 抽不到帧会让整个素材失败关闭，因此向前夹到安全尾窗内。
+    """
+    try:
+        span = float(grid.get("duration_seconds") or 0)
+    except (TypeError, ValueError):
+        return max(0.0, float(at))
+    if span <= 0:
+        return max(0.0, float(at))
+    return max(0.0, min(float(at), span - _storyboard_tail_window(span, grid.get("fps"))))
+
+
+def storyboard_thumbnails(
+    asset_id: str, *, cache_root: str | None, force: bool = False
+) -> dict[str, Any]:
+    """生成九宫格与片段缩略图，并把真实落盘路径回写 ``video_segments``。
+
+    任一片段抽帧失败即整体失败关闭：注册表保持原值，不写占位路径或假路径。
+    已存在的帧按源视频 mtime 复用，重复生成不会产生新文件。
+    """
+    grid = storyboard(asset_id, None, cache_root=cache_root, force=force)
+    video = _local_video(asset_id)
+    record = repo.get_asset(asset_id)
+    metadata = record.get("metadata")
+    segments = metadata.get("video_segments") if isinstance(metadata, dict) else None
+    result: dict[str, Any] = {
+        "asset_id": asset_id,
+        "storyboard": grid,
+        "frames": grid["count"],
+        "segment_total": 0,
+        "segment_generated": 0,
+        "segment_cached": 0,
+        "segments_updated": 0,
+        "generated": grid["generated"],
+        "cached": grid["cached"],
         "data_status": "ok",
         "data_gaps": [],
     }
+    if not isinstance(segments, list) or not segments:
+        # 未登记片段的素材只生成九宫格，不凭空造 video_segments。
+        result["data_gaps"] = ["video_segments_absent"]
+        return result
+    updated: list[Any] = []
+    segment_generated = 0
+    segment_cached = 0
+    changed = False
+    for segment in segments:
+        window = _valid_segment_range(segment)
+        if window is None:
+            updated.append(segment)
+            continue
+        midpoint = _clamped_frame_moment((window[0] + window[1]) / 2, grid)
+        reused = (
+            None
+            if force
+            else _reusable_frame(asset_id, midpoint, video, None, cache_root)
+        )
+        if reused is not None:
+            segment_cached += 1
+            thumb = reused["output_name"]
+        else:
+            frame = _extract_frame(
+                asset_id,
+                midpoint,
+                storyboard_cache=True,
+                cache_root=cache_root,
+                scale_width=grid.get("extract_width"),
+            )
+            segment_generated += 1
+            thumb = frame["output_name"]
+        if segment.get("thumbnail") != thumb:
+            changed = True
+        updated.append({**segment, "thumbnail": thumb})
+    if changed:
+        repo.update_asset(asset_id, {"video_segments": updated})
+    result.update(
+        {
+            "segment_total": len(segments),
+            "segment_generated": segment_generated,
+            "segment_cached": segment_cached,
+            "segments_updated": sum(
+                1
+                for item in updated
+                if isinstance(item, dict) and item.get("thumbnail")
+            ),
+            "generated": grid["generated"] + segment_generated,
+            "cached": grid["cached"] + segment_cached,
+        }
+    )
+    return result
 
 
 def clip(

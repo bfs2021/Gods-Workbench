@@ -319,6 +319,8 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/asset-thumbnails/delete-storyboards",
         "/api/asset-thumbnails/generate",
         "/api/asset-thumbnails/generate-background",
+        # 2026-11-01 QIN-510：视频九宫格预生成（202 + 稳定 job_id），前端生成入口真实引用。
+        "/api/asset-thumbnails/generate-storyboards",
         "/api/asset-thumbnails/jobs/{p}",
         "/api/asset-thumbnails/settings",
         "/api/audio-waveform-data",
@@ -460,6 +462,8 @@ KNOWN_BACKEND_PATHS = frozenset(
         "/api/asset-thumbnails/delete-storyboards",
         "/api/asset-thumbnails/generate",
         "/api/asset-thumbnails/generate-background",
+        # 2026-11-01 QIN-510：视频九宫格预生成（202 + 稳定 job_id），前端生成入口真实引用。
+        "/api/asset-thumbnails/generate-storyboards",
         "/api/asset-thumbnails/jobs/{p}",
         "/api/asset-thumbnails/settings",
         "/api/audio-waveform-data",
