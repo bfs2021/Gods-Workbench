@@ -727,7 +727,8 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
                 camera_movement: Optional[str] = None,
                 focal_length: Optional[str] = None,
                 lighting_phase: Optional[str] = None,
-                aspect_ratio: Optional[str] = None) -> Dict[str, Any]:
+                aspect_ratio: Optional[str] = None,
+                include_removed: bool = False) -> Dict[str, Any]:
     if structured:
         if (
             root_id
@@ -882,6 +883,8 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         if root_id not in known_roots:
             raise CleanroomException(404, "ROOT_NOT_FOUND", "素材来源根不存在")
         items = [a for a in items if str(a.get("storage_root_id") or a.get("root_id") or "") == root_id]
+    elif not include_removed:
+        items = [a for a in items if a.get("root_availability") != "removed"]
     if collection_id:
         def belongs_to_collection(asset: Dict[str, Any]) -> bool:
             value = asset.get("collection_id")
@@ -2928,3 +2931,74 @@ def register_asset_record(
         return record
 
     return state().mutate(mutate)
+
+
+def delete_asset_search_documents(asset_ids: List[str]) -> None:
+    """批量删除 SQLite 全文与向量检索索引中的资产与分镜。"""
+    if not asset_ids:
+        return
+    from gw.core.sqlite_vec_engine import SQLiteVecEngine
+    db_path = storage.data_root() / ASSET_SEARCH_INDEX_FILENAME
+    if not db_path.exists():
+        return
+    try:
+        with SQLiteVecEngine(db_path) as engine:
+            for aid in asset_ids:
+                engine.delete_document(aid)
+                engine.delete_shots(aid)
+    except Exception:
+        pass
+
+
+def purge_root_records(root_id: str) -> Dict[str, Any]:
+    """彻底清除属于指定允许根的所有注册表资产、检索索引与缩略图缓存。绝对不触碰用户源文件。"""
+    removed_ids: List[str] = []
+
+    def mutate(raw: Dict[str, Any]) -> None:
+        nonlocal removed_ids
+        for asset_id, asset in list(raw.get("assets", {}).items()):
+            aid = str(asset.get("storage_root_id") or asset.get("root_id") or "")
+            if aid == root_id:
+                removed_ids.append(asset_id)
+                del raw["assets"][asset_id]
+        if removed_ids:
+            _bump(raw)
+
+    state().mutate(mutate)
+
+    if removed_ids:
+        delete_asset_search_documents(removed_ids)
+        try:
+            from gw.media import repository as media_repo
+            media_repo.delete_outputs("thumbnails", {"asset_ids": removed_ids})
+            media_repo.delete_outputs("storyboards", {"asset_ids": removed_ids})
+        except Exception:
+            pass
+
+    try:
+        from gw.settings.service import default_storage_settings_service
+        snapshot = default_storage_settings_service.get_snapshot()
+        remaining_entries = []
+        for entry in snapshot.extra_local_entries:
+            epath = entry.get("path")
+            if epath:
+                try:
+                    eid, _ = storage.location_identity(Path(epath))
+                    if eid == root_id:
+                        continue
+                except Exception:
+                    pass
+            remaining_entries.append(entry)
+        if len(remaining_entries) != len(snapshot.extra_local_entries):
+            from gw.settings.models import StorageSettingsPatchRequest
+            default_storage_settings_service.patch(
+                StorageSettingsPatchRequest(
+                    dirs=dict(snapshot.dirs),
+                    extra_local_entries=remaining_entries,
+                    expected_version=snapshot.revision,
+                )
+            )
+    except Exception:
+        pass
+
+    return {"purged_root_id": root_id, "purged_asset_count": len(removed_ids)}

@@ -566,31 +566,49 @@ class StorageAllowedRootsService:
             code = str(status["reason"] or "MOUNT_OFFLINE")
             raise CleanroomException(503 if code == "MOUNT_OFFLINE" else 403, code, str(status["message"]))
 
+        target_key = storage.directory_path_key(normalized)
+        system_keys = {
+            storage.directory_path_key(str(root))
+            for root in storage.environment_allowed_roots()
+        }
+        if target_key in system_keys:
+            raise CleanroomException(409, "ALLOWED_ROOT_ALREADY_REGISTERED", "该目录已登记为允许根")
+
         def update(state: dict[str, Any]) -> None:
             current = self._expected_version(state, payload.expected_version)
-            keys = {
-                storage.directory_path_key(str(root))
-                for root in storage.environment_allowed_roots()
-            }
+            existing_active = None
+            existing_inactive = None
             for record in state.get("roots", []):
-                if record.get("active"):
-                    keys.add(storage.directory_path_key(str(record.get("path") or "")))
-                    keys.update(storage.directory_path_key(str(alias)) for alias in record.get("aliases", []))
-            if storage.directory_path_key(normalized) in keys:
+                rec_keys = {storage.directory_path_key(str(record.get("path") or ""))}
+                rec_keys.update(storage.directory_path_key(str(alias)) for alias in record.get("aliases", []))
+                if target_key in rec_keys:
+                    if record.get("active"):
+                        existing_active = record
+                        break
+                    existing_inactive = record
+
+            if existing_active is not None:
                 raise CleanroomException(409, "ALLOWED_ROOT_ALREADY_REGISTERED", "该目录已登记为允许根")
-            root_id = storage.root_identity_id(Path(normalized))
-            state.setdefault("roots", []).append(
-                {
-                    "id": root_id,
-                    "path": normalized,
-                    "aliases": [],
-                    "active": True,
-                    "network_mount": storage._is_network_path(normalized),
-                }
-            )
+
+            if existing_inactive is not None:
+                existing_inactive["active"] = True
+                existing_inactive["path"] = normalized
+                existing_inactive["network_mount"] = storage._is_network_path(normalized)
+            else:
+                root_id = storage.root_identity_id(Path(normalized))
+                state.setdefault("roots", []).append(
+                    {
+                        "id": root_id,
+                        "path": normalized,
+                        "aliases": [],
+                        "active": True,
+                        "network_mount": storage._is_network_path(normalized),
+                    }
+                )
             state["revision"] = current + 1
 
         self._state.mutate(update)
+        self._trigger_rescan(normalized)
         return self.get_snapshot()
 
     def remove_root(
@@ -614,6 +632,86 @@ class StorageAllowedRootsService:
 
         self._state.mutate(update)
         return self.get_snapshot()
+
+    def restore_root(
+        self, root_id: str, payload: StorageAllowedRootDeleteRequest
+    ) -> StorageAllowedRootsSnapshot:
+        system_ids = {storage.root_identity_id(path) for path in storage.environment_allowed_roots()}
+        if root_id in system_ids:
+            raise CleanroomException(403, "SYSTEM_ROOT_READ_ONLY", "环境变量系统根为只读")
+
+        restored_path: str | None = None
+
+        def update(state: dict[str, Any]) -> None:
+            nonlocal restored_path
+            current = self._expected_version(state, payload.expected_version)
+            record = next(
+                (item for item in state.get("roots", []) if item.get("id") == root_id),
+                None,
+            )
+            if record is None:
+                raise CleanroomException(404, "ROOT_NOT_FOUND", "允许根不存在")
+            if record.get("active"):
+                raise CleanroomException(409, "ALLOWED_ROOT_ALREADY_ACTIVE", "该允许根已处于活跃状态")
+
+            restored_path = str(record.get("path") or "")
+            status = storage.probe_mount(restored_path)
+            if not status["available"]:
+                code = str(status["reason"] or "MOUNT_OFFLINE")
+                raise CleanroomException(503 if code == "MOUNT_OFFLINE" else 403, code, str(status["message"]))
+
+            record["active"] = True
+            state["revision"] = current + 1
+
+        self._state.mutate(update)
+        if restored_path:
+            self._trigger_rescan(restored_path)
+        return self.get_snapshot()
+
+    def purge_root(
+        self, root_id: str, payload: StorageAllowedRootDeleteRequest
+    ) -> StorageAllowedRootsSnapshot:
+        system_ids = {storage.root_identity_id(path) for path in storage.environment_allowed_roots()}
+        if root_id in system_ids:
+            raise CleanroomException(403, "SYSTEM_ROOT_READ_ONLY", "环境变量系统根为只读，不能彻底删除")
+
+        def update(state: dict[str, Any]) -> None:
+            current = self._expected_version(state, payload.expected_version)
+            record = next(
+                (item for item in state.get("roots", []) if item.get("id") == root_id),
+                None,
+            )
+            if record is None:
+                raise CleanroomException(404, "ROOT_NOT_FOUND", "允许根不存在")
+
+            state["roots"] = [item for item in state.get("roots", []) if item.get("id") != root_id]
+            state["revision"] = current + 1
+
+        self._state.mutate(update)
+
+        try:
+            from gw.asset_registry import repository as repo
+            repo.purge_root_records(root_id)
+        except Exception:
+            pass
+
+        return self.get_snapshot()
+
+    @staticmethod
+    def _trigger_rescan(path: str) -> None:
+        try:
+            import types
+            from gw.asset_registry import index_jobs
+            root_id = storage.root_identity_id(Path(path))
+            auth = types.SimpleNamespace(subject="admin", mode="local", identity_domain="local", role="admin")
+            index_jobs.service().submit(
+                "reindex",
+                {"roots": [root_id], "background": True},
+                auth,
+                key=f"rescan_{root_id}_{int(datetime.now(timezone.utc).timestamp())}",
+            )
+        except Exception:
+            pass
 
     def confirm_alias(
         self, root_id: str, payload: StorageAllowedRootRequest

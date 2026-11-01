@@ -297,6 +297,7 @@ def list_registry_assets(
     focal_length: Optional[str] = Query(None),
     lighting_phase: Optional[str] = Query(None),
     aspect_ratio: Optional[str] = Query(None),
+    include_removed: bool = Query(False),
     authorization: Optional[str] = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
@@ -351,7 +352,8 @@ def list_registry_assets(
                             entity_type=entity_type, entity_id=entity_id,
                             shot_size=shot_size, camera_movement=camera_movement,
                             focal_length=focal_length, lighting_phase=lighting_phase,
-                            aspect_ratio=aspect_ratio)
+                            aspect_ratio=aspect_ratio,
+                            include_removed=include_removed)
 
 
 #: 镜头级检索单次返回上限，防止一次下钻把整库镜头全部返回。

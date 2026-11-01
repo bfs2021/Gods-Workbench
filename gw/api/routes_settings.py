@@ -256,6 +256,38 @@ def remove_storage_allowed_root(
 
 
 @router.post(
+    "/api/storage-settings/roots/{root_id}/restore",
+    response_model=StorageAllowedRootsSnapshot,
+    summary="恢复已移除的允许根",
+    status_code=status.HTTP_200_OK,
+)
+def restore_storage_allowed_root(
+    root_id: str = Path(..., min_length=1, max_length=128),
+    payload: StorageAllowedRootDeleteRequest = Body(...),  # noqa: B008
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role", description="用户角色权限"),
+):
+    _require_storage_admin(authorization, x_user_role)
+    return default_storage_allowed_roots_service.restore_root(root_id, payload)
+
+
+@router.delete(
+    "/api/storage-settings/roots/{root_id}/purge",
+    response_model=StorageAllowedRootsSnapshot,
+    summary="彻底删除允许根及其系统索引与缓存",
+    status_code=status.HTTP_200_OK,
+)
+def purge_storage_allowed_root(
+    root_id: str = Path(..., min_length=1, max_length=128),
+    payload: StorageAllowedRootDeleteRequest = Body(...),  # noqa: B008
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role", description="用户角色权限"),
+):
+    _require_storage_admin(authorization, x_user_role)
+    return default_storage_allowed_roots_service.purge_root(root_id, payload)
+
+
+@router.post(
     "/api/storage-settings/roots/{root_id}/aliases/confirm",
     response_model=StorageAllowedRootsSnapshot,
     summary="确认允许根的路径别名",
