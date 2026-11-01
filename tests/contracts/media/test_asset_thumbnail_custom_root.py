@@ -46,8 +46,16 @@ def media_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setenv("GW_RUNTIME_MODE", "test")
     monkeypatch.setenv("GW_LOCAL_AUTH_DB", str(tmp_path / "gw-auth" / "auth.sqlite3"))
     monkeypatch.setenv("GW_VIDEO_DATA_DIR", str(tmp_path / "gw-video"))
+    # 显式钉死 webp：QIN-513 之后默认格式是 jxl，CI 镜像的 Pillow 无 jxl 编码器，
+    # 不钉格式会因环境差异导致「生成 0 张」的假失败。断言本身不锁扩展名。
     media_repo.patch_thumbnail_settings(
-        {"mode": "source", "directory": "", "cache_folder": "god-cache", "width": 256}
+        {
+            "mode": "source",
+            "directory": "",
+            "cache_folder": "god-cache",
+            "format": "webp",
+            "width": 256,
+        }
     )
     return {"data": data_root, "roots": allowed_root}
 
