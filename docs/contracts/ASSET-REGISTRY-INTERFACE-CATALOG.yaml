@@ -194,7 +194,7 @@ interfaces:
     path: /api/asset-registry/assets/{asset_id}/video/storyboard
     body: null
     status: [200, 400, 401, 403, 404, 409, 413, 503]
-    response_200: "返回真实文件字节流（Content-Type 按扩展名）；无可读文件时 503，不伪造 URL"
+    response_200: "返回真实帧清单 {asset_id,version,duration_seconds,width,height,frames[{index,at_seconds,output_name,size_bytes,status}],count,generated,cached}；output_name 为相对 GW_DATA_DIR 的真实落盘路径，命中缓存时 status=cached 且不再抽帧；第 N 帧可用 /api/download-output 取字节流"
     response_503: {code: MEDIA_PROCESS_FAILED, unavailable: true, endpoint: /api/asset-registry, message: "ffmpeg/ffprobe 缺失或分镜失败"}
     acceptance: "统一错误包 {detail:{code,message,...}}；写入必须可读回，删除必须不再返回；缺依赖 503 不得静默假成功"
   - name: get_api_asset_registry_facets

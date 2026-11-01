@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gw.api.app import create_app
 from gw.core import storage
+from gw.media import repository as media_repo
 
 AUTH = {"Authorization": "Bearer cleanroom-test", "X-User-Role": "editor"}
 GOV = {**AUTH, "X-User-Role": "governor"}
@@ -261,7 +262,10 @@ def test_real_ffmpeg_registered_frame_storyboard_clip_and_transcode(tmp_path, mo
             assert metadata["streams"][0]["codec_name"] == "h264"
             assert 0 < float(metadata["format"]["duration"]) <= maximum
         story_output = storyboard.json()["frames"][0]["output_name"]
-        assert story_output.startswith("media_output/storyboards/" + created + "/")
+        # 分镜与缩略图共用 cache_folder 受管缓存根（QIN-510），按稳定 ID 分区。
+        assert story_output.startswith(
+            media_repo.cache_root_relative() + "/storyboards/" + created + "/"
+        )
         story_bytes = client.get("/api/download-output", headers=AUTH, params={"path": story_output})
         assert story_bytes.status_code == 200
         assert story_bytes.content == (data_root / story_output).read_bytes()

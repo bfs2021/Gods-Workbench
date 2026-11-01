@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -36,6 +37,10 @@ from gw.core.errors import CleanroomException
 VIDEO_SUFFIXES = frozenset(".mp4 .mov .mkv .avi .webm .m4v .flv .wmv".split())
 FFPROBE_TIMEOUT = 20
 FFMPEG_TIMEOUT = 120
+#: 旧版分镜根（QIN-510 前固定目录）；只读与删除兼容，新人不再写入。
+LEGACY_STORYBOARD_ROOT = "media_output/storyboards"
+#: 分镜产物在受管缓存根内的固定子目录名。
+STORYBOARD_NAMESPACE = "storyboards"
 
 
 def _ffmpeg(name: str) -> str:
@@ -341,21 +346,61 @@ def probe_jxl_metadata(path: Path) -> dict[str, Any] | None:
     return metadata if metadata is not None else _probe_jxl_ffprobe(path)
 
 
-def storyboard_directory(asset_id: str, version: str | None = None) -> Path:
-    """专用分镜根按精确稳定ID分区，禁止路径别名及目录链接。"""
+def _storyboard_asset_id(asset_id: str) -> str:
     if (
         not asset_id
         or len(asset_id) > 128
         or not all(ch.isalnum() or ch in "_-" for ch in asset_id)
     ):
         raise CleanroomException(400, "INVALID_ASSET_ID", "素材标识不是安全单段")
-    if version is None:
-        relative = "media_output/storyboards/" + asset_id
+    return asset_id
+
+
+def storyboard_relative(
+    asset_id: str,
+    version: str | None = None,
+    *,
+    cache_root: str | None,
+    legacy: bool = False,
+) -> str:
+    """分镜目录相对路径：与图片缩略图共用同一 cache_folder 受管缓存根。
+
+    缓存根由调用方显式注入（``cache_root``），本模块不反向依赖媒体仓储，
+    避免 asset_registry → media 的领域循环导入。
+    旧版固定 ``media_output/storyboards`` 的缓存仍可被读取与删除（legacy=True），
+    避免升级后历史产物变成无人清理的孤儿文件。
+    """
+    _storyboard_asset_id(asset_id)
+    if legacy:
+        root = LEGACY_STORYBOARD_ROOT
+    elif not cache_root:
+        raise CleanroomException(
+            503, "CACHE_ROOT_UNAVAILABLE", "分镜缓存根未解析，无法确定落盘位置"
+        )
     else:
-        # 版本桶：同一资产不同版本走独立目录，避免复用旧帧。
-        digest = hashlib.sha256(str(version).encode("utf-8")).hexdigest()[:12]
-        relative = "media_output/storyboards/%s/v-%s" % (asset_id, digest)
-    return storage.resolve_output_directory(relative, must_exist=False)
+        root = str(cache_root).strip("/") + "/" + STORYBOARD_NAMESPACE
+    if version is None:
+        return root + "/" + asset_id
+    # 版本桶：同一资产不同版本走独立目录，避免复用旧帧。
+    digest = hashlib.sha256(str(version).encode("utf-8")).hexdigest()[:12]
+    return "%s/%s/v-%s" % (root, asset_id, digest)
+
+
+def storyboard_directory(
+    asset_id: str, version: str | None = None, *, cache_root: str | None
+) -> Path:
+    """专用分镜根按精确稳定ID分区，禁止路径别名及目录链接。"""
+    return storage.resolve_output_directory(
+        storyboard_relative(asset_id, version, cache_root=cache_root), must_exist=False
+    )
+
+
+def legacy_storyboard_directory(asset_id: str, version: str | None = None) -> Path:
+    """旧版分镜根：仅用于清理历史缓存，不再写入。"""
+    return storage.resolve_output_directory(
+        storyboard_relative(asset_id, version, cache_root=None, legacy=True),
+        must_exist=False,
+    )
 
 
 def is_storyboard_cache_name(name: str) -> bool:
@@ -375,12 +420,13 @@ def _extract_frame(
     *,
     storyboard_cache: bool,
     version: str | None = None,
+    cache_root: str | None = None,
 ) -> dict[str, Any]:
     """在指定时间点真实抽帧并落盘，返回真实输出文件信息。"""
     video = _local_video(asset_id)
     ffmpeg = _ffmpeg("ffmpeg")
     directory = (
-        storyboard_directory(asset_id, version)
+        storyboard_directory(asset_id, version, cache_root=cache_root)
         if storyboard_cache
         else _output_dir(asset_id)
     )
@@ -428,8 +474,48 @@ def _extract_frame(
     return payload
 
 
-def storyboard(asset_id: str, version: str | None) -> dict[str, Any]:
-    """按等分时间点真实抽帧生成分镜；帧数依据真实时长计算。"""
+def storyboard_frame_name(at: float) -> str:
+    """分镜帧文件名：与 is_storyboard_cache_name 共享同一精确规则。"""
+    return ("frame_%.3f.png" % float(at)).replace(".", "_", 1)
+
+
+def _reusable_frame(
+    asset_id: str,
+    at: float,
+    video: Path,
+    version: str | None,
+    cache_root: str | None,
+) -> dict[str, Any] | None:
+    """已生成帧是否可直接复用：存在、非空且不早于源视频修改时间。"""
+    directory = storyboard_directory(asset_id, version, cache_root=cache_root)
+    relative = (
+        directory.relative_to(storage.data_root().resolve()).as_posix()
+        + "/"
+        + storyboard_frame_name(at)
+    )
+    try:
+        target = storage.resolve_output_path(relative)
+        stat = target.stat()
+    except (CleanroomException, OSError):
+        return None
+    if stat.st_size <= 0:
+        return None
+    try:
+        if stat.st_mtime_ns < video.stat().st_mtime_ns:
+            return None
+    except OSError:
+        return None
+    return {"output_name": relative, "size_bytes": stat.st_size}
+
+
+def storyboard(
+    asset_id: str,
+    version: str | None,
+    *,
+    cache_root: str | None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """按等分时间点生成分镜；命中已生成缓存时直接复用，不重复抽帧。"""
     video = _local_video(asset_id)
     meta = probe(video)
     duration = meta.get("duration_seconds")
@@ -442,16 +528,36 @@ def storyboard(asset_id: str, version: str | None) -> dict[str, Any]:
     count = max(1, min(12, int(duration // 2) or 1))
     step = duration / (count + 1)
     frames = []
+    generated = 0
+    cached = 0
     for index in range(1, count + 1):
-        frame = _extract_frame(
-            asset_id, step * index, storyboard_cache=True, version=version
+        at = step * index
+        reused = (
+            None if force else _reusable_frame(asset_id, at, video, version, cache_root)
         )
+        if reused is not None:
+            cached += 1
+            frames.append(
+                {
+                    "index": index,
+                    "at_seconds": round(at, 3),
+                    "output_name": reused["output_name"],
+                    "size_bytes": reused["size_bytes"],
+                    "status": "cached",
+                }
+            )
+            continue
+        frame = _extract_frame(
+            asset_id, at, storyboard_cache=True, version=version, cache_root=cache_root
+        )
+        generated += 1
         frames.append(
             {
                 "index": index,
-                "at_seconds": round(step * index, 3),
+                "at_seconds": round(at, 3),
                 "output_name": frame["output_name"],
                 "size_bytes": frame["size_bytes"],
+                "status": "generated",
             }
         )
     return {
@@ -462,9 +568,107 @@ def storyboard(asset_id: str, version: str | None) -> dict[str, Any]:
         "height": meta.get("height"),
         "frames": frames,
         "count": len(frames),
+        "generated": generated,
+        "cached": cached,
         "data_status": "ok",
         "data_gaps": [],
     }
+
+
+def _valid_segment_range(segment: Any) -> tuple[float, float] | None:
+    """只接受时间戳合法的片段；非法片段保持原值，不伪造缩略图。"""
+    if not isinstance(segment, dict):
+        return None
+    start, end = segment.get("start_sec"), segment.get("end_sec")
+    if isinstance(start, bool) or isinstance(end, bool):
+        return None
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        return None
+    try:
+        start_sec, end_sec = float(start), float(end)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (math.isfinite(start_sec) and math.isfinite(end_sec)):
+        return None
+    if start_sec < 0 or end_sec <= start_sec:
+        return None
+    return start_sec, end_sec
+
+
+def storyboard_thumbnails(
+    asset_id: str, *, cache_root: str | None, force: bool = False
+) -> dict[str, Any]:
+    """生成九宫格与片段缩略图，并把真实落盘路径回写 ``video_segments``。
+
+    任一片段抽帧失败即整体失败关闭：注册表保持原值，不写占位路径或假路径。
+    已存在的帧按源视频 mtime 复用，重复生成不会产生新文件。
+    """
+    grid = storyboard(asset_id, None, cache_root=cache_root, force=force)
+    video = _local_video(asset_id)
+    record = repo.get_asset(asset_id)
+    metadata = record.get("metadata")
+    segments = metadata.get("video_segments") if isinstance(metadata, dict) else None
+    result: dict[str, Any] = {
+        "asset_id": asset_id,
+        "storyboard": grid,
+        "frames": grid["count"],
+        "segment_total": 0,
+        "segment_generated": 0,
+        "segment_cached": 0,
+        "segments_updated": 0,
+        "generated": grid["generated"],
+        "cached": grid["cached"],
+        "data_status": "ok",
+        "data_gaps": [],
+    }
+    if not isinstance(segments, list) or not segments:
+        # 未登记片段的素材只生成九宫格，不凭空造 video_segments。
+        result["data_gaps"] = ["video_segments_absent"]
+        return result
+    updated: list[Any] = []
+    segment_generated = 0
+    segment_cached = 0
+    changed = False
+    for segment in segments:
+        window = _valid_segment_range(segment)
+        if window is None:
+            updated.append(segment)
+            continue
+        midpoint = (window[0] + window[1]) / 2
+        reused = (
+            None
+            if force
+            else _reusable_frame(asset_id, midpoint, video, None, cache_root)
+        )
+        if reused is not None:
+            segment_cached += 1
+            thumb = reused["output_name"]
+        else:
+            frame = _extract_frame(
+                asset_id, midpoint, storyboard_cache=True, cache_root=cache_root
+            )
+            segment_generated += 1
+            thumb = frame["output_name"]
+        if segment.get("thumbnail") != thumb:
+            changed = True
+        updated.append({**segment, "thumbnail": thumb})
+    if changed:
+        repo.update_asset(asset_id, {"video_segments": updated})
+    result.update(
+        {
+            "segment_total": len(segments),
+            "segment_generated": segment_generated,
+            "segment_cached": segment_cached,
+            "segments_updated": sum(
+                1
+                for item in updated
+                if isinstance(item, dict) and item.get("thumbnail")
+            ),
+            "generated": grid["generated"] + segment_generated,
+            "cached": grid["cached"] + segment_cached,
+        }
+    )
+    return result
 
 
 def clip(

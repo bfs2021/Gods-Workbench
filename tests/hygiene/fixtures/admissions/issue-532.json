@@ -1,0 +1,41 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 532,
+  "authorization_basis": "GitHub Issue #532, 2026-11-01",
+  "files": [
+    "gw/asset_registry/media_probe.py",
+    "gw/media/repository.py",
+    "gw/api/routes_media.py",
+    "web/js/modules/asset-manager.js",
+    "web/js/modules/asset-manager/api.js",
+    "web/css/pages/asset-manager.css",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "docs/contracts/ASSET-REGISTRY-INTERFACE-CATALOG.yaml",
+    "tests/contracts/assets/test_phase12_success_paths.py",
+    "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+    "tests/contracts/assets/test_video_storyboard_cache.py",
+    "tests/hygiene/fixtures/admissions/issue-532.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_video_storyboard_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #532, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/contracts/assets/test_phase12_success_paths.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #532, 2026-11-01",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #532, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-510：视频分镜缩略图预生成、缓存复用、video_segments 元数据回写与删除联动；分镜目录并入 cache_folder 口径并兼容旧固定根。"
+}
