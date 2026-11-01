@@ -149,6 +149,9 @@ function createHarness(referencesHandler, { search = '' } = {}) {
         button(card, label) { return flatten(card).find(node => node.textContent === label); },
         textarea(card) { return flatten(card).find(node => node.tagName === 'TEXTAREA'); },
         async read(sessionId = SESSION_ID) {
+            // QIN-506：项目下拉框不再自动预选（即使只有一个项目），参考读取需要显式项目上下文，
+            // 因此这里模拟真实用户先在下拉框选中项目，再读取参考集。
+            harness.nodes.get('agentTaskProject').value = PROJECT_ID;
             harness.sessionInput().value = sessionId;
             await harness.panel().children.find(child => child.textContent === '读取参考').emit('click');
             await waitFor(() => /已读取|暂无参考条目|失败/.test(harness.statusNode().textContent));
@@ -336,7 +339,7 @@ test('AC1 URL 查询参数 session_id 预填会话编号', async () => {
     const harness = createHarness(async path => {
         if (path === '/api/agent/sessions/session-from-url/references') return jsonResponse(referenceSet([]));
         throw new Error(`未预期的本地请求：${path}`);
-    }, { search: '?project_id=project-x&session_id=session-from-url' });
+    }, { search: `?project_id=${PROJECT_ID}&session_id=session-from-url` });
 
     await harness.init();
     assert.equal(harness.sessionInput().value, 'session-from-url');
