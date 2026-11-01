@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import io
-import random
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -144,16 +144,11 @@ def test_high_entropy_thumbnail_formats_stay_within_15_kib(
 ) -> None:
     client = TestClient(create_app())
     source = media_runtime["roots"] / "noisy-thumbnail-source.png"
-    randomizer = random.Random(513)
     image = Image.new("RGB", (320, 180))
     image.putdata(
         [
-            (
-                randomizer.randrange(256),
-                randomizer.randrange(256),
-                randomizer.randrange(256),
-            )
-            for _ in range(320 * 180)
+            tuple(hashlib.blake2s(index.to_bytes(4, "little"), digest_size=3).digest())
+            for index in range(320 * 180)
         ]
     )
     image.save(source, format="PNG")
