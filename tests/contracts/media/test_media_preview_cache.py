@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""QIN-509 预览命中缩略图缓存契约测试。
+"""QIN-509/513 预览缓存命中与 JXL/WebP 格式契约测试。
 
 覆盖：预生成产物被预览直接复用（不重新解码源文件）、未命中落盘后二次命中、
-源文件替换失效、坏缓存降级修复、宽度独立、metadata descriptor 不受影响、
-500 项规模命中率探针、视频抽帧缓存与缓存目录不可用时的降级。
+源文件替换失效、JXL/WebP 格式切换及旧格式清理、坏缓存降级修复、宽度独立、
+metadata descriptor 不受影响、500 项规模命中率探针、视频抽帧缓存与降级。
 """
 
 from __future__ import annotations
@@ -95,12 +95,18 @@ def _count_decodes(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
     counter = {"calls": 0}
     original = media_repo._thumbnail_bytes
 
-    def wrapped(path: Path, width: int) -> bytes:
+    def wrapped(path: Path, width: int, *, image_format: str = "png") -> bytes:
         counter["calls"] += 1
-        return original(path, width)
+        return original(path, width, image_format=image_format)
 
     monkeypatch.setattr(media_repo, "_thumbnail_bytes", wrapped)
     return counter
+
+
+def _stub_jxl_encoder(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        media_repo, "_encode_jxl_thumbnail", lambda _png: b"\xff\x0aQIN-513-JXL"
+    )
 
 
 def test_preview_serves_pregenerated_thumbnail_without_decoding_source(
@@ -130,15 +136,43 @@ def test_preview_generates_on_miss_then_hits_cache(
 
     first = media_repo.preview_bytes({"path": str(source), "w": 256})
     assert counter["calls"] == 1
-    assert first["bytes"][:4] == b"\x89PNG"
+    assert first["media_type"] == "image/webp"
+    assert first["bytes"].startswith(b"RIFF") and first["bytes"][8:12] == b"WEBP"
     files = _cache_files(media_runtime)
     assert len(files) == 1 and files[0].name.startswith("media-")
-    assert files[0].name.endswith(".jpg.png")
+    assert files[0].name.endswith(".webp")
 
     second = media_repo.preview_bytes({"path": str(source), "w": 256})
     assert counter["calls"] == 1, "第二次请求不得再解码源文件"
     assert second["bytes"] == first["bytes"]
     assert media_repo.preview_cache_stats()["hit"] == 1
+
+
+def test_preview_cache_tracks_format_setting_and_prunes_old_format(
+    media_runtime: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = media_runtime["roots"] / "format-switch.png"
+    source.write_bytes(_png(400, 200, (90, 100, 110)))
+    first = media_repo.preview_bytes({"path": str(source), "w": 256})
+    assert first["media_type"] == "image/webp"
+    assert [path.suffix for path in _cache_files(media_runtime)] == [".webp"]
+
+    current = media_repo.get_thumbnail_settings()
+    with TestClient(create_app()) as client:
+        updated = client.patch(
+            "/api/asset-thumbnails/settings",
+            headers=AUTH,
+            json={"format": "jxl", "expected_version": current["revision"]},
+        )
+    assert updated.status_code == 200, updated.text
+    _stub_jxl_encoder(monkeypatch)
+
+    second = media_repo.preview_bytes({"path": str(source), "w": 256})
+    files = _cache_files(media_runtime)
+    assert second["media_type"] == "image/jxl"
+    assert second["bytes"].startswith(b"\xff\x0a")
+    assert len(files) == 1 and files[0].suffix == ".jxl"
+    assert files[0].read_bytes() == second["bytes"]
 
 
 def test_source_replacement_invalidates_cached_preview(
@@ -176,7 +210,8 @@ def test_corrupt_cache_falls_back_and_is_repaired(
     counter = _count_decodes(monkeypatch)
     result = media_repo.preview_bytes({"path": str(source), "w": 256})
 
-    assert result["bytes"][:4] == b"\x89PNG"
+    assert result["media_type"] == "image/webp"
+    assert result["bytes"].startswith(b"RIFF") and result["bytes"][8:12] == b"WEBP"
     assert counter["calls"] == 1, "坏缓存必须触发一次真实重算"
     assert cache_file.stat().st_size > 8, "坏缓存应被重算结果覆盖"
     assert media_repo.preview_cache_stats()["degraded"] == 0
@@ -228,10 +263,19 @@ def test_route_preview_reuses_cache_between_requests(
     """前端真实调用路径：两次 GET 中第二次命中缓存。"""
     source = media_runtime["roots"] / "route.png"
     source.write_bytes(_png(200, 200, (70, 70, 70)))
+    current = media_repo.get_thumbnail_settings()
+    _stub_jxl_encoder(monkeypatch)
     with TestClient(create_app()) as client:
+        updated = client.patch(
+            "/api/asset-thumbnails/settings",
+            headers=AUTH,
+            json={"format": "jxl", "expected_version": current["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
         first = client.get("/api/media-preview", headers=AUTH, params={"path": str(source), "w": "256"})
         assert first.status_code == 200, first.text
-        assert first.headers["content-type"].startswith("image/png")
+        assert first.headers["content-type"].startswith("image/jxl")
+        assert first.content.startswith(b"\xff\x0a")
         counter = _count_decodes(monkeypatch)
         second = client.get("/api/media-preview", headers=AUTH, params={"path": str(source), "w": "256"})
         assert second.status_code == 200, second.text
@@ -302,7 +346,8 @@ def test_cache_directory_not_admitted_degrades_to_live_preview(
 
     result = media_repo.preview_bytes({"path": str(source), "w": 256})
 
-    assert result["bytes"][:4] == b"\x89PNG"
+    assert result["media_type"] == "image/webp"
+    assert result["bytes"].startswith(b"RIFF") and result["bytes"][8:12] == b"WEBP"
     assert media_repo.preview_cache_stats()["degraded"] == 1
     assert _cache_files(media_runtime) == []
 

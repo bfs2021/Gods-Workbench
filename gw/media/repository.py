@@ -666,13 +666,27 @@ def _preview_cache_stem(key: str, width: int) -> str:
     return _thumbnail_filename(key, width=width)[: -len(".jpg.png")]
 
 
-def _preview_cache_name(key: str, width: int, identity: str, *, video: bool) -> str:
-    """预览缓存文件名：``<key>-w<宽度>-<源身份>.jpg.png``（视频为 .frame.jpg）。
+def _preview_cache_name(
+    key: str,
+    width: int,
+    identity: str,
+    *,
+    video: bool,
+    image_format: Literal["png", "jxl", "webp"] = "png",
+) -> str:
+    """预览缓存文件名包含格式；视频帧预览继续使用 ``.frame.jpg``。
 
     宽度进入文件名，保证 256 / 512 各自独立命中互不覆盖（AC5）。
     """
     stem = _preview_cache_stem(key, width)
-    return ("%s-%s.frame.jpg" if video else "%s-%s.jpg.png") % (stem, identity)
+    if video:
+        return "%s-%s.frame.jpg" % (stem, identity)
+    extension = {"png": ".jpg.png", "jxl": ".jxl", "webp": ".webp"}.get(
+        image_format
+    )
+    if extension is None:
+        raise CleanroomException(400, "INVALID_REQUEST", "缩略图格式不受支持")
+    return "%s-%s%s" % (stem, identity, extension)
 
 
 def _cached_preview_bytes(target: Path) -> bytes | None:
@@ -747,7 +761,7 @@ def _canonical_generated_hit(
 def _prune_stale_preview_cache(directory: Path, name_prefix: str, keep: Path) -> None:
     """清理同素材同宽度的旧预览缓存（源身份变化后残留的孤儿文件）。"""
     try:
-        entries = list(directory.glob(name_prefix + "*.jpg*"))
+        entries = list(directory.glob(name_prefix + "*"))
     except OSError:
         return
     for entry in entries:
@@ -760,11 +774,21 @@ def _prune_stale_preview_cache(directory: Path, name_prefix: str, keep: Path) ->
             continue
 
 
-def _live_preview_bytes(path: Path, width: int, *, video: bool) -> tuple[bytes, str]:
+def _live_preview_bytes(
+    path: Path,
+    width: int,
+    *,
+    video: bool,
+    image_format: Literal["png", "jxl", "webp"] = "png",
+) -> tuple[bytes, str]:
     """实时生成预览（缓存不可用时唯一出路），不写盘。"""
     if video:
         return _video_frame_bytes(path, width), "image/jpeg"
-    return _thumbnail_bytes(path, width), "image/png"
+    extension = {"png": ".png", "jxl": ".jxl", "webp": ".webp"}[image_format]
+    return (
+        _thumbnail_bytes(path, width, image_format=image_format),
+        MIME_BY_SUFFIX[extension],
+    )
 
 
 def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
@@ -778,7 +802,8 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
     width = int((payload or {}).get("w") or 256)
     width = max(64, min(2048, width))
     video = path.suffix.lower() in _VIDEO_SUFFIXES
-    media_type = "image/jpeg" if video else "image/png"
+    image_format: Literal["png", "jxl", "webp"] = "jxl"
+    media_type = "image/jpeg" if video else MIME_BY_SUFFIX[".jxl"]
     asset_id = str((payload or {}).get("asset_id") or "").strip()
     key = _thumbnail_key(asset_id, path)
     source = storage.relative_display(path)
@@ -786,18 +811,27 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         identity = _preview_source_identity(path)
         settings = get_thumbnail_settings()
+        image_format = _thumbnail_format(settings)
+        media_type = MIME_BY_SUFFIX["." + image_format]
         _, directory = _thumbnail_cache_directory(settings, path)
-        target = directory / _preview_cache_name(key, width, identity, video=video)
+        target = directory / _preview_cache_name(
+            key, width, identity, video=video, image_format=image_format
+        )
     except (CleanroomException, OSError):
         # 缓存目录不可解析（未登记允许根、目录被移除、磁盘不可用）：降级实时生成。
         _count_preview_cache("degraded")
-        data, media_type = _live_preview_bytes(path, width, video=video)
+        data, media_type = _live_preview_bytes(
+            path, width, video=video, image_format=image_format
+        )
         return {"bytes": data, "media_type": media_type, "source": source}
 
     if _cache_is_fresh(target, path):
         cached = _cached_preview_bytes(target)
         if cached is not None:
             _count_preview_cache("hit")
+            _prune_stale_preview_cache(
+                directory, _preview_cache_stem(key, width) + "-", target
+            )
             return {"bytes": cached, "media_type": media_type, "source": source}
         # 坏缓存（截断 / 非图片）：清掉后按未命中重算。
         try:
@@ -814,11 +848,16 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
             cached = _cached_preview_bytes(canonical)
             if cached is not None:
                 _count_preview_cache("hit")
+                _prune_stale_preview_cache(
+                    directory, _preview_cache_stem(key, width) + "-", canonical
+                )
                 media_type = MIME_BY_SUFFIX.get(canonical.suffix.lower(), media_type)
                 return {"bytes": cached, "media_type": media_type, "source": source}
 
     _count_preview_cache("miss")
-    data, media_type = _live_preview_bytes(path, width, video=video)
+    data, media_type = _live_preview_bytes(
+        path, width, video=video, image_format=image_format
+    )
     try:
         _atomic_write_bytes(target, data)
         _prune_stale_preview_cache(
