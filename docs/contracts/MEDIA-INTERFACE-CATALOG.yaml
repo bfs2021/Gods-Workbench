@@ -8,7 +8,7 @@ meta:
   path_policy: "本机文件必须经 resolve_within_roots()；未配置 GW_ALLOWED_ROOTS 一律 403 LOCAL_FILE_ACCESS_NOT_ADMITTED；源文件只回显 relative_display()，输出使用相对 GW_DATA_DIR 的完整路径供下载。"
   fail_closed: "ffmpeg/PIL/httpx 缺失或异常 → 503，data_status=not_integrated，绝不伪造。"
   output_policy: "输出落盘于 GW_DATA_DIR/media_output/**；output 返回相对 GW_DATA_DIR 的完整路径，不是仅文件名；download-output仅允许OUTPUT-ACCESS-CONTRACT.md的四个产物命名空间，拒绝内部状态/绝对路径/链接。"
-  cache_policy: "新分镜保存media_output/storyboards/{asset_id}/frame_秒_毫秒.png；定向删除只匹配精确ID目录和生成名。缩略图有asset_id时用该稳定ID，否则兼容源名；无ID跨根同名缓存隔离不在本次通过范围。所有组件拒绝链接/Junction，删除先预检，部分失败如实返回，旧混用frame保留并明示legacy_shared_frames_preserved。"
+  cache_policy: "新分镜保存media_output/storyboards/{asset_id}/frame_秒_毫秒.png；定向删除只匹配精确ID目录和生成名。缩略图缓存位置由设置决定：media_output/{cache_folder}/{root_bucket}/{asset_id}.jpg.png，cache_folder 默认 god-cache 且必须是单段安全 ASCII，root_bucket 为素材源根身份（mode=source）或所选目录根身份（mode=custom，目录必须已登记为允许根，否则 403 且不写盘）；无 asset_id 时文件名为 media-身份摘要-w宽度.jpg.png。缓存只写受管产物目录，不写素材源目录。命中复用按源文件 mtime 判定，replace_existing=true 强制重算。批量接口接受 asset_ids 数组并逐项返回 generated/cached/failed；单项失败不中断整批，单条失败保持原错误语义。所有组件拒绝链接/Junction，删除先预检并扫描精确文件名，部分失败如实返回，旧混用frame保留并明示legacy_shared_frames_preserved。"
   job_policy: "generate-background 真实执行后返回稳定 tjob_NNNN 与 poll_hint=/api/asset-thumbnails/jobs/{job_id}，状态落盘可回读。"
   ssrf_policy: "远端 URL 只接受 http/https；拒绝内网/回环/链路本地/保留网段；GET 不跟随重定向且不使用环境代理；URL禁止凭据；仅接受2xx响应，分块读取期间执行16MB上限。本地协议夹具保留127.0.0.1/localhost准入，不宣称生产网络完整隔离。"
 interfaces:

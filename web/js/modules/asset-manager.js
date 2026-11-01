@@ -1235,10 +1235,10 @@ function renderAssetThumbnailCacheDirectoryBody(){
         : '';
     return `<div class="board-directory-cache">
         <div class="asset-pref-title"><i data-lucide="folder-clock"></i><span>缓存目录</span></div>
-        <p class="board-settings-hint">缩略图与视频派生共用 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}；同一源文件优先复用已有缓存。</p>
+        <p class="board-settings-hint">缩略图缓存写入应用受管数据目录内的 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}，按素材源或所选目录分桶；同一源文件未变更时直接复用已有缓存。</p>
         <div class="thumbnail-cache-options board-thumbnail-options">
-            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>素材源 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</small></span></button>
-            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>所选目录 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
         </div>
         ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
             <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
@@ -1271,7 +1271,7 @@ function renderAssetPreviewSettingsBody(){
     const busy = thumbnailGeneratorState.loading || thumbnailGeneratorState.generating || thumbnailGeneratorState.deleting || thumbnailGeneratorState.deletingStoryboards || thumbnailGeneratorState.submittingBackground;
     return `<section class="asset-pref-section board-preview-settings">
         <div class="asset-pref-title board-preview-title"><span><i data-lucide="images"></i>生成缩略图</span><div class="board-preview-feature-switches">${renderRegistryFeatureControl(thumbnailFeature)}</div></div>
-        <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>重新生成会先直接删除旧缓存，不进入回收站。</small></div>
+        <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>重新生成会覆盖同名缓存文件，不进入回收站。</small></div>
         ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error board-thumbnail-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
         <div class="board-thumbnail-actions">
             <button class="hw-btn hw-btn-danger" type="button" data-board-thumbnail-delete ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="image-off"></i><span>${thumbnailGeneratorState.deleting ? '正在删除…' : `删除缩略图 ${ids.length}`}</span></button>
@@ -3293,13 +3293,13 @@ function renderThumbnailGeneratorModal(){
         <div class="storage-settings-head"><div><strong>生成缩略图</strong><span>预先生成缓存，提升大量素材的浏览速度。</span></div><button type="button" data-thumbnail-generator-close aria-label="关闭" ${busy ? 'disabled' : ''}><i data-lucide="x"></i></button></div>
         <div class="asset-pref-body">
             <div class="asset-pref-section">
-                <div class="thumbnail-cache-notice"><i data-lucide="folder-plus"></i><div><strong>将创建 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</strong><span>默认会在每个素材源目录内新增此缓存文件夹，缓存文件不会进入素材索引。</span></div></div>
+                <div class="thumbnail-cache-notice"><i data-lucide="folder-plus"></i><div><strong>将写入 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</strong><span>缓存落在应用受管数据目录内的此文件夹，不写入素材源目录；缓存文件不会进入素材索引。</span></div></div>
             </div>
             <div class="asset-pref-section">
                 <div class="asset-pref-title"><i data-lucide="hard-drive"></i><span>缓存存储位置</span></div>
                 <div class="thumbnail-cache-options">
-                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>每个素材源 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</small></span></button>
-                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>所选目录 / ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
                 </div>
                 ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
                     <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
@@ -3307,7 +3307,7 @@ function renderThumbnailGeneratorModal(){
                 </div>` : ''}
             </div>
             <div class="asset-pref-section thumbnail-cache-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>图片、文档、3D、字体和视频将按支持能力生成预览。</small></div>
-            <label class="thumbnail-video-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>生成 H.264 MP4 到 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}，便于浏览器播放。</small></span></label>
+            <label class="thumbnail-video-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>转码缓存单独落在应用数据目录，便于浏览器播放。</small></span></label>
             ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
         </div>
         <div class="thumbnail-cache-actions"><button class="hw-btn" type="button" data-thumbnail-generator-close ${busy ? 'disabled' : ''}>取消</button><button class="hw-btn thumbnail-background-action" type="button" data-thumbnail-generator-background title="关闭弹窗并在后台生成" ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.submittingBackground ? 'loader-2' : 'circle-play'}"></i><span>${thumbnailGeneratorState.submittingBackground ? '正在提交…' : '后台生成'}</span></button><button class="hw-btn hw-btn-gold" type="button" data-thumbnail-generator-run ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.generating ? 'loader-2' : 'images'}"></i><span>${thumbnailGeneratorState.generating ? '正在生成…' : `生成缩略图 ${ids.length}`}</span></button></div>

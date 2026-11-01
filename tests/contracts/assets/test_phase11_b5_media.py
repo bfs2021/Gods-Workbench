@@ -99,8 +99,8 @@ def test_b5_local_file_read_write_and_thumbnail(tmp_path, monkeypatch):
         assert data["data_status"] == "ok" and data["generated"] == 1
         assert str(roots) not in json.dumps(data, ensure_ascii=False)
         Path(r.json()["output"])
-        # output 是相对展示串；真实文件落在 GW_DATA_DIR 内。
-        real = Path(os.environ["GW_DATA_DIR"]) / "media_output" / "thumbnails"
+        # output 是相对展示串；真实文件落在 GW_DATA_DIR 内，按 cache_folder/分桶分层。
+        real = Path(os.environ["GW_DATA_DIR"]) / Path(r.json()["output"]).parent
         files = list(real.glob("*.png"))
         assert files, list(real.glob("*"))
         with Image.open(files[0]) as image:

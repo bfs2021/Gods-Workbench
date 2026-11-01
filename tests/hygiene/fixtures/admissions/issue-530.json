@@ -1,0 +1,24 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 530,
+  "authorization_basis": "GitHub Issue #530, 2026-11-01",
+  "files": [
+    "gw/media/repository.py",
+    "web/js/modules/asset-manager.js",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "tests/contracts/media/test_asset_thumbnail_cache.py",
+    "tests/contracts/assets/test_c10_asset_inventory.py",
+    "tests/contracts/assets/test_phase11_b5_media.py",
+    "tests/hygiene/fixtures/admissions/issue-530.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_asset_thumbnail_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #530, 2026-11-01",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-508：缩略图批量生成（asset_ids）真实计数、cache_folder 生效、custom 模式失败关闭与分层缓存精确删除。"
+}

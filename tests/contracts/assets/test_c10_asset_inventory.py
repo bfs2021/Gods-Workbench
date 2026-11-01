@@ -223,7 +223,9 @@ def test_c10_inventory_media_thumbnail_and_missing_dependency_are_truthful(
     )
     assert thumbnail.status_code == 200, thumbnail.text
     thumbnail_path = thumbnail.json()["output"]
-    assert thumbnail_path == f"media_output/thumbnails/{created[0]}.jpg.png"
+    # 缓存位置由设置决定：cache_folder 子目录 + 素材源根分桶，文件名仍按素材身份。
+    assert thumbnail_path.startswith("media_output/god-cache/")
+    assert Path(thumbnail_path).name == f"{created[0]}.jpg.png"
     downloaded = client.get(
         "/api/download-output", headers=AUTH, params={"path": thumbnail_path}
     )
