@@ -216,6 +216,15 @@ def test_c10_inventory_media_thumbnail_and_missing_dependency_are_truthful(
     media = client.get(f"{path}/{created[0]}/media", headers=AUTH)
     assert media.status_code == 200 and media.content == PNG_BYTES
 
+    settings = client.get("/api/asset-thumbnails/settings", headers=AUTH)
+    assert settings.status_code == 200, settings.text
+    updated = client.patch(
+        "/api/asset-thumbnails/settings",
+        headers=AUTH,
+        json={"format": "webp", "expected_version": settings.json()["revision"]},
+    )
+    assert updated.status_code == 200, updated.text
+
     thumbnail = client.post(
         "/api/asset-thumbnails/generate",
         headers=AUTH,
@@ -225,7 +234,7 @@ def test_c10_inventory_media_thumbnail_and_missing_dependency_are_truthful(
     thumbnail_path = thumbnail.json()["output"]
     # 缓存位置由设置决定：cache_folder 子目录 + 素材源根分桶，文件名仍按素材身份。
     assert thumbnail_path.startswith("media_output/god-cache/")
-    assert Path(thumbnail_path).name == f"{created[0]}.jpg.png"
+    assert Path(thumbnail_path).name == f"{created[0]}.webp"
     downloaded = client.get(
         "/api/download-output", headers=AUTH, params={"path": thumbnail_path}
     )

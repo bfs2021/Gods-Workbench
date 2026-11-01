@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import hashlib
+import shutil
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,18 @@ def _register_png(runtime: dict[str, Path]) -> str:
     return asset_id
 
 
+def _stub_jxl_encoder_without_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    if shutil.which("ffmpeg"):
+        return
+
+    def encode(png_bytes: bytes) -> bytes:
+        with Image.open(io.BytesIO(png_bytes)) as image:
+            size = 16 * 1024 if image.width >= 512 else 12 * 1024
+        return b"\xff\x0a" + (b"\0" * (size - 2))
+
+    monkeypatch.setattr(media_repo, "_encode_jxl_thumbnail", encode)
+
+
 def test_thumbnail_settings_default_and_patch_use_cas() -> None:
     client = TestClient(create_app())
     current = client.get("/api/asset-thumbnails/settings", headers=AUTH)
@@ -98,10 +111,11 @@ def test_thumbnail_settings_default_and_patch_use_cas() -> None:
 
 
 def test_thumbnail_format_generates_jxl_and_webp_with_matching_extensions(
-    media_runtime: dict[str, Path],
+    media_runtime: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = TestClient(create_app())
     asset_id = _register_png(media_runtime)
+    _stub_jxl_encoder_without_ffmpeg(monkeypatch)
 
     jxl = media_repo.generate_thumbnail({"asset_id": asset_id, "width": 256})
     jxl_path = media_runtime["data"] / jxl["output"]
@@ -140,9 +154,10 @@ def test_thumbnail_settings_patch_requires_expected_version() -> None:
 
 
 def test_high_entropy_thumbnail_formats_stay_within_15_kib(
-    media_runtime: dict[str, Path],
+    media_runtime: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = TestClient(create_app())
+    _stub_jxl_encoder_without_ffmpeg(monkeypatch)
     source = media_runtime["roots"] / "noisy-thumbnail-source.png"
     image = Image.new("RGB", (320, 180))
     image.putdata(

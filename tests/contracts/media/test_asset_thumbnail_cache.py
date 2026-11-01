@@ -44,7 +44,13 @@ def media_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setenv("GW_LOCAL_AUTH_DB", str(tmp_path / "gw-auth" / "auth.sqlite3"))
     monkeypatch.setenv("GW_VIDEO_DATA_DIR", str(tmp_path / "gw-video"))
     media_repo.patch_thumbnail_settings(
-        {"mode": "source", "directory": "", "cache_folder": "god-cache", "width": 256}
+        {
+            "mode": "source",
+            "directory": "",
+            "cache_folder": "god-cache",
+            "width": 256,
+            "format": "webp",
+        }
     )
     return {"data": data_root, "roots": allowed_root}
 
@@ -245,6 +251,6 @@ def test_single_path_payload_still_supported(
     large = media_repo.generate_thumbnail({"path": str(source), "width": 256})
 
     assert small["generated"] == 1 and small["failed"] == 0
-    assert Path(small["output"]).name.endswith("-w0128.jxl")
-    assert Path(large["output"]).name.endswith("-w0256.jxl")
+    assert Path(small["output"]).name.endswith("-w0128.webp")
+    assert Path(large["output"]).name.endswith("-w0256.webp")
     assert small["output"] != large["output"]

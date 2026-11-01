@@ -49,7 +49,13 @@ def media_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, 
     monkeypatch.setenv("GW_LOCAL_AUTH_DB", str(tmp_path / "gw-auth" / "auth.sqlite3"))
     monkeypatch.setenv("GW_VIDEO_DATA_DIR", str(tmp_path / "gw-video"))
     media_repo.patch_thumbnail_settings(
-        {"mode": "source", "directory": "", "cache_folder": "god-cache", "width": 256}
+        {
+            "mode": "source",
+            "directory": "",
+            "cache_folder": "god-cache",
+            "width": 256,
+            "format": "webp",
+        }
     )
     media_repo.reset_preview_cache_stats()
     return {"data": data_root, "roots": allowed_root}
@@ -110,7 +116,7 @@ def test_preview_serves_pregenerated_thumbnail_without_decoding_source(
 
     assert counter["calls"] == 0, "命中预生成缩略图时不得再解码源文件"
     assert result["bytes"] == stored
-    assert result["media_type"] == "image/jxl"
+    assert result["media_type"] == "image/webp"
     assert media_repo.preview_cache_stats()["hit"] == 1
 
 
