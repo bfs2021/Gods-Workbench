@@ -7333,6 +7333,12 @@ function updateRegistryMasonryCards(cards=[], grid){
         measureScrollRoot.scrollTop = savedMeasureScrollTop;
     }
 }
+function remeasureRegistryMasonryGrid(grid){
+    if(!grid || grid.classList?.contains('registry-grid-virtualized') || grid.classList?.contains('registry-masonry-fallback')) return;
+    const cards = [...grid.querySelectorAll(':scope > .registry-card')];
+    cards.forEach(card => { card.dataset.registryMasonryDirty = 'true'; });
+    updateRegistryMasonryCards(cards, grid);
+}
 function scheduleRegistryMasonryLayout(){
     const revision = ++registryMasonryScheduleRevision;
     requestAnimationFrame(() => {
@@ -7685,7 +7691,7 @@ function render(){
         const toolbarSubtitle = activeTab === 'registry' || board?.system === false
             ? registryTotalSummary(registryVisibleAssets().length)
             : '统一资产工具';
-        root.insertAdjacentHTML('afterbegin', `${renderRegistryOverview()}${renderRegistryToolbar(null, toolbarTitle, toolbarSubtitle, {allowUrl:true})}`);
+        root.insertAdjacentHTML('afterbegin', `${renderRegistryOverview()}${renderRegistryToolbar(null, toolbarTitle, toolbarSubtitle, {allowUrl:true,hideHeading:activeTab === 'registry'})}`);
     }
     if(activeTab === 'registry' || customLibraryActive) renderRegistryFreshNotice();
     restoreRegistryPreviewImages(registryPreviewCache);
@@ -9111,11 +9117,13 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
     const selectedGroupIds = selectedRegistryCustomGroupIds(board);
     const searchLabel = board?.name || '全部资产';
     const coverflowAvailable = registryCoverflowAssets(board).length > 0;
-    const coverflowControl = board ? `<button class="hw-btn registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} title="${coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频'}"><i data-lucide="images"></i><span>Coverflow</span></button>` : '';
+    const coverflowLabel = coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频';
+    const coverflowControl = `<button class="hw-btn registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} aria-label="${coverflowLabel}" title="${coverflowLabel}"><i data-lucide="images"></i><span>Coverflow</span></button>`;
     return `<div class="content-toolbar registry-toolbar">
-        <div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>
+        ${options.hideHeading ? '' : `<div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>`}
         <div class="registry-toolbar-controls">
             ${!board && document.documentElement.classList.contains('vault-shell-embedded') ? '<button class="hw-btn hw-btn-icon vault-filters-toggle" type="button" popovertarget="registryFacetPopover" title="智能筛选" aria-label="智能筛选"><i data-lucide="filter"></i></button>' : ''}
+            ${coverflowControl}
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
@@ -9123,7 +9131,6 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <label class="registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select></label>
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
-            ${coverflowControl}
             ${options.allowUrl ? '<button class="hw-btn" type="button" data-registry-add-url><i data-lucide="link"></i><span>添加 URL</span></button>' : ''}
             <button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
             <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>
@@ -9345,11 +9352,9 @@ function renderRegistryDetail(){
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
     const classifiedCount = registryAssets.filter(item => (item.tags || []).length || item.metadata?.classification || item.classification?.summary).length;
-    const coverflowAvailable = registryCoverflowAssets().length > 0;
-    const coverflowLabel = coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频';
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
     root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}<aside class="asset-panel asset-nav registry-nav" ${embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="智能筛选"' : ''}>
-        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div><button class="hw-btn hw-btn-icon registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} aria-label="${coverflowLabel}" title="${coverflowLabel}"><i data-lucide="images"></i></button></div>
+        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div></div>
         <div class="nav-scroll registry-facets">
             <section class="registry-facet-section"><div class="registry-facet-title"><strong>快捷入口</strong></div>
                 ${renderRegistryFacetRow({id:'7',name:'最近 7 天',count:''}, 'recent', String(registryRecentDays || ''))}
@@ -9373,7 +9378,7 @@ function renderRegistryManager(){
         </div>
     </aside>
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
-        ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true})}
+        ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
         <div data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, null, '没有符合条件的资产。可以清空排除条件。')}${renderRegistryPagination()}</div>
@@ -19046,6 +19051,7 @@ document.addEventListener('keydown', event => {
 document.addEventListener('wheel', navigateDetailPreviewWheel, {passive:false});
 let registryCardSizeSaveTimer = 0;
 let registryCardSizeLayoutFrame = 0;
+let registryCardSizeVirtualMeasureRevision = 0;
 function handleRegistryCardResizeWheel(event){
     if(!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
@@ -19054,11 +19060,21 @@ function handleRegistryCardResizeWheel(event){
     event.preventDefault();
     registryCardSize = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, registryCardSize + (event.deltaY > 0 ? -12 : 12)));
     root.querySelectorAll('.registry-content').forEach(node => node.style.setProperty('--registry-card-size', registryCardSize + 'px'));
+    registryCardSizeVirtualMeasureRevision += 1;
     if(!registryCardSizeLayoutFrame){
         registryCardSizeLayoutFrame = requestAnimationFrame(() => {
             registryCardSizeLayoutFrame = 0;
-            if(root.querySelector('.registry-grid-virtualized')) updateRegistryVirtualWindow(true, true);
-            else scheduleRegistryMasonryLayout();
+            if(root.querySelector('.registry-grid-virtualized')){
+                updateRegistryVirtualWindow(true, true);
+                const virtualMeasureRevision = registryCardSizeVirtualMeasureRevision;
+                requestAnimationFrame(() => {
+                    if(virtualMeasureRevision !== registryCardSizeVirtualMeasureRevision) return;
+                    if(root.querySelector('.registry-grid-virtualized')) updateRegistryVirtualWindow(true, true);
+                });
+            } else {
+                root.querySelectorAll('.registry-content.registry-layout-grid .registry-grid:not(.registry-grid-virtualized)').forEach(remeasureRegistryMasonryGrid);
+                scheduleRegistryMasonryLayout();
+            }
         });
     }
     clearTimeout(registryCardSizeSaveTimer);

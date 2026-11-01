@@ -108,14 +108,14 @@ def test_dir_t1_registers_chinese_subdirectory_indexes_and_filters_with_cursor(i
 
         first = client.get(BASE + "/assets", headers=AUTH, params={
             "root_id": "local_extra_chinese", "project_id": project_id,
-            "category": "other", "sort": "name", "limit": 1,
+            "category": "document", "sort": "name", "limit": 1,
         })
         assert first.status_code == 200, first.text
         assert first.json()["has_more"] is True
         cursor = first.json()["next_cursor"]
         second = client.get(BASE + "/assets", headers=AUTH, params={
             "root_id": "local_extra_chinese", "project_id": project_id,
-            "category": "other", "sort": "name", "limit": 1, "cursor": cursor,
+            "category": "document", "sort": "name", "limit": 1, "cursor": cursor,
         })
         assert second.status_code == 200, second.text
         assert {item["name"] for item in first.json()["assets"] + second.json()["assets"]} == {

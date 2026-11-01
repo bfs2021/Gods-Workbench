@@ -1488,7 +1488,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb { aspect-ratio:1/1; min-height:0; }
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb .asset-video-poster,
 .registry-aspect-square .registry-card.asset-type-video .asset-thumb .asset-video-hover { display:block; inset:0; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; aspect-ratio:auto!important; object-fit:cover!important; object-position:center; }
-.registry-card-format { position:absolute; z-index:6; top:9px; left:8px; min-width:44px; height:28px; max-width:calc(100% - 88px); padding:0 9px; border:1px solid rgba(255,255,255,.28); border-radius:4px; background:var(--asset-type-color); color:#dfc384; display:flex; align-items:center; justify-content:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; pointer-events:none; }
+.registry-card-format { position:absolute; z-index:6; top:9px; left:8px; min-width:44px; height:28px; max-width:calc(100% - 88px); padding:0 9px; border:1px solid rgba(255,255,255,.28); border-radius:4px; background:color-mix(in hsl,var(--asset-type-color) 50%,#000 50%); color:#dfc384; display:flex; align-items:center; justify-content:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; pointer-events:none; }
 .registry-card-segment-badge { position:absolute; z-index:6; bottom:8px; left:8px; height:26px; max-width:calc(100% - 16px); padding:0 8px; border:1px solid rgba(223,195,132,.45); border-radius:4px; background:rgba(11,13,19,.92); color:#dfc384; display:inline-flex; align-items:center; gap:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--gw-font-mono); font-size: var(--gw-type-label-md); line-height:1; font-weight:800; letter-spacing:.02em; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); backdrop-filter:blur(4px); transition:background .14s ease, border-color .14s ease, transform .14s ease; }
 .registry-card-segment-badge:hover { background:rgba(20,24,32,.98); border-color:#f59e0b; color:#fef3c7; transform:scale(1.02); }
 .registry-card-segment-badge svg { width:13px; height:13px; color:#dfc384; flex-shrink:0; }
@@ -2038,6 +2038,9 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar :is(.r
   font-size: var(--gw-type-button-sm) !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
   height: 32px !important;
   min-height: 32px !important;
   padding: 0 !important;
@@ -2046,6 +2049,12 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   background: transparent !important;
   box-shadow: none !important;
   color: #d1d5db !important;
+}
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > span {
+  display: flex !important;
+  align-items: center !important;
+  height: 32px !important;
+  line-height: 1 !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .asset-sort-select {
   min-width: 88px !important;

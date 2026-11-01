@@ -108,7 +108,8 @@ test('QIN-505 AC1: 扩展名与导入元数据统一映射到素材分类', () =
 test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流及素材比例', () => {
     assert.doesNotMatch(managerCss, /\.registry-card::before \{[^}]*height:5px/);
     assert.match(vaultCss, /registry-card::before \{ display: none !important; \}/);
-    assert.match(vaultCss, /registry-card \.registry-card-format \{[^}]*background: var\(--asset-type-color\) !important; color: var\(--vault-accent\) !important/);
+    assert.match(managerCss, /\.registry-card-format \{[^}]*background:color-mix\(in hsl,var\(--asset-type-color\) 50%,#000 50%\)/);
+    assert.match(vaultCss, /registry-card \.registry-card-format \{[^}]*background: color-mix\(in hsl,var\(--asset-type-color\) 50%,#000 50%\) !important; color: var\(--vault-accent\) !important/);
     assert.doesNotMatch(vaultCss, /registry-card\.asset-type-video \.registry-card-format \{[^}]*color:/);
     assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: var\(--vault-bottom\) !important; border: 1px solid var\(--vault-accent\) !important/);
     assert.match(managerCss, /\.registry-card\.active \.registry-card-selection-overlay,\.registry-card\.selected \.registry-card-selection-overlay \{ display:none; \}/);
@@ -141,7 +142,13 @@ test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流
     const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
     const toolbar = manager.slice(toolbarStart, toolbarEnd);
     assert.doesNotMatch(toolbar, /label class="hw-btn registry-toolbar-select"/);
+    assert.match(toolbar, /\$\{coverflowControl\}\s*<button class="hw-btn registry-refresh"/);
+    assert.match(toolbar, /options\.hideHeading \? '' :/);
+    assert.match(manager, /renderRegistryToolbar\(null, registryCategoryLabel[\s\S]*?\{allowUrl:true,hideHeading:true\}/);
     assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select \{[^}]*border-radius:7px/);
+    assert.match(managerCss, /registry-toolbar-select > span \{[\s\S]*?display: flex !important;[\s\S]*?align-items: center !important;[\s\S]*?height: 32px !important/);
+    assert.match(vaultCss, /registry-toolbar-select \{ height:32px; min-height:32px; align-items:center; \}/);
+    assert.match(vaultCss, /registry-coverflow-open \{ order: -3;[^}]*\}/);
     assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select option:hover,[\s\S]*?background: #dfc384; color: #101114/);
     assert.match(managerCss, /\.asset-search-wrap \{[^}]*border: 0 !important/);
     assert.match(managerCss, /\.asset-search \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.2\) !important/);
@@ -154,15 +161,17 @@ test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
     let status = '';
     let pendingLayout;
     let masonryCalls = 0;
+    let masonryRemeasureCalls = 0;
     let virtualCalls = 0;
+    const masonryGrid = {};
     const content = {style:{setProperty:(key,value) => writes.push([key,value])}};
     const root = {
-        querySelectorAll:selector => selector === '.registry-content' ? [content] : [],
+        querySelectorAll:selector => selector === '.registry-content' ? [content] : selector.includes('.registry-grid:not') ? [masonryGrid] : [],
         querySelector:() => null,
     };
     const handle = new Function(
-        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow',
-        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
     )(
         root,
         {min:120,max:360},
@@ -173,6 +182,7 @@ test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
         callback => { pendingLayout = callback; return 1; },
         () => { masonryCalls += 1; },
         () => { virtualCalls += 1; },
+        grid => { assert.equal(grid, masonryGrid); masonryRemeasureCalls += 1; },
     );
     let prevented = false;
     handle.handle({
@@ -184,6 +194,7 @@ test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
     assert.equal(handle.size(), 164);
     assert.deepEqual(writes, [['--registry-card-size','164px']]);
     pendingLayout();
+    assert.equal(masonryRemeasureCalls, 1, '普通瀑布流在下一帧强制重测所有卡片的新高度');
     assert.equal(masonryCalls, 1, '非虚拟瀑布流在下一帧立即重测卡片高度');
     assert.equal(virtualCalls, 0);
     pendingSave();
@@ -191,18 +202,37 @@ test('QIN-505 AC6: Shift+滚轮即时缩放卡片并保存设置', () => {
     assert.equal(status, '预览大小 164px');
 });
 
+test('QIN-505 AC6: 普通瀑布流缩放会使旧高度跨度失效并重测', () => {
+    const cards = [
+        {dataset:{},classList:{contains:() => false}},
+        {dataset:{},classList:{contains:() => false}},
+    ];
+    const grid = {
+        classList:{contains:() => false},
+        querySelectorAll:selector => selector === ':scope > .registry-card' ? cards : [],
+    };
+    let measured;
+    const remeasure = new Function(
+        'updateRegistryMasonryCards',
+        `${functionSource('remeasureRegistryMasonryGrid')}\nreturn remeasureRegistryMasonryGrid;`,
+    )((actualCards, actualGrid) => { measured = {cards:actualCards,grid:actualGrid}; });
+    remeasure(grid);
+    assert.ok(cards.every(card => card.dataset.registryMasonryDirty === 'true'));
+    assert.deepEqual(measured, {cards,grid});
+});
+
 test('QIN-505 AC6: 虚拟瀑布流缩放后快速重算卡片列与位置', () => {
-    let pendingLayout;
-    let forceValue = false;
-    let skipMeasurements = false;
+    const pendingLayouts = [];
+    let forceCalls = 0;
+    const lastArguments = [];
     const content = {style:{setProperty:() => {}}};
     const root = {
         querySelectorAll:selector => selector === '.registry-content' ? [content] : [],
         querySelector:selector => selector === '.registry-grid-virtualized' ? {} : null,
     };
     const handle = new Function(
-        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow',
-        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn handleRegistryCardResizeWheel;`,
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=176; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn handleRegistryCardResizeWheel;`,
     )(
         root,
         {min:120,max:360},
@@ -210,18 +240,22 @@ test('QIN-505 AC6: 虚拟瀑布流缩放后快速重算卡片列与位置', () =
         () => 1,
         () => {},
         () => {},
-        callback => { pendingLayout = callback; return 1; },
+        callback => { pendingLayouts.push(callback); return pendingLayouts.length; },
         () => assert.fail('虚拟瀑布流不得调用常规高度观察器'),
-        (force, skip) => { forceValue = force; skipMeasurements = skip; },
+        (...args) => { forceCalls += 1; lastArguments.push(args); },
+        () => assert.fail('虚拟瀑布流不得调用普通网格高度重测'),
     );
     handle({
         shiftKey:true,ctrlKey:false,metaKey:false,altKey:false,deltaY:-1,
         target:{closest:selector => selector === '[data-registry-zoom-area]' || selector === '.registry-content.registry-layout-grid'},
         preventDefault:() => {},
     });
-    pendingLayout();
-    assert.equal(forceValue, true, '强制用最新尺寸重建虚拟瀑布流布局');
-    assert.equal(skipMeasurements, true, '滚轮缩放时跳过整库离屏测量，避免预览迟滞');
+    pendingLayouts.shift()();
+    assert.deepEqual(lastArguments[0], [true,true], '第一帧先用最新宽度估算重排，避免整库离屏测量卡住预览');
+    assert.equal(pendingLayouts.length, 1, '先布局后安排可见卡片精确回测');
+    pendingLayouts.shift()();
+    assert.deepEqual(lastArguments[1], [true,true], '第二帧从当前尺寸的可见卡片回填精确高度并再次排布');
+    assert.equal(forceCalls, 2);
 });
 
 test('AC5: 窄屏时左侧导航转为可横向滚动入口', () => {

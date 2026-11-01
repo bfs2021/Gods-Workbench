@@ -171,6 +171,7 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading { displ
 body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading strong {  white-space: nowrap;  font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
 body.gw-signal.gw-page--asset-manager .registry-toolbar .content-heading > span {    font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
 body.gw-signal.gw-page--asset-manager .registry-toolbar-controls { gap: 8px; flex: 1 1 600px; justify-content: flex-start; flex-wrap: wrap; min-width: 0; }
+body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-coverflow-open { order: -3; flex: 0 0 auto; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-refresh { order: -2; flex: 0 0 auto; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { order: -1; flex: 0 1 calc(25% - 44px); max-width: calc(25% - 44px); min-width: 100px; height: 40px !important; padding: 0 8px; box-shadow: none; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar :is(input, select,.registry-toolbar-select) {      font-family:var(--gw-font-body) !important; font-size:var(--gw-type-body-md) !important; line-height:var(--gw-leading-body-md) !important; font-weight:var(--gw-weight-regular) !important; letter-spacing:0 !important; min-height:40px !important; height:auto !important; max-height:none !important;}
@@ -201,7 +202,7 @@ body.gw-signal.gw-page--asset-manager .registry-card .asset-card-name { flex: 1;
 body.gw-signal.gw-page--asset-manager .registry-card-measure { flex: 0 0 auto; color: var(--vault-muted); font: var(--gw-type-label-md)/17px var(--gw-font-mono); }
 body.gw-signal.gw-page--asset-manager .asset-type-video .registry-card-measure { color: #22c5d5; }
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card :is(.asset-card-meta,.registry-card-source) { display: none; }
-body.gw-signal.gw-page--asset-manager .registry-card .registry-card-format { top: 11px; left: 11px; min-width: 0; height: 16px; padding: 0 3px; border: 1px solid var(--vault-edge) !important; border-radius: 3px !important; font: var(--gw-type-label-md)/14px var(--gw-font-mono); letter-spacing: 0; background: var(--asset-type-color) !important; color: var(--vault-accent) !important; }
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-format { top: 11px; left: 11px; min-width: 0; height: 16px; padding: 0 3px; border: 1px solid var(--vault-edge) !important; border-radius: 3px !important; font: var(--gw-type-label-md)/14px var(--gw-font-mono); letter-spacing: 0; background: color-mix(in hsl,var(--asset-type-color) 50%,#000 50%) !important; color: var(--vault-accent) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .registry-card-format { left: 21px; }
 body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle { top: 10px; right: 10px; height: 22px; width: 22px; }
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .asset-thumb::before,
@@ -1107,7 +1108,7 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-btn { font-weight
 body.gw-signal.gw-page--asset-manager .registry-toolbar-select select { line-height:var(--gw-leading-body-md); }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) .asset-smart-filter-scroll .registry-facet-basic { font-size:var(--gw-type-body-md) !important; line-height:var(--gw-leading-body-md) !important; }
 
-body.gw-signal.gw-page--asset-manager .registry-toolbar-select { height:auto; min-height:40px; align-items:center; }
+body.gw-signal.gw-page--asset-manager .registry-toolbar-select { height:32px; min-height:32px; align-items:center; }
 
 body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-toolbar-select .asset-sort-select { line-height:var(--gw-leading-body-md) !important; }
 
