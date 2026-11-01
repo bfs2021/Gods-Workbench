@@ -480,7 +480,10 @@ def test_real_git_merge_keeps_theirs_hash_when_working_tree_lags(tmp_path: Path)
     assert merge.returncode == 0, merge.stdout + merge.stderr
     assert "CONFLICT" not in merge.stdout + merge.stderr
 
-    assert a_path.read_bytes() == new_content
+    # Windows 检出（core.autocrlf=true）会把 LF 落盘成 CRLF；
+    # 按 canonical 口径归一化行尾后再比对，保证跨平台内容逻辑等价。
+    normalized_bytes = a_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    assert normalized_bytes == new_content
     merged = json.loads(ledger_path.read_text(encoding="utf-8"))
     admitted = {item["path"]: item for item in merged["admitted_files"]}
     assert admitted["docs/contracts/A.yaml"]["sha256"] == new_hash
