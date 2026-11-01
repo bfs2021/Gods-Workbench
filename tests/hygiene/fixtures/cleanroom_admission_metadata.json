@@ -843,7 +843,7 @@
       "path": "docs/fixtures/phase11-b5-media-boundary.json",
       "classification": "golden_fixture",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "e7729ad04a742c01850172780c237ef4b97f45b62c21dbdb019f1acbcd86b364",
+      "sha256": "10751554b6eabb1a3b98f8599ba1573a850476b955c8d7ee1c4db7cecea7af26",
       "admission": "accepted"
     },
     {
