@@ -1129,3 +1129,30 @@ def test_qin_489_asset_library_layout_files_are_registered(repo_root: Path):
         "tests/hygiene/fixtures/admissions/issue-492.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
+
+
+def test_qin_517_allowed_roots_files_are_registered(repo_root: Path):
+    """QIN-517 允许根去重、已移除目录管理与彻底删除文件按本票登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 544
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #544, 2026-11-01"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/api/routes_asset_registry.py",
+        "gw/api/routes_settings.py",
+        "gw/asset_registry/repository.py",
+        "gw/settings/service.py",
+        "web/css/pages/directory-settings.css",
+        "web/js/controllers/assets-controller.js",
+        "web/js/modules/asset-manager.js",
+        "tests/contracts/assets/test_allowed_root_purge.py",
+        "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+        "tests/hygiene/fixtures/admissions/issue-544.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }

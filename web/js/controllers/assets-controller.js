@@ -184,12 +184,13 @@ window.GWUnassignedInbox = (() => {
     if (dialog) return dialog;
     dialog = document.createElement('div');
     dialog.id = 'unassignedInboxDialog';
+    dialog.setAttribute('data-floating-surface', 'unassigned-inbox-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-label', '未归属资产');
     dialog.style.cssText = 'position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);';
-    dialog.innerHTML = `<div class="bg-[#0b0d12] border border-[#dfc384]/35 rounded-xl p-4 text-[#eddab3] gw-type-body-sm" style="width:min(640px,92vw);max-height:80vh;overflow:auto;">
+    dialog.innerHTML = `<div data-floating-content class="bg-[#0b0d12] border border-[#dfc384]/35 rounded-xl p-4 text-[#eddab3] gw-type-body-sm" style="width:min(640px,92vw);max-height:80vh;overflow:auto;">
       <div class="flex items-center justify-between mb-2"><strong>未归属资产</strong>
-        <button type="button" class="hw-btn btn-size-sm" data-close-inbox>关闭</button></div>
+        <button type="button" class="hw-btn btn-size-sm" data-floating-close data-close-inbox>关闭</button></div>
       <p class="text-slate-400 mb-2">这些资产尚未归属任何项目；系统不会自动归属，请手动选择项目移入。</p>
       <p id="unassignedInboxStatus" role="status" aria-live="polite" class="mb-1"></p>
       <ul data-unassigned-list></ul></div>`;
