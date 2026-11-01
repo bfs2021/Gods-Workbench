@@ -57,7 +57,7 @@ MAX_UPLOAD_BYTES = 32 * 1024 * 1024
 
 #: 确定性分类规则：类别 → 扩展名集合。顺序即优先级，命中即返回。
 EXTENSION_RULES: tuple[tuple[str, str], ...] = (
-    ("image", ".png .jpg .jpeg .webp .bmp .gif .tif .tiff .avif .heic"),
+    ("image", ".png .jpg .jpeg .webp .bmp .gif .tif .tiff .avif .heic .jxl"),
     ("video", ".mp4 .mov .mkv .avi .webm .m4v .flv .wmv"),
     ("audio", ".wav .mp3 .flac .aac .ogg .m4a .wma"),
     ("document", ".pdf .txt .md .doc .docx .rtf .csv .json .yaml .yml .xml"),
@@ -70,7 +70,7 @@ DEFAULT_CLASSIFY_PROMPT = (
     "无法判定时归入「未分类」，禁止猜测内容语义。"
 )
 
-IMAGE_SUFFIXES = frozenset(".png .jpg .jpeg .webp .bmp .gif .tif .tiff".split())
+IMAGE_SUFFIXES = frozenset(".png .jpg .jpeg .webp .bmp .gif .tif .tiff .jxl".split())
 UNSUPPORTED_IMAGE_PROBE_SUFFIXES = frozenset({".avif", ".heic"})
 
 
