@@ -465,7 +465,7 @@
       "path": "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
       "classification": "frozen_interface_contract",
       "authorization_basis": "cleanroom_frozen_input",
-      "sha256": "1cc5a43cbdd04845f57871660ef3b64a9f1eeff6eb412f67c27f6ad2de6e6bdc",
+      "sha256": "0180d7bcd34b7aeb14b596b616262549b6b7e0cb7026995be72b7f944dc57a08",
       "admission": "accepted"
     },
     {

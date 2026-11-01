@@ -37,6 +37,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -71,6 +72,31 @@ ALLOWED_INTERNAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 DEFAULT_CACHE_FOLDER = "god-cache"
 #: 缓存子目录名必须是单段安全 ASCII，禁止路径分隔符、中文与保留设备名。
 _CACHE_FOLDER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+#: 视频后缀；预览走 ffmpeg 抽帧而不是 PIL。
+_VIDEO_SUFFIXES = frozenset(
+    {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv"}
+)
+#: 预览缓存命中统计（单进程只读探针，供规模回归与排障读取）。
+_PREVIEW_CACHE_LOCK = threading.Lock()
+_PREVIEW_CACHE_STATS = {"hit": 0, "miss": 0, "degraded": 0}
+
+
+def preview_cache_stats() -> dict[str, int]:
+    """返回预览缓存命中/未命中/降级计数快照（不参与业务判定）。"""
+    with _PREVIEW_CACHE_LOCK:
+        return dict(_PREVIEW_CACHE_STATS)
+
+
+def reset_preview_cache_stats() -> None:
+    """清零预览缓存统计；仅供测试与排障探针使用。"""
+    with _PREVIEW_CACHE_LOCK:
+        for key in _PREVIEW_CACHE_STATS:
+            _PREVIEW_CACHE_STATS[key] = 0
+
+
+def _count_preview_cache(kind: str) -> None:
+    with _PREVIEW_CACHE_LOCK:
+        _PREVIEW_CACHE_STATS[kind] = _PREVIEW_CACHE_STATS.get(kind, 0) + 1
 
 
 def settings_state() -> storage.JsonState:
@@ -451,23 +477,165 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _preview_source_identity(path: Path) -> str:
+    """预览缓存键的源身份摘要：源文件 size + mtime_ns。
+
+    源文件被替换（哪怕时间戳回拨）都会产生不同摘要，旧缓存不再命中，
+    避免把过期图当成本次结果返回。
+    """
+    stat = path.stat()
+    raw = "%d:%d" % (stat.st_size, stat.st_mtime_ns)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _preview_cache_stem(key: str, width: int) -> str:
+    """预览缓存文件名主干：``<key>-w<宽度>``，顺带复用安全字符校验。"""
+    return _thumbnail_filename(key, width=width)[: -len(".jpg.png")]
+
+
+def _preview_cache_name(key: str, width: int, identity: str, *, video: bool) -> str:
+    """预览缓存文件名：``<key>-w<宽度>-<源身份>.jpg.png``（视频为 .frame.jpg）。
+
+    宽度进入文件名，保证 256 / 512 各自独立命中互不覆盖（AC5）。
+    """
+    stem = _preview_cache_stem(key, width)
+    return ("%s-%s.frame.jpg" if video else "%s-%s.jpg.png") % (stem, identity)
+
+
+def _cached_preview_bytes(target: Path) -> bytes | None:
+    """读取并校验缓存文件可解码；截断 / 非图片返回 None，由调用方清理重算。"""
+    try:
+        data = target.read_bytes()
+    except OSError:
+        return None
+    if not data:
+        return None
+    Image = _pil()
+    if Image is None:
+        return None
+    import io as _io
+
+    try:
+        with Image.open(_io.BytesIO(data)) as image:
+            image.verify()
+    except Exception:
+        return None
+    return data
+
+
+def _image_pixel_width(target: Path) -> int | None:
+    """只读图片头取像素宽度；解不出图片返回 None（不整图解码）。"""
+    Image = _pil()
+    if Image is None:
+        return None
+    try:
+        with Image.open(target) as image:
+            return int(image.size[0])
+    except Exception:
+        return None
+
+
+def _canonical_generated_hit(
+    settings: dict[str, Any], source: Path, key: str, width: int
+) -> Path | None:
+    """预生成缩略图（QIN-508 命名）是否可直接供预览复用。
+
+    ``asset_id`` 命名的产物不含宽度，必须核对真实像素宽度，避免把其它宽度的图
+    当成本次请求的宽度返回；``media-`` 命名的产物已带宽度，直接以新鲜度判定。
+    """
+    _, directory = _thumbnail_cache_directory(settings, source)
+    name = _thumbnail_filename(key, width=width if key.startswith("media-") else None)
+    target = directory / name
+    if not _cache_is_fresh(target, source):
+        return None
+    if not key.startswith("media-") and _image_pixel_width(target) != width:
+        return None
+    return target
+
+
+def _prune_stale_preview_cache(directory: Path, name_prefix: str, keep: Path) -> None:
+    """清理同素材同宽度的旧预览缓存（源身份变化后残留的孤儿文件）。"""
+    try:
+        entries = list(directory.glob(name_prefix + "*.jpg*"))
+    except OSError:
+        return
+    for entry in entries:
+        if entry == keep:
+            continue
+        try:
+            if entry.is_file():
+                entry.unlink()
+        except OSError:
+            continue
+
+
+def _live_preview_bytes(path: Path, width: int, *, video: bool) -> tuple[bytes, str]:
+    """实时生成预览（缓存不可用时唯一出路），不写盘。"""
+    if video:
+        return _video_frame_bytes(path, width), "image/jpeg"
+    return _thumbnail_bytes(path, width), "image/png"
+
+
 def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
-    """给图片/BMP 等返回真实重采样缩略字节；视频走 ffmpeg 抽帧。"""
+    """给图片/BMP 等返回真实重采样缩略字节；视频走 ffmpeg 抽帧。
+
+    查找顺序：预览缓存（按素材 + 宽度 + 源身份）→ 预生成缩略图产物 → 实时生成。
+    命中路径不重新解码源文件；缓存配置越界、磁盘错误、坏文件一律降级为实时
+    生成，不把预览整体打成 5xx。
+    """
     path = _resolve_input(payload)
     width = int((payload or {}).get("w") or 256)
     width = max(64, min(2048, width))
-    suffix = path.suffix.lower()
-    if suffix in {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv"}:
-        data = _video_frame_bytes(path, width)
-        media_type = "image/jpeg"
-    else:
-        data = _thumbnail_bytes(path, width)
-        media_type = "image/png"
-    return {
-        "bytes": data,
-        "media_type": media_type,
-        "source": storage.relative_display(path),
-    }
+    video = path.suffix.lower() in _VIDEO_SUFFIXES
+    media_type = "image/jpeg" if video else "image/png"
+    asset_id = str((payload or {}).get("asset_id") or "").strip()
+    key = _thumbnail_key(asset_id, path)
+    source = storage.relative_display(path)
+
+    try:
+        identity = _preview_source_identity(path)
+        settings = get_thumbnail_settings()
+        _, directory = _thumbnail_cache_directory(settings, path)
+        target = directory / _preview_cache_name(key, width, identity, video=video)
+    except (CleanroomException, OSError):
+        # 缓存目录不可解析（未登记允许根、目录被移除、磁盘不可用）：降级实时生成。
+        _count_preview_cache("degraded")
+        data, media_type = _live_preview_bytes(path, width, video=video)
+        return {"bytes": data, "media_type": media_type, "source": source}
+
+    if _cache_is_fresh(target, path):
+        cached = _cached_preview_bytes(target)
+        if cached is not None:
+            _count_preview_cache("hit")
+            return {"bytes": cached, "media_type": media_type, "source": source}
+        # 坏缓存（截断 / 非图片）：清掉后按未命中重算。
+        try:
+            target.unlink()
+        except OSError:
+            pass
+
+    if not video:
+        try:
+            canonical = _canonical_generated_hit(settings, path, key, width)
+        except (CleanroomException, OSError):
+            canonical = None
+        if canonical is not None:
+            cached = _cached_preview_bytes(canonical)
+            if cached is not None:
+                _count_preview_cache("hit")
+                return {"bytes": cached, "media_type": media_type, "source": source}
+
+    _count_preview_cache("miss")
+    data, media_type = _live_preview_bytes(path, width, video=video)
+    try:
+        _atomic_write_bytes(target, data)
+        _prune_stale_preview_cache(
+            directory, _preview_cache_stem(key, width) + "-", target
+        )
+    except (CleanroomException, OSError):
+        # 写盘失败不影响本次预览可用性，但如实记为降级，下次仍会重试落盘。
+        _count_preview_cache("degraded")
+    return {"bytes": data, "media_type": media_type, "source": source}
 
 
 def _video_frame_bytes(path: Path, width: int) -> bytes:
@@ -879,6 +1047,13 @@ def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
             candidates.extend(
                 thumbnail_index.get(asset_id + ".jpg.png", [])
             )
+            # 预览派生缓存（QIN-509 命名）：<asset_id>-w<宽度>-<源身份>.jpg.png / .frame.jpg。
+            # 素材 id 不含 "-"，因此该前缀只会命中同一素材的预览产物。
+            for name, relatives in thumbnail_index.items():
+                if name.startswith(asset_id + "-w") and (
+                    name.endswith(".jpg.png") or name.endswith(".frame.jpg")
+                ):
+                    candidates.extend(relatives)
         else:
             directory = media_probe.storyboard_directory(asset_id)
             if directory.exists():
