@@ -12545,11 +12545,11 @@ function videoStoryboardImageKey(assetId, version){
 function videoStoryboardImageUrl(outputName){
     return `/api/download-output?path=${encodeURIComponent(String(outputName || ''))}`;
 }
-// 九宫格是后端合成的 3×3 单图（固定横板 2160×1215），前端只渲染一张。
+// 九宫格是后端合成的 3×3 单图（按素材原画幅自然拼接），前端只渲染一张。
 // 图幅用内联 contain 约束：无论缓存里是旧口径的竖版还是新横版，都完整显示不裁切。
 const VIDEO_STORYBOARD_IMAGE_STYLE = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;';
-// 放大层沿用上一版口径：整图完整展示，高度按视口收，绝不裁切。
-const VIDEO_STORYBOARD_LARGE_STYLE = 'max-width:100%;max-height:calc(100vh - 109px);width:auto;height:auto;object-fit:contain;display:block;';
+// 放大层：外框按图片实际尺寸自适应，四周留 10px 内边距；加载完成前先用视口兜底。
+const VIDEO_STORYBOARD_LARGE_STYLE = 'max-width:100%;max-height:calc(100vh - 132px);width:auto;height:auto;object-fit:contain;display:block;';
 function paintVideoStoryboardImage(node, data, style = VIDEO_STORYBOARD_IMAGE_STYLE){
     if(!node) return;
     const image = String(data?.image || '');
@@ -15433,7 +15433,55 @@ async function handleDetailVideoControl(button){
     else if(action === 'frame-library') await exportDetailVideoFrame(videoId,true);
     else if(action === 'frame-copy') await copyDetailVideoFrameToClipboard(videoId);
 }
+let detailVideoStoryboardFitHandler = null;
+// 放大层外框贴合图片：按视口可用高度/宽度等比缩放，外框 = 图片 + 四周 10px 内边距 + 边框。
+function fitDetailVideoStoryboardOverlay(overlay){
+    const section = overlay?.querySelector('[role="dialog"]');
+    const slot = overlay?.querySelector('[data-video-storyboard-large]');
+    const image = slot?.querySelector('img');
+    if(!section || !slot || !image) return;
+    const naturalWidth = Number(image.naturalWidth) || 0;
+    const naturalHeight = Number(image.naturalHeight) || 0;
+    if(!naturalWidth || !naturalHeight) return;
+    const overlayStyle = getComputedStyle(overlay);
+    const sectionStyle = getComputedStyle(section);
+    const slotStyle = getComputedStyle(slot);
+    const px = value => Number.parseFloat(value) || 0;
+    const borderX = px(sectionStyle.borderLeftWidth) + px(sectionStyle.borderRightWidth);
+    const borderY = px(sectionStyle.borderTopWidth) + px(sectionStyle.borderBottomWidth);
+    const slotPadX = px(slotStyle.paddingLeft) + px(slotStyle.paddingRight);
+    const slotPadY = px(slotStyle.paddingTop) + px(slotStyle.paddingBottom);
+    const frameX = px(overlayStyle.paddingLeft) + px(overlayStyle.paddingRight) + borderX + slotPadX;
+    const frameY = px(overlayStyle.paddingTop) + px(overlayStyle.paddingBottom) + borderY + slotPadY + (section.querySelector('header')?.getBoundingClientRect().height || 0);
+    const availableWidth = Math.max(160, window.innerWidth - frameX);
+    const availableHeight = Math.max(120, window.innerHeight - frameY);
+    const scale = Math.min(1, availableWidth / naturalWidth, availableHeight / naturalHeight);
+    const width = Math.max(1, Math.round(naturalWidth * scale));
+    const height = Math.max(1, Math.round(naturalHeight * scale));
+    image.style.width = `${width}px`;
+    image.style.height = `${height}px`;
+    image.style.maxWidth = 'none';
+    image.style.maxHeight = 'none';
+    section.style.boxSizing = 'border-box';
+    section.style.width = `${width + slotPadX + borderX}px`;
+}
+function unbindDetailVideoStoryboardFit(){
+    if(!detailVideoStoryboardFitHandler) return;
+    window.removeEventListener('resize', detailVideoStoryboardFitHandler);
+    detailVideoStoryboardFitHandler = null;
+}
+function bindDetailVideoStoryboardFit(overlay, target){
+    unbindDetailVideoStoryboardFit();
+    const fit = () => fitDetailVideoStoryboardOverlay(overlay);
+    detailVideoStoryboardFitHandler = fit;
+    window.addEventListener('resize', fit);
+    const image = target?.querySelector('img');
+    if(!image) return;
+    if(image.complete) fit();
+    else image.addEventListener('load', fit, {once:true});
+}
 function closeDetailVideoStoryboard(){
+    unbindDetailVideoStoryboardFit();
     document.querySelector('[data-video-storyboard-overlay]')?.remove();
     detailViewerState.videoStoryboardExpandedId = '';
 }
@@ -15454,11 +15502,12 @@ async function openDetailVideoStoryboard(button){
     const version = String(button?.dataset?.storyboardVersion || '');
     const key = videoStoryboardImageKey(assetId, version);
     const cached = videoStoryboardImageCache.get(key);
-    if(cached){ paintVideoStoryboardImage(target, cached, VIDEO_STORYBOARD_LARGE_STYLE); return; }
+    if(cached){ paintVideoStoryboardImage(target, cached, VIDEO_STORYBOARD_LARGE_STYLE); bindDetailVideoStoryboardFit(overlay, target); return; }
     try{
         const data = await apiJsonResponse(assetManagerApi.getRegistryVideoStoryboard(assetId));
         videoStoryboardImageCache.set(key, data || {});
         paintVideoStoryboardImage(target, data, VIDEO_STORYBOARD_LARGE_STYLE);
+        bindDetailVideoStoryboardFit(overlay, target);
     }catch(err){
         if(target) target.innerHTML = `<span class="asset-video-storyboard-placeholder is-error">九宫格读取失败：${escapeHtml(err?.message || '未知错误')}</span>`;
     }
