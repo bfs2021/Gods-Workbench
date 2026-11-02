@@ -1,0 +1,31 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 550,
+  "authorization_basis": "GitHub Issue #550, 2026-11-02",
+  "files": [
+    "gw/media/repository.py",
+    "gw/api/routes_media.py",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/directory-settings.css",
+    "tests/contracts/media/test_preview_all_cache.py",
+    "tests/frontend/qin-519-preview-all-button.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-550.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_preview_all_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #550, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-519-preview-all-button.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #550, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-519：资产设置「缓存全部预览」入口，复用 generate-background 的 scope=library 全库预热（真异步守护线程、幂等跳过、进度回读）。分片按 GitHub Issue #550 命名——issue-519.json 已归属 GitHub #519（QIN-502），分片加载器要求文件名即票号且票号唯一。"
+}

@@ -142,9 +142,30 @@ async def generate_thumbs_background(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """后台生成：真实执行后返回稳定 job_id + poll_hint，可被 GET /jobs/{job_id} 查到。"""
+    """后台生成：真实执行后返回稳定 job_id + poll_hint，可被 GET /jobs/{job_id} 查到。
+
+    ``scope="library"``（QIN-519）启动全库预览缓存预热：立即 202，由守护线程真实推进，
+    进度经 ``GET /api/asset-thumbnails/jobs/{job_id}`` 回读。
+    """
     _write(authorization, x_user_role)
     payload = await _json(request)
+    if str((payload or {}).get("scope") or "").strip() == repo.PREVIEW_ALL_SCOPE:
+        job_id, poll_hint, total = repo.start_preview_all_job(payload)
+        return {
+            "task": {
+                "id": job_id,
+                "job_id": job_id,
+                "poll_hint": poll_hint,
+                "scope": repo.PREVIEW_ALL_SCOPE,
+                "total": total,
+            },
+            "job_id": job_id,
+            "poll_hint": poll_hint,
+            "scope": repo.PREVIEW_ALL_SCOPE,
+            "total": total,
+            "data_status": "ok",
+            "data_gaps": [],
+        }
     job_id, poll_hint = repo.run_background_thumbnail(payload)
     return {
         "task": {"id": job_id, "job_id": job_id, "poll_hint": poll_hint},

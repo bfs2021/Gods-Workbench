@@ -38,6 +38,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
@@ -1484,6 +1485,214 @@ def run_background_thumbnail(payload: dict[str, Any]) -> tuple[str, str]:
 
     job_id, _ = _job_state().mutate(mutate)
     return job_id, "/api/asset-thumbnails/jobs/%s" % job_id
+
+
+# ---------------------------------------------------------------------------
+# 全库预览缓存预热（QIN-519：创作者显式触发，真异步守护线程）
+# ---------------------------------------------------------------------------
+
+PREVIEW_ALL_SCOPE = "library"
+PREVIEW_ALL_WIDTH = 256
+# 限速：默认每张之间让出 20ms，避免全库预热打满创作者 PC 或 NAS 的 CPU。
+PREVIEW_ALL_THROTTLE_SECONDS = 0.02
+_PREVIEW_ALL_FLUSH_EVERY = 10
+_PREVIEWABLE_KINDS = ("image", "video")
+
+
+def _preview_all_asset_ids() -> list[str]:
+    """登记表里当前可见、未归档的图片/视频素材 id（预热范围，不生成任何东西）。"""
+    from gw.asset_registry import repository as asset_repo
+    from gw.core.asset_visibility import asset_visible
+
+    raw = asset_repo.state().read()
+    asset_ids: list[str] = []
+    for asset_id, record in sorted((raw.get("assets") or {}).items()):
+        if record.get("archived"):
+            continue
+        if str(record.get("kind") or "") not in _PREVIEWABLE_KINDS:
+            continue
+        try:
+            visible = asset_visible(record)
+        except Exception:  # noqa: BLE001 - 判定异常按不可见处理，绝不越权预热
+            visible = False
+        if visible:
+            asset_ids.append(str(asset_id))
+    return asset_ids
+
+
+def _preview_cache_hit(
+    asset_id: str, path: Path, width: int, settings: dict[str, Any]
+) -> bool:
+    """与 ``preview_bytes`` 同一口径探测缓存是否新鲜（只 stat，不解码不读字节）。"""
+    image_format = _thumbnail_format(settings)
+    identity = _preview_source_identity(path)
+    _, directory = resolve_cache_directory(settings, path)
+    key = _thumbnail_key(asset_id, path)
+    video = path.suffix.lower() in _VIDEO_SUFFIXES
+    target = directory / _preview_cache_name(
+        key, width, identity, video=video, image_format=image_format
+    )
+    return _cache_is_fresh(target, path)
+
+
+def _update_preview_all_job(job_id: str, **changes: Any) -> None:
+    """按稳定 job_id 局部更新任务记录；任务已被清理时静默跳过。"""
+
+    def mutate(raw: dict[str, Any]) -> Any:
+        job = (raw.get("jobs") or {}).get(job_id)
+        if job is None:
+            return None
+        job.update(changes)
+        raw["revision"] = int(raw.get("revision") or 1) + 1
+        return job
+
+    _job_state().mutate(mutate)
+
+
+def _run_preview_all(
+    job_id: str, asset_ids: list[str], width: int, throttle: float
+) -> None:
+    """守护线程主体：逐项预热，已有新鲜缓存直接跳过（幂等），单项失败不中断整批。"""
+    started = time.monotonic()
+    total = len(asset_ids)
+    generated = skipped = failed = 0
+    last_flush = 0.0
+    try:
+        settings: dict[str, Any] | None = get_thumbnail_settings()
+    except CleanroomException:
+        settings = None
+    for index, asset_id in enumerate(asset_ids, 1):
+        try:
+            path = _registry_path(asset_id)
+            if settings is not None and _preview_cache_hit(
+                asset_id, path, width, settings
+            ):
+                skipped += 1
+            else:
+                # 生成与落盘完全复用浏览器预览同一条路径，不做第二套实现。
+                preview_bytes({"asset_id": asset_id, "w": width})
+                generated += 1
+                if throttle > 0:
+                    time.sleep(throttle)
+        except CleanroomException:
+            failed += 1
+        except Exception:  # noqa: BLE001 - 单项失败（坏文件/解码异常）不中断整批
+            failed += 1
+        now = time.monotonic()
+        if (
+            index == total
+            or index % _PREVIEW_ALL_FLUSH_EVERY == 0
+            or now - last_flush >= 0.5
+        ):
+            last_flush = now
+            _update_preview_all_job(
+                job_id,
+                progress={
+                    "processed": index,
+                    "total": total,
+                    "generated": generated,
+                    "skipped": skipped,
+                    "failed": failed,
+                },
+            )
+    status = "failed" if total and failed == total else "succeeded"
+    _update_preview_all_job(
+        job_id,
+        status=status,
+        state=status,
+        result={
+            "total": total,
+            "generated": generated,
+            "skipped": skipped,
+            "failed": failed,
+            "width": width,
+            "elapsed_seconds": round(time.monotonic() - started, 1),
+        },
+        error="PREVIEW_ALL_FAILED" if status == "failed" else None,
+        finished_at=storage.now_iso(),
+    )
+
+
+def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
+    """启动全库预览缓存预热：立即返回稳定 job_id，由守护线程真实推进。
+
+    同一时刻只保留一个运行中的预热任务（重复提交复用既有 job_id，避免重复遍历）；
+    不做任何静默预热，必须由创作者显式触发。
+    """
+    state = _job_state().read()
+    for record in (state.get("jobs") or {}).values():
+        if record.get("kind") == "preview_all" and record.get("status") in (
+            "queued",
+            "running",
+        ):
+            existing_id = str(record.get("job_id") or "")
+            return (
+                existing_id,
+                "/api/asset-thumbnails/jobs/%s" % existing_id,
+                int((record.get("progress") or {}).get("total") or 0),
+            )
+
+    asset_ids = _preview_all_asset_ids()
+    try:
+        width = int((payload or {}).get("width") or PREVIEW_ALL_WIDTH)
+    except (TypeError, ValueError):
+        width = PREVIEW_ALL_WIDTH
+    width = max(64, min(2048, width))
+    throttle = PREVIEW_ALL_THROTTLE_SECONDS
+    raw_throttle = (payload or {}).get("throttle_ms")
+    if raw_throttle is not None:
+        try:
+            throttle = max(0.0, min(1.0, float(raw_throttle) / 1000.0))
+        except (TypeError, ValueError):
+            throttle = PREVIEW_ALL_THROTTLE_SECONDS
+
+    def mutate(raw: dict[str, Any]) -> str:
+        raw["sequence"] = int(raw.get("sequence", 0)) + 1
+        job_id = "pjob_%04d" % raw["sequence"]
+        raw.setdefault("jobs", {})[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "state": "running",
+            "kind": "preview_all",
+            "progress": {
+                "processed": 0,
+                "total": len(asset_ids),
+                "generated": 0,
+                "skipped": 0,
+                "failed": 0,
+            },
+            "result": None,
+            "error": None,
+            "created_at": storage.now_iso(),
+            "finished_at": None,
+        }
+        raw["revision"] = int(raw.get("revision") or 1) + 1
+        return job_id
+
+    job_id = _job_state().mutate(mutate)
+    if asset_ids:
+        threading.Thread(
+            target=_run_preview_all,
+            args=(job_id, asset_ids, width, throttle),
+            name="preview-all-%s" % job_id,
+            daemon=True,
+        ).start()
+    else:
+        _update_preview_all_job(
+            job_id,
+            status="succeeded",
+            state="succeeded",
+            result={
+                "total": 0,
+                "generated": 0,
+                "skipped": 0,
+                "failed": 0,
+                "width": width,
+                "elapsed_seconds": 0.0,
+            },
+            finished_at=storage.now_iso(),
+        )
+    return job_id, "/api/asset-thumbnails/jobs/%s" % job_id, len(asset_ids)
 
 
 def _storyboard_error_item(asset_id: str, exc: CleanroomException) -> dict[str, Any]:

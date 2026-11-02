@@ -568,3 +568,7 @@ body.gw-signal.gw-page--asset-manager .directory-page .asset-btn { font-weight:v
   .allowed-root-row { flex-direction: column; }
   .allowed-root-actions { justify-content: flex-start; }
 }
+
+/* 【QIN-519】全库预览缓存预热进度条：沿用黑金设计系统的金色进度，仅本区块生效。 */
+.board-preview-all-progress { inline-size: 100%; height: 6px; accent-color: var(--gold-primary); }
+.asset-preview-all .board-thumbnail-actions { flex-wrap: wrap; }
