@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gw.api import routes_settings as routes
+from gw.api import routes_asset_registry, routes_settings as routes
 from gw.api.app import create_app
 from gw.asset_registry import index_jobs, repository as asset_repo
 from gw.core import storage
@@ -131,6 +131,92 @@ def test_allowed_root_restore_endpoint(
     restored_item = next(item for item in data["roots"] if item["id"] == root_id)
     assert restored_item["active"] is True
     assert restored_item["availability"] == "available"
+
+
+def test_allowed_root_restore_allows_asset_source_registration(
+    client: TestClient, monkeypatch, tmp_path: Path
+):
+    """恢复旧根后，规范化后的同目录仍可完成新资源库来源登记。"""
+    root = tmp_path / "restore_alias_vault"
+    library = root / "library"
+    library.mkdir(parents=True)
+
+    settings_service = StorageSettingsService()
+    monkeypatch.setattr(routes, "default_storage_settings_service", settings_service)
+    monkeypatch.setattr(
+        routes_asset_registry, "default_storage_settings_service", settings_service
+    )
+
+    class Jobs:
+        def submit(self, *_args, **_kwargs):
+            return {"job_id": "job_restore_source", "status": "queued"}
+
+    monkeypatch.setattr(index_jobs, "service", lambda: Jobs())
+
+    added = client.post(
+        "/api/storage-settings/roots",
+        headers=ADMIN,
+        json={"path": str(root), "expected_version": 1},
+    )
+    assert added.status_code == 200, added.text
+    root_id = added.json()["roots"][0]["id"]
+    removed = client.request(
+        "DELETE",
+        f"/api/storage-settings/roots/{root_id}",
+        headers=ADMIN,
+        json={"expected_version": 2},
+    )
+    assert removed.status_code == 200, removed.text
+    restored = client.post(
+        f"/api/storage-settings/roots/{root_id}/restore",
+        headers=ADMIN,
+        json={"expected_version": 3},
+    )
+    assert restored.status_code == 200, restored.text
+    assert next(item for item in restored.json()["roots"] if item["id"] == root_id)["active"]
+
+    # 模拟 Windows 对同一目录的路径解析会把素材路径变成另一种规范拼写。
+    path_type = type(root)
+    original_resolve = path_type.resolve
+    canonical_root = tmp_path / "canonical_vault"
+    canonical_library = canonical_root / "library"
+
+    def resolve_path_alias(path, *args, **kwargs):
+        if path == root:
+            return canonical_root
+        if path == library:
+            return canonical_library
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "resolve", resolve_path_alias)
+    registered = client.post(
+        "/api/asset-registry/reindex",
+        headers=ADMIN,
+        json={
+            "background": True,
+            "hash_files": True,
+            "max_files": 250000,
+            "roots": ["asset_recovered"],
+            "register_root": {
+                "id": "asset_recovered",
+                "name": "恢复后的素材",
+                "path": str(library),
+                "expected_version": 1,
+            },
+        },
+    )
+    assert registered.status_code == 202, registered.text
+    assert registered.json()["registered_root"]["id"] == "asset_recovered"
+
+
+def test_windows_path_namespace_keeps_unconfirmed_unc_alias_separate():
+    """映射盘与 UNC 拼写仍须显式确认，不能因 resolve 结果相同而自动合并。"""
+    assert not storage._same_path_namespace(
+        r"\\server\share\library", Path(r"Z:\share\library")
+    )
+    assert storage._same_path_namespace(
+        r"Z:\share\library", Path(r"z:/share/library")
+    )
 
 
 def test_allowed_root_purge_cas_and_cascade_cleanup_without_touching_files(
