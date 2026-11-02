@@ -1,0 +1,13 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 520,
+  "authorization_basis": "GitHub Issue #552 (QIN-520), 2026-11-02，秦先生特别授权修改 CI workflow",
+  "files": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release-desktop.yml",
+    "tests/hygiene/fixtures/admissions/issue-520.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [],
+  "notes": "QIN-520：CI/CD 分层效能治理。日常 PR 快速门禁（concurrency 去重、剥离 NSIS 安装包编译、后端核心契约+卫生门禁）与大版本发布回归（release-desktop.yml：全量测试+Playwright E2E+NSIS 安装包产物）解耦。"
+}
