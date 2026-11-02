@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -2371,11 +2372,176 @@ def record_operation(name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 # 索引（真实遍历允许根目录）
 # ---------------------------------------------------------------------------
 
+_INDEX_EXCLUDED_DIRECTORY_NAMES = frozenset(
+    {"god-cache", "god-recycler", ".gods-workbench"}
+)
+
+
+def _index_scan_path_key(path: Path) -> str:
+    return storage.directory_path_key(str(Path(path)))
+
+
+def _index_scan_path_is_within(path: Path, parent: Path) -> bool:
+    path_key = _index_scan_path_key(path)
+    parent_key = _index_scan_path_key(parent)
+    if path_key == parent_key:
+        return True
+    separator = os.sep
+    parent_prefix = parent_key.rstrip("\\/")
+    if parent_prefix:
+        parent_prefix += separator
+    else:
+        parent_prefix = separator
+    return path_key.startswith(parent_prefix)
+
+
+def _index_scan_directory_name_is_excluded(name: str) -> bool:
+    normalized = str(name or "").casefold()
+    return normalized.startswith(".") or normalized in _INDEX_EXCLUDED_DIRECTORY_NAMES
+
+
+def _index_scan_file_name_is_excluded(name: str) -> bool:
+    return str(name or "").startswith(".")
+
+
+def _index_scan_runtime_data_root() -> Path | None:
+    """按当前运行态取得数据根，避免扫描热路径重复解析整组三根路径。"""
+    mode = str(os.environ.get("GW_RUNTIME_MODE") or "dev").strip().casefold()
+    if mode == "test":
+        raw_data_root = os.environ.get("GW_DATA_DIR", "").strip()
+        if not raw_data_root:
+            return None
+        return Path(storage.normalize_directory_path(raw_data_root))
+    if mode == "prod":
+        localappdata = os.environ.get("LOCALAPPDATA", "").strip()
+        if not localappdata:
+            return None
+        return Path(storage.normalize_directory_path(localappdata)) / "GodsWorkbench" / "data"
+    if mode != "dev":
+        return None
+    raw_data_root = os.environ.get("GW_DATA_DIR", "").strip()
+    if raw_data_root:
+        return Path(storage.normalize_directory_path(raw_data_root))
+    return Path(__file__).parents[2] / ".local" / "runtime-dev" / "data"
+
+
+def _index_scan_read_state(
+    data_root: Path, namespace: str, default: dict[str, Any]
+) -> dict[str, Any]:
+    """在命名空间锁内读取快照，避免 JsonState 每次重新解析运行路径。"""
+    try:
+        with storage.namespace_lock(namespace):
+            with (data_root / f"{namespace}.json").open(encoding="utf-8") as handle:
+                value = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return default
+    return value if isinstance(value, dict) else default
+
+
+def _index_scan_exclusion_configuration() -> tuple[list[Path], Path | None]:
+    """每次扫描读取当前缓存与回收根，避免配置变更后仍沿用旧排除表。"""
+    from gw.asset_registry import lifecycle
+
+    data_root = _index_scan_runtime_data_root()
+    if data_root is None:
+        return [], None
+    thumbnail_state = _index_scan_read_state(data_root, "media_settings", {})
+    thumbnail_settings = dict(thumbnail_state.get("thumbnails") or {})
+    cache_folder = str(thumbnail_settings.get("cache_folder") or "god-cache").strip()
+    if not cache_folder or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", cache_folder
+    ):
+        cache_folder = "god-cache"
+    custom_cache_base = None
+    if str(thumbnail_settings.get("mode") or "source") == "custom":
+        raw_cache_base = str(thumbnail_settings.get("directory") or "").strip()
+        if raw_cache_base:
+            normalized_cache_base = storage.normalize_directory_path(raw_cache_base)
+            custom_cache_base = Path(normalized_cache_base)
+        cache_root = (
+            custom_cache_base / cache_folder
+            if custom_cache_base is not None
+            else data_root / "media_output" / cache_folder
+        )
+    else:
+        cache_root = data_root / "media_output" / cache_folder
+
+    exclusion_roots = [Path(cache_root)]
+    storage_state = _index_scan_read_state(data_root, "storage_settings", {})
+    dirs = dict(storage_state.get("dirs") or {})
+    raw_trash_root = str(dirs.get("trash") or "").strip()
+    if raw_trash_root:
+        trash_root = Path(storage.normalize_directory_path(raw_trash_root))
+        exclusion_roots.append(trash_root / "god-recycler")
+
+    # 当前回收实现仍把文件写入受管 registry_uploads 根；同时读取可配置根，
+    # 让目录设置更新后立即影响下一轮扫描。
+    exclusion_roots.append(
+        data_root / Path(lifecycle._RECYCLER_RELATIVE)
+    )
+
+    unique_roots: list[Path] = []
+    seen: set[str] = set()
+    for root in exclusion_roots:
+        resolved = Path(storage.normalize_directory_path(str(root)))
+        key = _index_scan_path_key(resolved)
+        if key and key not in seen:
+            seen.add(key)
+            unique_roots.append(resolved)
+    return unique_roots, custom_cache_base
+
+
+def _index_scan_exclusions_for_scope(
+    scope_root: Path,
+    configured_roots: list[Path],
+    custom_cache_base: Path | None,
+) -> list[Path]:
+    exclusions = list(configured_roots)
+    if custom_cache_base is not None:
+        cache_base = Path(custom_cache_base)
+        resolved_scope = Path(scope_root)
+        if (
+            _index_scan_path_is_within(cache_base, resolved_scope)
+            and not _index_scan_path_is_within(resolved_scope, cache_base)
+        ):
+            exclusions.append(cache_base)
+    return exclusions
+
+
+def _index_scan_directory_is_excluded(
+    directory: Path, exclusion_roots: list[Path]
+) -> bool:
+    if _index_scan_directory_name_is_excluded(directory.name):
+        return True
+    return any(
+        _index_scan_path_is_within(directory, root) for root in exclusion_roots
+    )
+
+
+def _index_scan_scope_is_excluded(
+    scan_root: Path, prefix: str, exclusion_roots: list[Path]
+) -> bool:
+    if _index_scan_directory_name_is_excluded(scan_root.name):
+        return True
+    if any(
+        _index_scan_directory_name_is_excluded(part)
+        for part in Path(prefix or ".").parts
+        if part not in {"", "."}
+    ):
+        return True
+    return any(
+        _index_scan_path_is_within(scan_root, root) for root in exclusion_roots
+    )
+
+
 def _scan_allowed_roots() -> Tuple[List[Dict[str, Any]], List[str]]:
     roots = storage.allowed_roots()
     if not roots:
         return [], ["allowed_roots_not_configured"]
     found: List[Dict[str, Any]] = []
+    configured_exclusion_roots, custom_cache_base = (
+        _index_scan_exclusion_configuration()
+    )
 
     def display_path(path: Path) -> str:
         matches = []
@@ -2390,6 +2556,11 @@ def _scan_allowed_roots() -> Tuple[List[Dict[str, Any]], List[str]]:
         return relative.as_posix()
 
     for root in roots:
+        exclusion_roots = _index_scan_exclusions_for_scope(
+            root, configured_exclusion_roots, custom_cache_base
+        )
+        if _index_scan_scope_is_excluded(root, "", exclusion_roots):
+            continue
         pending = [root]
         while pending:
             directory = pending.pop()
@@ -2399,6 +2570,10 @@ def _scan_allowed_roots() -> Tuple[List[Dict[str, Any]], List[str]]:
                         try:
                             if entry.is_dir(follow_symlinks=False):
                                 child_path = Path(entry.path)
+                                if _index_scan_directory_is_excluded(
+                                    child_path, exclusion_roots
+                                ):
+                                    continue
                                 if os.name == "nt" and storage._is_reparse_point_info(
                                     entry.stat(follow_symlinks=False)
                                 ):
@@ -2407,6 +2582,8 @@ def _scan_allowed_roots() -> Tuple[List[Dict[str, Any]], List[str]]:
                                     except CleanroomException:
                                         continue
                                 pending.append(child_path)
+                                continue
+                            if _index_scan_file_name_is_excluded(entry.name):
                                 continue
                             if not entry.is_file():
                                 continue

@@ -1230,6 +1230,23 @@ const ALLOWED_ROOT_FIELD_KEY = 'allowed_root';
 const BOARD_CREATE_PATH_FIELD_KEY = 'board_create_path';
 // 允许留空的目录字段：清空后照常保存（如回收根目录留空即跟随素材源）。
 const OPTIONAL_DIRECTORY_FIELDS = new Set(['trash']);
+const THUMBNAIL_CACHE_EXCLUSION_HINT = '检测到缓存位于素材库内，系统已自动加入扫描排除名单，防止重复索引';
+function thumbnailCacheDirectoryIsInsideLibrary(directory=thumbnailGeneratorState.directory){
+    const libraries = storageSettingsState.localLibraries?.length
+        ? storageSettingsState.localLibraries
+        : localLibraries;
+    return (Array.isArray(libraries) ? libraries : []).some(library =>
+        Boolean(library?.path) && assetPathWithinAllowedRoot(directory, library.path)
+    );
+}
+function updateThumbnailCacheExclusionHint(){
+    const hint = document.querySelector('#storageSettingsOverlay [data-thumbnail-cache-exclusion-hint]');
+    if(!hint) return;
+    const visible = thumbnailGeneratorState.mode === 'custom'
+        && thumbnailCacheDirectoryIsInsideLibrary();
+    hint.textContent = visible ? THUMBNAIL_CACHE_EXCLUSION_HINT : '';
+    hint.hidden = !visible;
+}
 function directoryFieldInput(key){
     if(key === THUMBNAIL_DIRECTORY_FIELD_KEY) return document.getElementById('thumbnailDirectory');
     if(key === ALLOWED_ROOT_FIELD_KEY) return document.getElementById('allowedRootPath');
@@ -1245,6 +1262,9 @@ function thumbnailCacheTargetText(){
 function renderAssetThumbnailCacheDirectoryBody(){
     const known = thumbnailKnownDirectories();
     const mode = thumbnailGeneratorState.mode === 'custom' ? 'custom' : 'source';
+    const exclusionHint = mode === 'custom' && thumbnailCacheDirectoryIsInsideLibrary()
+        ? THUMBNAIL_CACHE_EXCLUSION_HINT
+        : '';
     const cacheRootPicker = canBrowseServerDirectories()
         ? '<button type="button" class="hw-btn hw-btn-icon directory-picker-btn" data-directory-picker="' + THUMBNAIL_DIRECTORY_FIELD_KEY + '" title="浏览服务器目录" aria-label="浏览服务器缓存根目录"><i data-lucide="folder-open"></i></button>'
         : '';
@@ -1259,6 +1279,7 @@ function renderAssetThumbnailCacheDirectoryBody(){
             <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
             <label class="storage-dir-row"><span>缓存根目录</span><div class="directory-input-row"><input id="thumbnailDirectory" value="${escapeAttr(thumbnailGeneratorState.directory)}" placeholder="例如 D:\\GodsCache" autocomplete="off">${cacheRootPicker}</div></label>
         </div>` : ''}
+        <p class="board-settings-hint" data-thumbnail-cache-exclusion-hint role="status" aria-live="polite" ${exclusionHint ? '' : 'hidden'}>${escapeHtml(exclusionHint)}</p>
     </div>`;
 }
 function renderAssetDirectorySettingsBody(){
@@ -20029,6 +20050,11 @@ document.addEventListener('scroll', event => {
     }
 }, true);
 document.addEventListener('input', event => {
+    if(event.target?.id === 'thumbnailDirectory'){
+        thumbnailGeneratorState.directory = String(event.target.value || '').trim();
+        updateThumbnailCacheExclusionHint();
+        return;
+    }
     if(event.target?.id === 'boardCreateName' || event.target?.id === 'boardCreatePath'){
         syncBoardCreateDraftFromDom(event.target.id);
         return;
@@ -20304,6 +20330,7 @@ document.addEventListener('change', event => {
         const input = document.getElementById('thumbnailDirectory');
         if(input) input.value = thumbnailGeneratorState.directory;
         applyThumbnailCacheDirectoryField(thumbnailGeneratorState.directory);
+        updateThumbnailCacheExclusionHint();
         return;
     }
     if(event.target?.id === 'boardSourceExisting'){
@@ -20317,6 +20344,7 @@ document.addEventListener('change', event => {
     if(!event.target?.closest?.('#storageSettingsOverlay')) return;
     if(event.target?.id === 'thumbnailDirectory'){
         thumbnailGeneratorState.directory = String(event.target.value || '').trim();
+        updateThumbnailCacheExclusionHint();
         if(!directorySettingsPage && thumbnailGeneratorState.mode === 'custom' && thumbnailGeneratorState.directory){
             persistThumbnailStorageSettings().catch(err => {
                 thumbnailGeneratorState.error = err.message || '缓存目录创建失败';
