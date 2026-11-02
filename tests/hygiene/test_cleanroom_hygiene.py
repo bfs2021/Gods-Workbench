@@ -313,7 +313,7 @@ def test_static_layer_has_no_legacy_integration_markers(repo_root: Path):
 # 任何票增删自己的分片都不需要重算下面这个常量，也就不会形成并行 PR 的热点。
 ADMISSION_METADATA_PATH = ADMISSION_BASE_METADATA_PATH
 ADMISSION_BASE_METADATA_SHA256 = (
-    "10f87b07fe3ed2698eb5aa382e54e8ed44c6a5d2dc175e2a819393a0162099a6"
+    "5797e0b66946aac71f033d97e9b2dbfab5ece00c5f5f37adb72845a7289578d9"
 )
 QUARANTINED_PROMPT_ORIGINAL_PATH = (
     "web/system-prompts/infinite-canvas-prompt-templates.md"
@@ -723,7 +723,12 @@ def test_accepted_non_canvas_slices_match_migration_manifest(repo_root: Path):
         for item in metadata.get("accepted_roots", [])
         if isinstance(item, dict)
     }
-    assert accepted_roots == {"docs/behavior", "docs/contracts", "docs/fixtures"}
+    assert accepted_roots == {
+        "docs/behavior",
+        "docs/contracts",
+        "docs/fixtures",
+        "docs/guides",
+    }
     admitted_paths = _metadata_admitted_paths(metadata)
     for root in accepted_roots:
         actual = {
@@ -756,6 +761,7 @@ def test_classification_target_hashes_match_manifest_and_files(repo_root: Path):
         "curated_project_governance",
         "curated_provider_boundary",
         "curated_test_coverage",
+        "user_guide",
     }
     assert root_classes
     for entry in metadata["admitted_files"]:
@@ -781,10 +787,10 @@ def test_admission_metadata_hashes_match_current_files(repo_root: Path):
     """当前准入文件哈希必须与机器登记一致；不复用旧 Phase-2 账本。"""
     metadata = _load_admission_metadata(repo_root)
     entries = metadata.get("admitted_files", [])
-    assert len(entries) == 109, (
+    assert len(entries) == 110, (
         "当前准入登记数量必须包含 H01、已批准规范、QIN-376 测试覆盖清单、QIN-382 方案"
         "、MVP1-T4a 嵌入基准冒烟测试、QIN-347 回归测试、QIN-440 产物来源链契约测试"
-        "与 QIN-443 NLE 导出黄金夹具"
+        "与 QIN-443 NLE 导出黄金夹具、QIN-521 快捷键使用指南"
     )
     for entry in entries:
         path = repo_root / entry["path"]

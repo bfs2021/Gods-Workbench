@@ -1,6 +1,6 @@
 {
   "schema": "gw.cleanroom-admission/v1",
-  "as_of": "2026-10-28",
+  "as_of": "2026-11-02",
   "release_authorized": true,
   "purpose": "新仓当前准入边界、来源分类、排除项与已获授权任务文件集的机器可读登记；不保存旧仓正文、凭据或授权账本正文。",
   "authorized_issue_file_sets": [
@@ -209,6 +209,12 @@
       "path": "docs/fixtures",
       "classification": "golden_fixture",
       "authorization_basis": "cleanroom_frozen_input",
+      "admission": "accepted"
+    },
+    {
+      "path": "docs/guides",
+      "classification": "user_guide",
+      "authorization_basis": "GitHub_Issue_556_user-approved_scope_expansion_2026-11-02",
       "admission": "accepted"
     }
   ],
