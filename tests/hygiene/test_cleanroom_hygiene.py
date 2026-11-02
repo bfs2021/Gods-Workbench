@@ -787,7 +787,7 @@ def test_admission_metadata_hashes_match_current_files(repo_root: Path):
     """当前准入文件哈希必须与机器登记一致；不复用旧 Phase-2 账本。"""
     metadata = _load_admission_metadata(repo_root)
     entries = metadata.get("admitted_files", [])
-    assert len(entries) == 110, (
+    assert len(entries) == 111, (
         "当前准入登记数量必须包含 H01、已批准规范、QIN-376 测试覆盖清单、QIN-382 方案"
         "、MVP1-T4a 嵌入基准冒烟测试、QIN-347 回归测试、QIN-440 产物来源链契约测试"
         "、QIN-443 NLE 导出黄金夹具、QIN-521 快捷键使用指南与 QIN-514 P8-A1 治理报告"
