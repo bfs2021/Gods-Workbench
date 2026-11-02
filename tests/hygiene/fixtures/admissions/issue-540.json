@@ -9,7 +9,8 @@
     "tests/contracts/media/test_asset_thumbnail_transcode.py",
     "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
     "tests/hygiene/fixtures/admissions/issue-540.json",
-    "tests/hygiene/fixtures/cleanroom_admission_metadata.json"
+    "tests/hygiene/fixtures/cleanroom_admission_metadata.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
   ],
   "admitted_files": [],
   "accepted_test_files": [
