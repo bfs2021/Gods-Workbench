@@ -216,6 +216,38 @@ function readHiddenLibraryFolders(){
         return {};
     }
 }
+// 【QIN-524】统一资产库中栏「双模紧凑机架」：模式与折叠态、目录展开态的本地记忆
+const ASSET_RACK_MODE_KEY = 'asset_registry_rack_mode_v1';
+const ASSET_RACK_COLLAPSED_KEY = 'asset_registry_rack_collapsed_v1';
+const ASSET_RACK_EXPANDED_KEY = 'asset_registry_rack_expanded_v1';
+const ASSET_RACK_MODES = ['folders', 'filters'];
+const ASSET_RACK_ROOT_KEY = '__root__';
+function readAssetRackMode(){
+    try {
+        const value = localStorage.getItem(ASSET_RACK_MODE_KEY) || '';
+        return ASSET_RACK_MODES.includes(value) ? value : 'folders';
+    } catch(_) {
+        return 'folders';
+    }
+}
+function saveAssetRackMode(mode){
+    try { localStorage.setItem(ASSET_RACK_MODE_KEY, ASSET_RACK_MODES.includes(mode) ? mode : 'folders'); } catch(_) {}
+}
+function readAssetRackCollapsed(){
+    try { return localStorage.getItem(ASSET_RACK_COLLAPSED_KEY) === '1'; } catch(_) { return false; }
+}
+function saveAssetRackCollapsed(collapsed){
+    try { localStorage.setItem(ASSET_RACK_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(_) {}
+}
+function readAssetRackExpandedFolders(){
+    try {
+        const raw = JSON.parse(localStorage.getItem(ASSET_RACK_EXPANDED_KEY) || '[]');
+        return (Array.isArray(raw) ? raw : []).map(String).filter(Boolean);
+    } catch(_) { return []; }
+}
+function saveAssetRackExpandedFolders(){
+    try { localStorage.setItem(ASSET_RACK_EXPANDED_KEY, JSON.stringify([...assetRackExpandedFolders])); } catch(_) {}
+}
 function readDetailFontPanelPreference(){
     try {
         const value = localStorage.getItem(ASSET_DETAIL_FONT_PANEL_KEY) || '';
@@ -228,6 +260,14 @@ const savedRegistryViewSettings = readRegistryViewSettings();
 
 let activeTab = 'registry';
 let boardNavigationState = null;
+let assetRackMode = readAssetRackMode();
+let assetRackCollapsed = readAssetRackCollapsed();
+const assetRackExpandedFolders = new Set(readAssetRackExpandedFolders());
+// 目录层级模式下的目录过滤（rootId + 物理相对路径），纯前端过滤，不触发网络请求
+let registryNavFolder = {rootId:'', path:''};
+let registryRegisteredFolders = [];
+let registryRegisteredFoldersLoaded = false;
+let registryRegisteredFoldersLoading = false;
 let boardDragId = '';
 let boardCreateState = {open:false, preset:'other', name:'', nameManuallyEdited:false, path:'', saving:false, error:''};
 let boardCreateReturnFocus = null;
@@ -7138,8 +7178,23 @@ async function openRegistryAssetFromGlobalSearch(assetId, startTime = null){
         showDetailPreview('registry', id, { startTime: Number(startTime) });
     }
 }
+function registryNavFolderActive(){
+    return Boolean(registryNavFolder.rootId || registryNavFolder.path);
+}
+function registryNavFolderMatches(item={}){
+    if(!registryNavFolderActive()) return true;
+    if(registryNavFolder.rootId && String(item.storage_root_id || '') !== registryNavFolder.rootId) return false;
+    return registryAssetMatchesFolder(item, registryNavFolder.path);
+}
+function registryNavFolderLabel(){
+    if(!registryNavFolderActive()) return '';
+    const rootName = (registryFacets.roots || []).find(root => String(root.id || '') === registryNavFolder.rootId)?.name || '';
+    const folderName = registryNavFolder.path.split('/').filter(Boolean).pop() || '';
+    return [rootName, folderName].filter(Boolean).join(' / ') || rootName;
+}
 function registryVisibleAssets(){
-    return registryVisibleAssetList(registryAssets);
+    // 【QIN-524】目录层级选中的物理目录即时收敛右网格（仅对已加载分页生效，页脚区分总库与当前显示）
+    return registryVisibleAssetList(registryAssets).filter(registryNavFolderMatches);
 }
 function renderLocalLibrarySources(){
     const libs = localLibraries.length ? localLibraries : [{id:'local', kind:'local', name:DEFAULT_LOCAL_LIBRARY_NAME, path:''}];
@@ -8487,7 +8542,7 @@ function render(){
     renderBoardNavigation();
     const customLibraryActive = assetBoardById(activeTab)?.system === false;
     const pageClass = String(activeTab || 'assets').replace(/[^a-z0-9_-]/gi, '-');
-    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}`;
+    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${activeTab === 'registry' && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}`;
     syncRegistryDetailGridWidth();
     if(activeTab === 'registry') renderRegistryManager();
     else if(activeTab === 'scripts') renderScriptAssetsManager();
@@ -9593,6 +9648,8 @@ function renderRegistryFilterChips(){
         const value = (registryFacets.roots || []).find(item => item.id === registryRootId);
         chips.push(`<button type="button" data-registry-clear="root">来源：${escapeHtml(value?.name || '')} <i data-lucide="x"></i></button>`);
     }
+    // 【QIN-524】目录层级选中项可一键清除，避免目录过滤被误认为空库
+    if(registryNavFolderActive()) chips.push(`<button type="button" data-asset-rack-clear-folder>目录：${escapeHtml(registryNavFolderLabel())} <i data-lucide="x"></i></button>`);
     registryIncludeTags.forEach(id => chips.push(`<button type="button" class="include" data-registry-remove-tag="${escapeAttr(id)}">包含：${escapeHtml(tags.get(id)?.name || id)} <i data-lucide="x"></i></button>`));
     registryExcludeTags.forEach(id => chips.push(`<button type="button" class="exclude" data-registry-remove-tag="${escapeAttr(id)}">排除：${escapeHtml(tags.get(id)?.name || id)} <i data-lucide="x"></i></button>`));
     return chips.length ? `<div class="registry-filter-chips">${chips.join('')}<button type="button" data-registry-clear="all">清空筛选</button></div>` : '';
@@ -10164,34 +10221,298 @@ function renderRegistryDetail(){
             </div>
         </div>`;
 }
+/* ---------------------------------------------------------------------------
+ * QIN-524：统一资产库中栏「双模紧凑机架」
+ * 顶部双段拨片在「目录层级」与「智能筛选」之间切换，状态落 localStorage；
+ * 目录层级只呈现已登记素材库根目录与素材 relative_path 反映的真实物理子目录，
+ * 点击节点直接收敛右网格（纯前端过滤，无整页刷新）；智能筛选收敛为紧凑硬件胶囊。
+ * ------------------------------------------------------------------------- */
+function assetRackRoots(){
+    const facets = (registryFacets.roots || []).filter(root => String(root.availability || '') !== 'removed');
+    if(facets.length){
+        return facets.map(root => ({
+            id:String(root.id || ''),
+            name:String(root.name || '未命名来源'),
+            count:Number(root.count || 0),
+            availability:String(root.availability || ''),
+        }));
+    }
+    // 来源面尚未返回时，从已加载素材推导，避免目录层级空窗
+    const derived = new Map();
+    registryAssets.forEach(item => {
+        const id = String(item.storage_root_id || '');
+        if(!id) return;
+        if(!derived.has(id)) derived.set(id, {id, name:String(item.storage_root_name || '未命名来源'), count:0, availability:''});
+        derived.get(id).count += 1;
+    });
+    return [...derived.values()];
+}
+function assetRackRegisteredFoldersByRoot(){
+    // 后端 /api/asset-registry/folders?root_id= 只按 parent_id === root_id 列出根层登记，
+    // 因此这里只采信可直接归属到某个根目录的登记项，避免把嵌套记录挂到错误来源。
+    const knownRoots = new Set(assetRackRoots().map(root => root.id));
+    const result = new Map();
+    (registryRegisteredFolders || []).forEach(folder => {
+        const parent = String(folder?.parent_id || '');
+        const name = String(folder?.name || '').trim();
+        if(!knownRoots.has(parent) || !name) return;
+        if(!result.has(parent)) result.set(parent, []);
+        result.get(parent).push(name);
+    });
+    return result;
+}
+function assetRackFolderTree(rootId){
+    const root = String(rootId || '');
+    const items = registryAssets.filter(item => String(item.storage_root_id || '') === root);
+    const directories = assetRackRegisteredFoldersByRoot().get(root) || [];
+    return customBoardFolderTree(items, directories);
+}
+function assetRackFolderKeys(){
+    const keys = [];
+    assetRackRoots().forEach(root => {
+        keys.push(`${root.id}::${ASSET_RACK_ROOT_KEY}`);
+        customBoardFolderParentPaths(assetRackFolderTree(root.id)).forEach(path => keys.push(`${root.id}::${path}`));
+    });
+    return keys;
+}
+function seedAssetRackExpandedFolders(){
+    // 首次进入目录层级时默认展开已登记来源，层级本身仍可逐级收起
+    try { if(localStorage.getItem(ASSET_RACK_EXPANDED_KEY) !== null) return; } catch(_) { return; }
+    assetRackRoots().forEach(root => assetRackExpandedFolders.add(`${root.id}::${ASSET_RACK_ROOT_KEY}`));
+    saveAssetRackExpandedFolders();
+}
+async function loadAssetRackRegisteredFolders(force=false){
+    if(registryRegisteredFoldersLoading) return;
+    if(registryRegisteredFoldersLoaded && !force) return;
+    registryRegisteredFoldersLoading = true;
+    try {
+        const data = await apiJsonResponse(assetManagerApi.getRegistryFolders(''));
+        registryRegisteredFolders = Array.isArray(data?.folders) ? data.folders : [];
+        registryRegisteredFoldersLoaded = true;
+    } catch(_) {
+        registryRegisteredFoldersLoaded = true;
+    } finally {
+        registryRegisteredFoldersLoading = false;
+    }
+    if(activeTab === 'registry') render();
+}
+function setAssetRackMode(mode){
+    const next = ASSET_RACK_MODES.includes(String(mode || '')) ? String(mode) : 'folders';
+    assetRackMode = next;
+    saveAssetRackMode(next);
+    if(assetRackCollapsed){
+        assetRackCollapsed = false;
+        saveAssetRackCollapsed(false);
+    }
+    render();
+    if(next === 'folders') loadAssetRackRegisteredFolders().catch(() => null);
+}
+function setAssetRackCollapsed(collapsed){
+    assetRackCollapsed = Boolean(collapsed);
+    saveAssetRackCollapsed(assetRackCollapsed);
+    render();
+}
+function toggleAssetRackFolder(key){
+    const value = String(key || '');
+    if(!value) return;
+    if(assetRackExpandedFolders.has(value)) assetRackExpandedFolders.delete(value);
+    else assetRackExpandedFolders.add(value);
+    saveAssetRackExpandedFolders();
+    render();
+}
+function toggleAssetRackFoldersAll(){
+    const keys = assetRackFolderKeys();
+    if(!keys.length) return;
+    const allExpanded = keys.every(key => assetRackExpandedFolders.has(key));
+    keys.forEach(key => { if(allExpanded) assetRackExpandedFolders.delete(key); else assetRackExpandedFolders.add(key); });
+    saveAssetRackExpandedFolders();
+    render();
+}
+function selectAssetRackFolder(rootId, path){
+    const root = String(rootId || '');
+    const folder = String(path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const same = registryNavFolder.rootId === root && registryNavFolder.path === folder;
+    registryNavFolder = same ? {rootId:'', path:''} : {rootId:root, path:folder};
+    if(!same && folder){
+        // 选中子目录时逐级展开父链，避免节点被折叠隐藏
+        const segments = folder.split('/').filter(Boolean);
+        segments.slice(0, -1).forEach((_segment, index) => assetRackExpandedFolders.add(`${root}::${segments.slice(0, index + 1).join('/')}`));
+        saveAssetRackExpandedFolders();
+    }
+    render();
+}
+function clearAssetRackFolder(){
+    if(!registryNavFolderActive()) return;
+    registryNavFolder = {rootId:'', path:''};
+    render();
+}
+async function createAssetRackFolder(rootId){
+    const root = String(rootId || '').trim();
+    if(!root){ setStatus('请先选择素材库根目录'); return; }
+    const name = String(window.prompt('新建文件夹名称', '新文件夹') || '').trim().slice(0, 120);
+    if(!name) return;
+    try {
+        // 登记按 parent_id === root_id 归属根目录，统一在根层登记，保证刷新后仍可归属展示
+        await apiJsonResponse(assetManagerApi.createRegistryFolder({root_id:root, parent:root, name}));
+        await loadAssetRackRegisteredFolders(true);
+        assetRackExpandedFolders.add(`${root}::${ASSET_RACK_ROOT_KEY}`);
+        assetRackExpandedFolders.add(`${root}::${name}`);
+        saveAssetRackExpandedFolders();
+        render();
+        setStatus(`已登记文件夹“${name}”`);
+    } catch(err){
+        setStatus(err.message || '新建文件夹失败');
+    }
+}
+function renderAssetRackSegmented(){
+    const options = [
+        {mode:'folders', icon:'folder-tree', label:'目录层级'},
+        {mode:'filters', icon:'sliders-horizontal', label:'智能筛选'},
+    ];
+    return `<div class="asset-rack-segmented" role="tablist" aria-label="中栏模式">${options.map(option => {
+        const active = assetRackMode === option.mode;
+        return `<button type="button" role="tab" class="asset-rack-seg ${active ? 'is-active' : ''}" data-asset-rack-mode="${option.mode}" aria-selected="${active}"><i data-lucide="${option.icon}"></i><span>${option.label}</span></button>`;
+    }).join('')}</div>`;
+}
+function renderAssetRackRail(){
+    const railButton = (attrs, icon, label, active=false) => `<button class="asset-rack-rail-btn ${active ? 'is-active' : ''}" type="button" ${attrs} title="${label}" aria-label="${label}"><i data-lucide="${icon}"></i></button>`;
+    return `<div class="asset-rack-rail" aria-label="中栏图标条">
+        ${railButton('data-asset-rack-expand', 'chevrons-right', '展开中栏')}
+        ${railButton('data-asset-rack-mode="folders"', 'folder-tree', '目录层级', assetRackMode === 'folders')}
+        ${railButton('data-asset-rack-mode="filters"', 'sliders-horizontal', '智能筛选', assetRackMode === 'filters')}
+        ${railButton('data-registry-clear="all"', 'rotate-ccw', '清空筛选')}
+    </div>`;
+}
+function renderAssetRackFolderToolbar(){
+    const roots = assetRackRoots();
+    const targetRoot = registryNavFolder.rootId || (roots.length === 1 ? roots[0].id : '');
+    return `<div class="asset-rack-tools" role="toolbar" aria-label="目录操作">
+        <button class="asset-rack-tool" type="button" data-asset-rack-folder-create="${escapeAttr(targetRoot)}" title="在根目录新建文件夹" aria-label="在根目录新建文件夹"><i data-lucide="folder-plus"></i></button>
+        <button class="asset-rack-tool" type="button" data-asset-rack-expand-all title="展开或折叠全部文件夹" aria-label="展开或折叠全部文件夹"><i data-lucide="unfold-vertical"></i></button>
+        <button class="asset-rack-tool" type="button" data-asset-rack-clear-folder ${registryNavFolderActive() ? '' : 'disabled'} title="清除目录过滤" aria-label="清除目录过滤"><i data-lucide="rotate-ccw"></i></button>
+    </div>`;
+}
+function renderAssetRackFolderNode(rootId, node, depth=0){
+    const root = String(rootId || '');
+    const key = `${root}::${node.path}`;
+    const active = registryNavFolder.rootId === root && registryNavFolder.path === node.path;
+    const expanded = assetRackExpandedFolders.has(key);
+    const expandable = node.children.length > 0;
+    return `<div class="asset-rack-branch">
+        <div class="asset-rack-node ${active ? 'is-active' : ''}" style="--rack-depth:${Math.min(depth, 6)}">
+            ${expandable
+                ? `<button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠文件夹' : '展开文件夹'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>`
+                : '<span class="asset-rack-twisty-spacer" aria-hidden="true"></span>'}
+            <button class="asset-rack-folder" type="button" data-asset-rack-folder-root="${escapeAttr(root)}" data-asset-rack-folder-path="${escapeAttr(node.path)}" aria-pressed="${active}" title="${escapeAttr(node.path)}"><i data-lucide="${active ? 'folder-open' : 'folder'}"></i><span>${escapeHtml(node.name)}</span><em>${Number(node.count || 0)}</em></button>
+        </div>
+        ${expandable && expanded ? `<div class="asset-rack-children">${node.children.map(child => renderAssetRackFolderNode(root, child, depth + 1)).join('')}</div>` : ''}
+    </div>`;
+}
+function renderAssetRackFolderRoots(){
+    const roots = assetRackRoots();
+    if(!roots.length) return '<div class="asset-rack-empty">尚未登记素材库根目录</div>';
+    return roots.map(root => {
+        const key = `${root.id}::${ASSET_RACK_ROOT_KEY}`;
+        const expanded = assetRackExpandedFolders.has(key);
+        const active = registryNavFolder.rootId === root.id && !registryNavFolder.path;
+        const tree = expanded ? assetRackFolderTree(root.id) : [];
+        return `<section class="asset-rack-root ${active ? 'is-active' : ''}">
+            <div class="asset-rack-root-row">
+                <button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠来源' : '展开来源'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>
+                <button class="asset-rack-root-btn" type="button" data-asset-rack-folder-root="${escapeAttr(root.id)}" data-asset-rack-folder-path="" aria-pressed="${active}" title="${escapeAttr(root.name)}"><i data-lucide="hard-drive"></i><span>${escapeHtml(root.name)}</span><em>${Number(root.count || 0)}</em></button>
+            </div>
+            ${root.availability === 'offline' ? '<div class="asset-rack-root-offline">来源离线</div>' : ''}
+            ${tree.length ? `<div class="asset-rack-children">${tree.map(node => renderAssetRackFolderNode(root.id, node)).join('')}</div>` : ''}
+        </section>`;
+    }).join('');
+}
+// 票面口径：素材类型以「3D」称呼 model，其余沿用统一类型标签
+const ASSET_RACK_KIND_LABELS = {model:'3D'};
+function assetRackKindLabel(kind=''){
+    const key = String(kind || '').toLowerCase();
+    return ASSET_RACK_KIND_LABELS[key] || registryKindLabel(key);
+}
+function renderAssetRackKindBadges(){
+    const fallbackKinds = [
+        {id:'image', name:'image', count:registryFacetKindCount('image')},
+        {id:'video', name:'video', count:registryFacetKindCount('video')},
+        {id:'audio', name:'audio', count:registryFacetKindCount('audio')},
+        {id:'document', name:'document', count:registryFacetKindCount('document')},
+        {id:'model', name:'model', count:registryFacetKindCount('model')},
+    ];
+    const kinds = (registryFacets.kinds || []).length ? registryFacets.kinds : fallbackKinds;
+    return `<div class="asset-rack-kind-grid">${kinds.map(item => {
+        const value = String(item.id || item.name || '');
+        const active = registryKind === value;
+        return `<button type="button" class="asset-rack-kind ${active ? 'is-active' : ''}" data-registry-kind="${escapeAttr(value)}" aria-pressed="${active}" title="按${escapeAttr(assetRackKindLabel(item.name))}筛选"><i data-lucide="${escapeAttr(registryKindIcon(item.name))}"></i><span>${escapeHtml(assetRackKindLabel(item.name))}</span><em>${Number(item.count || 0)}</em></button>`;
+    }).join('')}</div>`;
+}
+function renderAssetRackRecentCapsules(){
+    const options = [{value:0, label:'全部'}, {value:7, label:'近7天'}, {value:30, label:'近30天'}];
+    return `<div class="asset-rack-capsules">${options.map(option => {
+        const active = Number(registryRecentDays || 0) === option.value;
+        return `<button type="button" class="asset-rack-capsule ${active ? 'is-active' : ''}" data-registry-recent="${option.value}" aria-pressed="${active}">${option.label}</button>`;
+    }).join('')}</div>`;
+}
+function renderAssetRackTagCloud(){
+    const tags = registryTagsByGroup().flatMap(group => group.tags);
+    if(!tags.length) return '<div class="asset-rack-empty">暂无标签</div>';
+    return `<div class="asset-rack-cloud">${tags.slice(0, 36).map(tag => {
+        const include = registryIncludeTags.has(tag.id);
+        const exclude = registryExcludeTags.has(tag.id);
+        return `<span class="asset-rack-pill ${include ? 'is-include' : ''} ${exclude ? 'is-exclude' : ''}">
+            <button type="button" class="asset-rack-pill-main" data-registry-tag="${escapeAttr(tag.id)}" aria-pressed="${include}" title="包含此标签">${escapeHtml(tag.name)}</button>
+            <button type="button" class="asset-rack-pill-x" data-registry-tag-exclude="${escapeAttr(tag.id)}" aria-pressed="${exclude}" title="排除此标签"><i data-lucide="minus"></i></button>
+        </span>`;
+    }).join('')}</div>`;
+}
+function renderAssetRackCollections(){
+    const collections = (registryFacets.collections || []).filter(item => String(item.availability || '') !== 'removed');
+    if(!collections.length) return '';
+    return `<section class="asset-rack-group"><div class="asset-rack-label"><strong>集合</strong><em>${collections.length}</em></div><div class="asset-rack-cloud">${collections.map(item => {
+        const active = String(item.id || '') === String(registryCollectionId || '');
+        return `<button type="button" class="asset-rack-chip ${active ? 'is-active' : ''}" data-registry-collection="${escapeAttr(item.id || '')}" aria-pressed="${active}">${escapeHtml(item.name || '未命名')}<em>${Number(item.count || 0)}</em></button>`;
+    }).join('')}</div></section>`;
+}
+function renderAssetRackPresets(){
+    const presets = registryPresets || [];
+    return `<section class="asset-rack-group"><div class="asset-rack-label"><strong>筛选预设</strong><button class="asset-rack-tool" type="button" data-registry-preset-save aria-label="保存筛选预设" title="保存当前筛选为预设"><i data-lucide="plus"></i></button></div>
+        ${presets.length ? `<div class="asset-rack-presets">${presets.map(item => `<span class="asset-rack-preset"><button type="button" data-registry-preset="${escapeAttr(item.id)}" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</button><button type="button" class="asset-rack-pill-x" data-registry-preset-delete="${escapeAttr(item.id)}" aria-label="删除预设"><i data-lucide="x"></i></button></span>`).join('')}</div>` : '<div class="asset-rack-empty">暂无预设</div>'}
+    </section>`;
+}
+function renderAssetRackFilters(){
+    return `<div class="asset-rack-pane" role="tabpanel" aria-label="智能筛选">
+        <section class="asset-rack-group"><div class="asset-rack-label"><strong>时间跨度</strong></div>${renderAssetRackRecentCapsules()}</section>
+        <section class="asset-rack-group"><div class="asset-rack-label"><strong>素材类型</strong></div>${renderAssetRackKindBadges()}</section>
+        ${renderRegistryProjectFacetSection()}
+        ${renderAssetRackCollections()}
+        <section class="asset-rack-group"><div class="asset-rack-label"><strong>标签与 AI 分类</strong><em>${(registryFacets.tags || []).length}</em></div>${renderAssetRackTagCloud()}</section>
+        ${renderAssetRackPresets()}
+        <button type="button" class="hw-btn asset-rack-clear" data-registry-clear="all"><i data-lucide="x-circle"></i><span>清空智能筛选</span></button>
+    </div>`;
+}
+function renderAssetRackFolders(){
+    seedAssetRackExpandedFolders();
+    return `<div class="asset-rack-pane" role="tabpanel" aria-label="目录层级">
+        ${renderAssetRackFolderToolbar()}
+        <div class="asset-rack-tree" role="tree" aria-label="素材库目录层级">${renderAssetRackFolderRoots()}</div>
+    </div>`;
+}
+function renderAssetRack(extraAttrs=''){
+    const collapsed = assetRackCollapsed;
+    return `<aside class="asset-panel asset-nav registry-nav asset-rack ${collapsed ? 'is-collapsed' : ''}" ${extraAttrs}>
+        <header class="asset-rack-head">
+            ${renderAssetRackSegmented()}
+            <button class="asset-rack-collapse" type="button" data-asset-rack-collapse title="收起中栏为图标条" aria-label="收起中栏为图标条"><i data-lucide="chevrons-left"></i></button>
+        </header>
+        ${renderAssetRackRail()}
+        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : (assetRackMode === 'folders' ? renderAssetRackFolders() : renderAssetRackFilters())}</div>
+    </aside>`;
+}
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
-    const classifiedCount = registryAssets.filter(item => (item.tags || []).length || item.metadata?.classification || item.classification?.summary).length;
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
-    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}<aside class="asset-panel asset-nav registry-nav" ${embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="智能筛选"' : ''}>
-        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div></div>
-        <div class="nav-scroll registry-facets">
-            <section class="registry-facet-section"><div class="registry-facet-title"><strong>快捷入口</strong></div>
-                ${renderRegistryFacetRow({id:'7',name:'最近 7 天',count:''}, 'recent', String(registryRecentDays || ''))}
-                ${renderRegistryFacetRow({id:'30',name:'最近 30 天',count:''}, 'recent', String(registryRecentDays || ''))}
-            </section>
-            ${renderRegistryProjectFacetSection()}
-            <section class="registry-ai-overview"><span><i data-lucide="sparkles"></i></span><div><strong>AI 分类与标签</strong><small>${classifiedCount} 个结果已包含智能信息</small></div></section>
-            <section class="registry-facet-section"><div class="registry-facet-title"><strong>素材类型</strong></div>
-                ${(registryFacets.kinds || []).map(item => renderRegistryFacetRow(item,'kind',registryKind)).join('')}
-            </section>
-            <section class="registry-facet-section"><div class="registry-facet-title"><strong>存储来源</strong></div>
-                ${(registryFacets.roots || []).map(item => renderRegistryFacetRow(item,'root',registryRootId)).join('')}
-            </section>
-            <section class="registry-facet-section"><div class="registry-facet-title"><strong>集合</strong></div>
-                ${(registryFacets.collections || []).map(item => renderRegistryFacetRow(item,'collection',registryCollectionId)).join('')}
-            </section>
-            <div class="registry-tag-facet-grid">${renderRegistryTagGroups()}</div>
-            <section class="registry-facet-section"><div class="registry-facet-title"><strong>筛选预设</strong><button class="hw-btn hw-btn-sm hw-btn-icon" type="button" data-registry-preset-save aria-label="保存筛选预设"><i data-lucide="plus"></i></button></div>
-                ${(registryPresets || []).map(item => `<div class="registry-preset-row"><button type="button" data-registry-preset="${escapeAttr(item.id)}"><span>${escapeHtml(item.name)}</span></button><button type="button" data-registry-preset-delete="${escapeAttr(item.id)}"><i data-lucide="x"></i></button></div>`).join('') || '<div class="tree-empty">暂无预设</div>'}
-            </section>
-        </div>
-    </aside>
+    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}${renderAssetRack(embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="智能筛选"' : '')}
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
@@ -10201,6 +10522,7 @@ function renderRegistryManager(){
         ${renderRegistrySelectionBar(null)}
     </section>`;
     syncRegistryFacetLayout();
+    if(assetRackMode === 'folders' && !assetRackCollapsed) loadAssetRackRegisteredFolders().catch(() => null);
 }
 function renderCustomAssetLibrary(board){
     if(!board){ activeTab = 'registry'; renderRegistryManager(); return; }
@@ -12150,6 +12472,19 @@ async function handleClick(event){
         await refreshRegistryAssets();
         return;
     }
+    // 【QIN-524】中栏双模机架：模式切换、折叠成图标条、目录树展开与目录过滤
+    const assetRackModeBtn = target.closest?.('[data-asset-rack-mode]');
+    if(assetRackModeBtn){ setAssetRackMode(assetRackModeBtn.dataset.assetRackMode || ''); return; }
+    if(target.closest?.('[data-asset-rack-collapse]')){ setAssetRackCollapsed(true); return; }
+    if(target.closest?.('[data-asset-rack-expand]')){ setAssetRackCollapsed(false); return; }
+    const assetRackToggle = target.closest?.('[data-asset-rack-toggle]');
+    if(assetRackToggle){ toggleAssetRackFolder(assetRackToggle.dataset.assetRackToggle || ''); return; }
+    const assetRackFolder = target.closest?.('[data-asset-rack-folder-root]');
+    if(assetRackFolder){ selectAssetRackFolder(assetRackFolder.dataset.assetRackFolderRoot || '', assetRackFolder.dataset.assetRackFolderPath || ''); return; }
+    if(target.closest?.('[data-asset-rack-expand-all]')){ toggleAssetRackFoldersAll(); return; }
+    const assetRackFolderCreate = target.closest?.('[data-asset-rack-folder-create]');
+    if(assetRackFolderCreate){ await createAssetRackFolder(assetRackFolderCreate.dataset.assetRackFolderCreate || ''); return; }
+    if(target.closest?.('[data-asset-rack-clear-folder]')){ clearAssetRackFolder(); return; }
     const registryKindBtn = target.closest?.('[data-registry-kind]');
     if(registryKindBtn){ const value=registryKindBtn.dataset.registryKind||''; registryKind=registryKind===value?'':value; await refreshRegistryAssets(); return; }
     const registryRootBtn = target.closest?.('[data-registry-root]');
