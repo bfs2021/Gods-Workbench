@@ -1,0 +1,28 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 533,
+  "authorization_basis": "GitHub Issue #533, 2026-11-02",
+  "files": [
+    "tests/contracts/media/test_asset_cache_pipeline.py",
+    "tests/frontend/qin-511-asset-cache.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/contracts/assets/test_c10_asset_inventory.py",
+    "tests/hygiene/fixtures/admissions/issue-533.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_asset_cache_pipeline.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #533, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-511-asset-cache.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #533, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-511：素材缓存链路端到端契约与回归门禁（生成 → 命中 → 删除 → 再生成）。覆盖批量/单条入参同产物、二次生成计入 cached、删除闭环、预览命中预生成产物不重复解码、九宫格命中不重抽帧，并按 AC4 做负向验证（改坏后端/前端后用例必须变红）。"
+}
