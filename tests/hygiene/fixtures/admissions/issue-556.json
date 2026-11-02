@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 556,
+  "authorization_basis": "GitHub Issue #556, user-approved scope expansion, 2026-11-02",
+  "files": [
+    "docs/guides/KEYBOARD-SHORTCUTS.md",
+    "tests/hygiene/fixtures/admissions/issue-556.json",
+    "tests/hygiene/fixtures/cleanroom_admission_metadata.json",
+    "tests/hygiene/test_cleanroom_hygiene.py",
+    "tests/hygiene/test_admission_sharding.py"
+  ],
+  "admitted_files": [
+    {
+      "path": "docs/guides/KEYBOARD-SHORTCUTS.md",
+      "classification": "user_guide",
+      "authorization_basis": "GitHub Issue #556, 2026-11-02",
+      "sha256": "a759cdb1f14cac9b2869e094a5f924e302467454dd396779c740460833dcf223",
+      "admission": "accepted"
+    }
+  ],
+  "accepted_test_files": [],
+  "notes": "QIN-521：新增按版块整理的快捷键中文指南；经用户批准扩展 H03 docs/guides/user_guide 根边界，按季度复核并随相关功能改动同步维护。"
+}
