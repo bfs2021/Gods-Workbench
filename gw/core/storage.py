@@ -252,6 +252,29 @@ def allowed_roots() -> list[Path]:
     return roots
 
 
+def _same_path_namespace(raw_path: str | Path, root: Path) -> bool:
+    """避免把映射盘与 UNC 的不同拼写当成已确认的同一授权根。"""
+    raw_drive = ntpath.splitdrive(str(raw_path))[0]
+    root_drive = ntpath.splitdrive(str(root))[0]
+    if raw_drive and root_drive:
+        return ntpath.normcase(raw_drive) == ntpath.normcase(root_drive)
+    if raw_drive or root_drive:
+        return not ntpath.isabs(str(raw_path)) and not raw_drive
+    return True
+
+
+def _allowed_root_relative_path(
+    raw_path: str | Path, resolved_path: Path, root: Path
+) -> Path | None:
+    """按已解析目录边界比较路径，稳定允许根的原始身份与展示值。"""
+    if not _same_path_namespace(raw_path, root):
+        return None
+    try:
+        return resolved_path.relative_to(root.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def canonical_relpath(raw_path: str, *, windows: bool | None = None) -> str:
     """生成根目录内相对路径的稳定身份键。"""
     if not isinstance(raw_path, str) or not raw_path:
@@ -341,10 +364,9 @@ def location_identity(path: Path) -> tuple[str, str]:
     resolved = Path(path).resolve()
     matches = []
     for root in roots:
-        try:
-            matches.append((root, resolved.relative_to(root)))
-        except ValueError:
-            continue
+        relative = _allowed_root_relative_path(path, resolved, root)
+        if relative is not None:
+            matches.append((root, relative))
     if not matches:
         raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
     root, relative = max(matches, key=lambda item: len(item[0].parts))
@@ -640,7 +662,11 @@ def _validate_mount_sync(normalized: str) -> tuple[str, str]:
             # separate UNC spelling as an alias before the user confirms it.
             return "", ""
         resolved = candidate.resolve(strict=True)
-        matches = [root for root in roots if resolved == root or resolved.is_relative_to(root)]
+        matches = [
+            root
+            for root in roots
+            if _allowed_root_relative_path(normalized, resolved, root) is not None
+        ]
     except CleanroomException as exc:
         if exc.code == "PATH_OUTSIDE_ALLOWED_ROOTS":
             return "MOUNT_OUTSIDE_ALLOWED_ROOTS", "该目录不在已授权的允许根内，请检查链接目标或重新登记根目录"
@@ -728,7 +754,11 @@ def resolve_within_roots(raw_path: str, *, root_id: str | None = None) -> Path:
             resolved = possible_candidate.resolve()
         except (OSError, RuntimeError, ValueError):
             continue
-        if any(resolved == root or resolved.is_relative_to(root) for root in candidates):
+        if any(
+            _allowed_root_relative_path(possible_candidate, resolved, root)
+            is not None
+            for root in candidates
+        ):
             return resolved
     raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
 
@@ -757,7 +787,10 @@ def resolve_cache_write_directory(raw_path: str) -> Path:
     roots = allowed_roots()
     _ensure_reparse_targets_within_roots(resolved, roots)
     final = resolved.resolve()
-    if not any(final == root or final.is_relative_to(root) for root in roots):
+    if not any(
+        _allowed_root_relative_path(raw_path, final, root) is not None
+        for root in roots
+    ):
         raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
     return final
 
@@ -826,11 +859,9 @@ def resolve_asset_registration_root(raw_path: str) -> tuple[Path, str]:
         raise CleanroomException(400, "INVALID_PATH", "目录不存在或不可访问") from None
     matches = []
     for root in roots:
-        try:
-            relative = candidate.relative_to(root)
-        except ValueError:
-            continue
-        matches.append((root, relative))
+        relative = _allowed_root_relative_path(raw_path, candidate, root)
+        if relative is not None:
+            matches.append((root, relative))
     if not matches:
         raise CleanroomException(
             403,
@@ -846,10 +877,9 @@ def relative_display(path: Path) -> str:
     """把绝对路径降级为相对允许根的展示串；找不到允许根时返回文件名，不回显绝对路径。"""
     matches = []
     for root in allowed_roots():
-        try:
-            matches.append((root, path.resolve().relative_to(root)))
-        except ValueError:
-            continue
+        relative = _allowed_root_relative_path(path, path.resolve(), root)
+        if relative is not None:
+            matches.append((root, relative))
     if matches:
         _, relative = max(matches, key=lambda item: len(item[0].parts))
         return relative.as_posix()
