@@ -1427,7 +1427,7 @@ function renderAssetVideoSettingsBody(){
     return `<section class="asset-pref-section board-video-settings" data-board-video-settings>
         <div class="asset-pref-title board-preview-title"><span><i data-lucide="film"></i>视频</span><div class="board-preview-feature-switches">${renderRegistryFeatureControl(storyboardFeature)}</div></div>
         <p class="board-settings-hint">视频九宫格按总时长九等分抽取 9 帧（首帧、尾帧与 7 个中间帧），由服务端合成为一张 3×3 单图，宽边不超过 2160px。</p>
-        <label class="thumbnail-video-transcode board-thumbnail-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>生成一一对应的 H.264 MP4，已有转码会直接复用。</small></span></label>
+        <label class="thumbnail-video-transcode board-thumbnail-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>视频同时转码</strong><small>生成 H.264 MP4，与缩略图共用当前缓存目录。</small></span></label>
         <div class="board-settings-divider" aria-hidden="true"></div>
         ${renderAssetProxySettingsBody()}
         <div class="board-thumbnail-actions"><button class="hw-btn" type="button" data-board-storyboard-generate ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.generatingStoryboards ? 'loader-2' : 'grid-3x3'}"></i><span>${thumbnailGeneratorState.generatingStoryboards ? '正在生成…' : `生成九宫格 ${ids.length}`}</span></button><button class="hw-btn hw-btn-danger" type="button" data-board-storyboard-delete ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="grid-3x3"></i><span>${thumbnailGeneratorState.deletingStoryboards ? '正在删除…' : `删除九宫格 ${ids.length}`}</span></button></div>
@@ -3911,7 +3911,7 @@ function renderThumbnailGeneratorModal(){
                 </div>` : ''}
             </div>
             <div class="asset-pref-section thumbnail-cache-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>图片、文档、3D、字体和视频将按支持能力生成预览。</small></div>
-            <label class="thumbnail-video-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>转码缓存单独落在应用数据目录，便于浏览器播放。</small></span></label>
+            <label class="thumbnail-video-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>视频同时转码</strong><small>生成 H.264 MP4，与缩略图共用当前缓存目录。</small></span></label>
             ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
             ${renderThumbnailCacheBlock()}
         </div>

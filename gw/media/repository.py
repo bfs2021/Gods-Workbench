@@ -784,6 +784,7 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_thumbnail_settings()
     width = _resolved_thumbnail_width(payload)
     replace_existing = bool((payload or {}).get("replace_existing"))
+    transcode_videos = bool((payload or {}).get("transcode_videos"))
     asset_ids = _asset_ids(payload)
     items: list[dict[str, Any]] = []
     first_error: CleanroomException | None = None
@@ -817,7 +818,56 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
         except CleanroomException as exc:
             first_error = exc
             items.append(_thumbnail_error_item("", exc))
-    if len(items) == 1 and items[0].get("status") == "failed" and first_error is not None:
+
+    transcoded = 0
+    transcode_cached = 0
+    transcode_failed = 0
+    transcode_outputs: list[str] = []
+    transcode_errors: list[dict[str, str]] = []
+    video_candidates = 0
+    if transcode_videos:
+        for asset_id, item in zip(asset_ids or [""], items, strict=True):
+            try:
+                path = _registry_path(asset_id) if asset_id else _resolve_input(payload)
+            except CleanroomException:
+                # 无法解析素材类型时不猜测为视频，也不虚报转码失败。
+                continue
+            if path.suffix.lower() not in _VIDEO_SUFFIXES:
+                continue
+            video_candidates += 1
+            try:
+                converted = _transcode_thumbnail_video(
+                    path,
+                    settings,
+                    replace_existing=replace_existing,
+                )
+            except CleanroomException as exc:
+                code, message = exc.code, exc.message
+            except Exception:
+                code, message = "MEDIA_PROCESS_FAILED", "媒体转码失败"
+            else:
+                item["transcode_status"] = converted["status"]
+                item["transcode_output"] = converted["output"]
+                item["transcode_bytes"] = converted["bytes"]
+                transcode_outputs.append(converted["output"])
+                if converted["status"] == "generated":
+                    transcoded += 1
+                else:
+                    transcode_cached += 1
+                continue
+
+            transcode_failed += 1
+            error = {"code": code, "message": message}
+            item["transcode_status"] = "failed"
+            item["transcode_error"] = error
+            transcode_errors.append({"asset_id": asset_id, **error})
+
+    if (
+        len(items) == 1
+        and items[0].get("status") == "failed"
+        and first_error is not None
+        and video_candidates == 0
+    ):
         raise first_error
     generated = sum(1 for item in items if item.get("status") == "generated")
     cached = sum(1 for item in items if item.get("status") == "cached")
@@ -825,6 +875,11 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
     outputs = [item["output"] for item in items if item.get("output")]
     successful = [item for item in items if item.get("status") != "failed"]
     head = successful[0] if successful else (items[0] if items else {})
+    data_gaps = []
+    if failed:
+        data_gaps.append("thumbnail_failures_present")
+    if transcode_failed:
+        data_gaps.append("video_transcode_failures_present")
     return {
         "asset_id": str((payload or {}).get("asset_id") or "") or head.get("asset_id", ""),
         "source": head.get("source", ""),
@@ -837,11 +892,13 @@ def generate_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
         "cached": cached,
         "failed": failed,
         "skipped": 0,
-        "transcoded": 0,
-        "transcode_cached": 0,
-        "transcode_failed": 0,
-        "data_status": "partial" if failed else "ok",
-        "data_gaps": [] if not failed else ["thumbnail_failures_present"],
+        "transcoded": transcoded,
+        "transcode_cached": transcode_cached,
+        "transcode_failed": transcode_failed,
+        "transcode_outputs": transcode_outputs,
+        "transcode_errors": transcode_errors,
+        "data_status": "partial" if data_gaps else "ok",
+        "data_gaps": data_gaps,
     }
 
 
@@ -1169,11 +1226,30 @@ def transcode(payload: dict[str, Any]) -> dict[str, Any]:
     path = _resolve_input(payload)
     ffmpeg = _tool("ffmpeg")
     out_dir = _output_dir("transcode")
+    target = out_dir / _transcode_output_name(path)
+    size = _transcode_video_file(path, target, ffmpeg=ffmpeg)
+    return {
+        "source": storage.relative_display(path),
+        "output": target.resolve()
+        .relative_to(storage.data_root().resolve())
+        .as_posix(),
+        "bytes": size,
+        "data_status": "ok",
+        "data_gaps": [],
+    }
+
+
+def _transcode_output_name(path: Path) -> str:
     stat = path.stat()
     identity = "|".join(
         (storage.relative_display(path), str(stat.st_size), str(stat.st_mtime_ns))
     )
-    target = out_dir / ("%s.mp4" % hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32])
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return "%s.mp4" % digest
+
+
+def _transcode_video_file(path: Path, target: Path, *, ffmpeg: str | None = None) -> int:
+    ffmpeg = ffmpeg or _tool("ffmpeg")
     partial = target.parent / (target.stem + ".part" + target.suffix)
     completed = _run(
         [
@@ -1197,15 +1273,35 @@ def transcode(payload: dict[str, Any]) -> dict[str, Any]:
     if completed.returncode != 0 or not partial.is_file():
         _unavailable("/api/media", "MEDIA_PROCESS_FAILED", "媒体转码失败")
     partial.replace(target)
-    return {
-        "source": storage.relative_display(path),
-        "output": target.resolve()
-        .relative_to(storage.data_root().resolve())
-        .as_posix(),
-        "bytes": int(target.stat().st_size),
-        "data_status": "ok",
-        "data_gaps": [],
-    }
+    return int(target.stat().st_size)
+
+
+def _transcode_thumbnail_video(
+    path: Path,
+    settings: dict[str, Any],
+    *,
+    replace_existing: bool,
+) -> dict[str, Any]:
+    cache_label, directory = resolve_cache_directory(settings, path)
+    name = _transcode_output_name(path)
+    target = directory / name
+    output = "%s/%s" % (cache_label.rstrip("/\\"), name)
+    if not replace_existing and _transcode_cache_is_fresh(target, path):
+        return {"status": "cached", "output": output, "bytes": int(target.stat().st_size)}
+    size = _transcode_video_file(path, target)
+    return {"status": "generated", "output": output, "bytes": size}
+
+
+def _transcode_cache_is_fresh(target: Path, source: Path) -> bool:
+    try:
+        target_stat = target.stat()
+        return (
+            target.is_file()
+            and target_stat.st_size > 0
+            and target_stat.st_mtime_ns >= source.stat().st_mtime_ns
+        )
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------

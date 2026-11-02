@@ -1,0 +1,24 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 540,
+  "authorization_basis": "GitHub Issue #540, 2026-11-02",
+  "files": [
+    "gw/media/repository.py",
+    "gw/api/routes_media.py",
+    "web/js/modules/asset-manager.js",
+    "tests/contracts/media/test_asset_thumbnail_transcode.py",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "tests/hygiene/fixtures/admissions/issue-540.json",
+    "tests/hygiene/fixtures/cleanroom_admission_metadata.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_asset_thumbnail_transcode.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #540, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-516：接通缩略图批次 transcode_videos，转码输出与缩略图共用 resolve_cache_directory()，分别登记转码成功、复用与失败计数。"
+}
