@@ -2404,12 +2404,48 @@ def _index_scan_file_name_is_excluded(name: str) -> bool:
     return str(name or "").startswith(".")
 
 
+def _index_scan_runtime_data_root() -> Path | None:
+    """按当前运行态取得数据根，避免扫描热路径重复解析整组三根路径。"""
+    mode = str(os.environ.get("GW_RUNTIME_MODE") or "dev").strip().casefold()
+    if mode == "test":
+        raw_data_root = os.environ.get("GW_DATA_DIR", "").strip()
+        if not raw_data_root:
+            return None
+        return Path(storage.normalize_directory_path(raw_data_root))
+    if mode == "prod":
+        localappdata = os.environ.get("LOCALAPPDATA", "").strip()
+        if not localappdata:
+            return None
+        return Path(storage.normalize_directory_path(localappdata)) / "GodsWorkbench" / "data"
+    if mode != "dev":
+        return None
+    raw_data_root = os.environ.get("GW_DATA_DIR", "").strip()
+    if raw_data_root:
+        return Path(storage.normalize_directory_path(raw_data_root))
+    return Path(__file__).parents[2] / ".local" / "runtime-dev" / "data"
+
+
+def _index_scan_read_state(
+    data_root: Path, namespace: str, default: dict[str, Any]
+) -> dict[str, Any]:
+    """在命名空间锁内读取快照，避免 JsonState 每次重新解析运行路径。"""
+    try:
+        with storage.namespace_lock(namespace):
+            with (data_root / f"{namespace}.json").open(encoding="utf-8") as handle:
+                value = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return default
+    return value if isinstance(value, dict) else default
+
+
 def _index_scan_exclusion_configuration() -> tuple[list[Path], Path | None]:
     """每次扫描读取当前缓存与回收根，避免配置变更后仍沿用旧排除表。"""
     from gw.asset_registry import lifecycle
-    from gw.settings.service import default_storage_settings_service
 
-    thumbnail_state = storage.JsonState("media_settings", lambda: {}).read()
+    data_root = _index_scan_runtime_data_root()
+    if data_root is None:
+        return [], None
+    thumbnail_state = _index_scan_read_state(data_root, "media_settings", {})
     thumbnail_settings = dict(thumbnail_state.get("thumbnails") or {})
     cache_folder = str(thumbnail_settings.get("cache_folder") or "god-cache").strip()
     if not cache_folder or not re.fullmatch(
@@ -2425,18 +2461,15 @@ def _index_scan_exclusion_configuration() -> tuple[list[Path], Path | None]:
         cache_root = (
             custom_cache_base / cache_folder
             if custom_cache_base is not None
-            else storage.resolve_output_directory(
-                f"media_output/{cache_folder}", must_exist=False
-            )
+            else data_root / "media_output" / cache_folder
         )
     else:
-        cache_root = storage.resolve_output_directory(
-            f"media_output/{cache_folder}", must_exist=False
-        )
+        cache_root = data_root / "media_output" / cache_folder
 
     exclusion_roots = [Path(cache_root)]
-    settings = default_storage_settings_service.get_snapshot()
-    raw_trash_root = str(settings.dirs.get("trash") or "").strip()
+    storage_state = _index_scan_read_state(data_root, "storage_settings", {})
+    dirs = dict(storage_state.get("dirs") or {})
+    raw_trash_root = str(dirs.get("trash") or "").strip()
     if raw_trash_root:
         trash_root = Path(storage.normalize_directory_path(raw_trash_root))
         exclusion_roots.append(trash_root / "god-recycler")
@@ -2444,9 +2477,7 @@ def _index_scan_exclusion_configuration() -> tuple[list[Path], Path | None]:
     # 当前回收实现仍把文件写入受管 registry_uploads 根；同时读取可配置根，
     # 让目录设置更新后立即影响下一轮扫描。
     exclusion_roots.append(
-        storage.resolve_output_directory(
-            lifecycle._RECYCLER_RELATIVE, must_exist=False
-        )
+        data_root / Path(lifecycle._RECYCLER_RELATIVE)
     )
 
     unique_roots: list[Path] = []
