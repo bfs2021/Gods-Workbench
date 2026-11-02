@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,7 +44,7 @@ from gw.asset_registry.service import (
     DATA_STATUS_OK,
     default_asset_registry_service,
 )
-from gw.core import storage
+from gw.core import jxl_tool, storage
 from gw.core.auth import require_authenticated, require_edit_access, require_governance_access
 from gw.core.errors import CleanroomException
 from gw.projects_hub.service import (
@@ -2030,6 +2031,174 @@ def operate_workspace_job(
 
 unassigned_router = APIRouter(prefix="/api/assets", tags=["asset-registry"],
                               dependencies=[Depends(asset_request_scope)])
+
+_jxl_transcode_service_lock = threading.Lock()
+_jxl_transcode_service_root: str | None = None
+_jxl_transcode_service: jxl_tool.JxlLosslessTranscodeService | None = None
+
+
+def _jxl_transcode_jobs() -> jxl_tool.JxlLosslessTranscodeService:
+    """为当前数据根目录惰性创建单实例转码任务服务。"""
+    global _jxl_transcode_service_root, _jxl_transcode_service
+    root = str(storage.data_root().resolve())
+    with _jxl_transcode_service_lock:
+        if _jxl_transcode_service is None or _jxl_transcode_service_root != root:
+            _jxl_transcode_service = jxl_tool.JxlLosslessTranscodeService(
+                repo.media_file, repo.record_jxl_lossless_transcodes
+            )
+            _jxl_transcode_service_root = root
+        return _jxl_transcode_service
+
+
+def _scan_jxl_transcode_assets() -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """只扫描可见、登记且可读取的本机 JPEG 素材，不返回物理路径。"""
+    raw = repo.state().read()
+    registered_count = 0
+    available_count = 0
+    pending: list[dict[str, Any]] = []
+    pending_bytes = 0
+    for asset_id, record in raw.get("assets", {}).items():
+        if not isinstance(record, dict) or record.get("archived") or not repo._visible(record):
+            continue
+        display_path = str(record.get("display_path") or "")
+        if not display_path:
+            versions = raw.get("image_versions", {}).get(asset_id, {})
+            ordered_versions = sorted(
+                (value for value in versions.values() if isinstance(value, dict)),
+                key=lambda value: str(value.get("version_id") or ""),
+                reverse=True,
+            )
+            display_path = next(
+                (str(value.get("display_path") or "") for value in ordered_versions if value.get("display_path")),
+                "",
+            )
+        if Path(display_path).suffix.lower() not in {".jpg", ".jpeg"}:
+            continue
+        registered_count += 1
+        try:
+            source = repo.media_file(str(asset_id))
+            if source is None or not source.is_file():
+                continue
+            source_stat = source.stat()
+        except (CleanroomException, OSError):
+            continue
+        available_count += 1
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        previous = metadata.get("jxl_lossless_transcode")
+        completed = False
+        if isinstance(previous, dict) and previous.get("verified") is True:
+            output_relative = str(previous.get("output") or "")
+            if output_relative.startswith("media_output/jxl-lossless/") and output_relative.lower().endswith(".jxl"):
+                try:
+                    output = storage.resolve_output_path(output_relative, must_exist=True)
+                    output_stat = output.stat()
+                    completed = (
+                        int(previous.get("source_size_bytes", -1)) == source_stat.st_size
+                        and int(previous.get("source_mtime_ns", -1)) == source_stat.st_mtime_ns
+                        and int(previous.get("output_size_bytes", -1)) == output_stat.st_size
+                        and output_stat.st_size > 0
+                    )
+                except (CleanroomException, OSError, TypeError, ValueError):
+                    completed = False
+        if completed:
+            continue
+        size_bytes = int(source_stat.st_size)
+        pending_bytes += size_bytes
+        pending.append(
+            {
+                "asset_id": str(asset_id),
+                "expected_version": int(record.get("version", 1)),
+                "source_size_bytes": size_bytes,
+                "source_mtime_ns": int(source_stat.st_mtime_ns),
+            }
+        )
+    return (
+        {
+            "jpeg_assets": registered_count,
+            "available_count": available_count,
+            "unavailable_count": registered_count - available_count,
+            "pending_count": len(pending),
+            "pending_bytes": pending_bytes,
+            "estimated_savings_min_bytes": pending_bytes // 5,
+            "estimated_savings_max_bytes": pending_bytes // 4,
+            "originals_retained": True,
+            "data_status": "ok",
+            "data_gaps": [],
+        },
+        pending,
+    )
+
+
+@unassigned_router.get(
+    "/transcode-jpeg-lossless/scan",
+    summary="扫描待无损转码 JPEG 素材",
+    status_code=status.HTTP_200_OK,
+)
+def scan_jxl_lossless_transcodes(
+    authorization: Optional[str] = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    context = _read_auth(authorization, x_user_role)
+    scan, _ = _scan_jxl_transcode_assets()
+    jobs = _jxl_transcode_jobs()
+    return {
+        **scan,
+        "tool_status": jxl_tool.detect_tools(),
+        "active_job": jobs.active_for_owner(asset_owner_key(context)),
+    }
+
+
+@unassigned_router.post(
+    "/transcode-jpeg-lossless",
+    summary="提交 JPEG XL 无损转码任务",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def submit_jxl_lossless_transcodes(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    context = _edit_auth(authorization, x_user_role)
+    jxl_tool._require_tools()
+    body = await _json_body(request)
+    _, candidates = _scan_jxl_transcode_assets()
+    requested_ids = set(_ids(body))
+    if requested_ids:
+        candidate_ids = {item["asset_id"] for item in candidates}
+        if requested_ids - candidate_ids:
+            raise CleanroomException(409, "NO_PENDING_JPEG", "所选素材不存在或已无需转码")
+        candidates = [item for item in candidates if item["asset_id"] in requested_ids]
+    if not candidates:
+        raise CleanroomException(409, "NO_PENDING_JPEG", "没有待转码的 JPEG 素材")
+    return _jxl_transcode_jobs().submit(candidates, asset_owner_key(context))
+
+
+@unassigned_router.get(
+    "/transcode-jpeg-lossless/jobs/{job_id}",
+    summary="读取 JPEG XL 无损转码任务",
+    status_code=status.HTTP_200_OK,
+)
+def get_jxl_lossless_transcode_job(
+    job_id: str,
+    authorization: Optional[str] = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    context = _read_auth(authorization, x_user_role)
+    return _jxl_transcode_jobs().get(job_id, asset_owner_key(context))
+
+
+@unassigned_router.post(
+    "/transcode-jpeg-lossless/jobs/{job_id}/cancel",
+    summary="安全取消 JPEG XL 无损转码任务",
+    status_code=status.HTTP_200_OK,
+)
+def cancel_jxl_lossless_transcode_job(
+    job_id: str,
+    authorization: Optional[str] = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    context = _edit_auth(authorization, x_user_role)
+    return _jxl_transcode_jobs().cancel(job_id, asset_owner_key(context))
 
 
 @unassigned_router.get("/unassigned", summary="未归属收件箱", status_code=status.HTTP_200_OK)

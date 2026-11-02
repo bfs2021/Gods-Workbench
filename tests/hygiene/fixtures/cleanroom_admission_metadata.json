@@ -272,6 +272,12 @@
       "classification": "curated_test_coverage",
       "authorization_basis": "MVP1_T4A_issue_343_2026-10-27",
       "admission": "accepted"
+    },
+    {
+      "path": "docs/governance/agent-reports-2026-09-21/P8-A1-FRONTEND-BACKEND-API-GAP.md",
+      "classification": "curated_project_governance",
+      "authorization_basis": "GitHub Issue #537, 2026-11-02",
+      "admission": "accepted"
     }
   ],
   "excluded_roots": [
