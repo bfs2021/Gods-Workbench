@@ -423,6 +423,8 @@ let registryMasonryScheduleRevision = 0;
 // 九宫格单图缓存：接口返回后端合成的 3×3 单图路径，面板只渲染这一张。
 const videoStoryboardImageCache = new Map();
 let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', savedMode:'source', savedDirectory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, error:'', cacheBlocked:null, grantingRoot:false};
+// 【QIN-519】全库预览缓存预热：需创作者显式确认后才启动，默认惰性读时写缓存不变。
+let assetPreviewAllState = {confirming:false, submitting:false, job:null, pollingJobId:'', error:'', notice:''};
 // 切换缓存目录的确认弹窗：迁移 / 删除 / 取消（取消不改设置，继续用原目录）。
 let thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
 let assetJxlTranscodeState = {loading:false, starting:false, cancelling:false, scan:null, job:null, pollingJobId:'', error:''};
@@ -1302,6 +1304,8 @@ function renderAssetPreviewSettingsBody(){
             <button class="hw-btn hw-btn-gold" type="button" data-board-thumbnail-run ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.submittingBackground ? 'loader-2' : 'circle-play'}"></i><span>${thumbnailGeneratorState.submittingBackground ? '正在提交…' : `后台重新生成 ${ids.length}`}</span></button>
         </div>
         <div class="board-settings-divider" aria-hidden="true"></div>
+        ${renderPreviewAllCacheSettingsBody()}
+        <div class="board-settings-divider" aria-hidden="true"></div>
         ${renderJxlLosslessTranscodeSettingsBody()}
     </section>`;
 }
@@ -1417,6 +1421,98 @@ async function cancelJxlLosslessTranscode(){
     } catch(error){
         assetJxlTranscodeState = {...assetJxlTranscodeState, cancelling:false, error:error.message || '取消转码失败'};
         renderStorageSettingsModal();
+    }
+}
+function renderPreviewAllCacheSettingsBody(){
+    const state = assetPreviewAllState;
+    const job = state.job || null;
+    const running = Boolean(job && ['queued','running'].includes(job.status));
+    const progress = job?.progress || {};
+    const total = Number(progress.total || 0);
+    const processed = Math.min(total, Number(progress.processed || 0));
+    const imageCount = registryCategoryCount('image');
+    const videoCount = registryCategoryCount('video');
+    const libraryTotal = imageCount + videoCount;
+    const result = job?.result || null;
+    const percent = total ? Math.round(processed / total * 100) : 0;
+    const busyLabel = total ? `正在缓存 ${processed}/${total}…` : '正在缓存…';
+    const progressLabel = running ? busyLabel : '';
+    return `<section class="asset-pref-section asset-preview-all" data-preview-all-settings aria-busy="${state.submitting || running}">
+        <div class="asset-pref-title board-preview-title"><span><i data-lucide="download-cloud"></i>离线预览缓存</span><small>${escapeHtml(running ? '后台进行中' : '创作者显式触发')}</small></div>
+        <p class="board-settings-hint">为全库素材后台生成预览图，适合离线前预热。已生成的素材会自动跳过，不重复解码。</p>
+        <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="database"></i>全库 图片 ${imageCount.toLocaleString('zh-CN')} · 视频 ${videoCount.toLocaleString('zh-CN')}</span><small>默认按 256px 宽度预热，与网格预览一致</small></div>
+        ${job ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status" aria-live="polite"><span>${escapeHtml(running ? busyLabel : job.status === 'succeeded' ? '已完成' : job.status === 'failed' ? '失败' : '排队中')}${result ? ` · 新增 ${Number(result.generated || 0)} 项 · 跳过 ${Number(result.skipped || 0)} 项 · 失败 ${Number(result.failed || 0)} 项 · 耗时 ${Number(result.elapsed_seconds || 0)} 秒` : ''}</span>${total ? `<progress class="board-preview-all-progress" max="${Math.max(1, total)}" value="${processed}" aria-label="全库预览缓存进度" title="${percent}%"></progress>` : ''}</div>` : ''}
+        ${state.confirming ? `<p class="board-settings-hint">将遍历全库 ${libraryTotal.toLocaleString('zh-CN')} 项图片/视频并后台生成预览缓存，会占用一定 CPU 与磁盘；确认开始？</p>` : ''}
+        ${state.error ? `<div class="thumbnail-cache-error board-thumbnail-error" role="alert">${escapeHtml(state.error)}</div>` : ''}
+        ${state.notice ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status"><span><i data-lucide="check-circle"></i>${escapeHtml(state.notice)}</span></div>` : ''}
+        <div class="board-thumbnail-actions">
+            ${state.confirming
+                ? `<button class="hw-btn" type="button" data-preview-all-cancel><i data-lucide="x"></i><span>取消</span></button>
+                   <button class="hw-btn hw-btn-gold" type="button" data-preview-all-confirm ${state.submitting ? 'disabled' : ''}><i data-lucide="${state.submitting ? 'loader-2' : 'check'}"></i><span>${state.submitting ? '正在提交…' : `确认缓存 ${libraryTotal.toLocaleString('zh-CN')} 项`}</span></button>`
+                : `<button class="hw-btn hw-btn-gold" type="button" data-preview-all-start ${running || state.submitting || !libraryTotal ? 'disabled' : ''}><i data-lucide="${running ? 'loader-2' : 'download-cloud'}"></i><span>${running ? progressLabel : '缓存全部预览'}</span></button>`}
+        </div>
+    </section>`;
+}
+function requestPreviewAllConfirm(){
+    if(assetPreviewAllState.submitting) return;
+    assetPreviewAllState = {...assetPreviewAllState, confirming:true, error:'', notice:''};
+    renderStorageSettingsModal();
+}
+function cancelPreviewAllConfirm(){
+    assetPreviewAllState = {...assetPreviewAllState, confirming:false};
+    renderStorageSettingsModal();
+}
+async function startPreviewAllCache(){
+    if(assetPreviewAllState.submitting) return;
+    assetPreviewAllState = {...assetPreviewAllState, confirming:false, submitting:true, error:'', notice:''};
+    renderStorageSettingsModal();
+    try {
+        const accepted = await apiJsonResponse(assetManagerHttp.request('/api/asset-thumbnails/generate-background', {
+            method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({scope:'library'})
+        }));
+        const jobId = accepted.job_id || accepted.task?.id || '';
+        const total = Number(accepted.total || accepted.task?.progress?.total || 0);
+        assetPreviewAllState = {
+            ...assetPreviewAllState,
+            submitting:false,
+            job:{job_id:jobId, status:'running', progress:{processed:0, total}, result:null},
+            pollingJobId:jobId,
+        };
+        renderStorageSettingsModal();
+        setStatus(`已开始缓存全库预览：共 ${total.toLocaleString('zh-CN')} 项，可继续使用资产中心`);
+        if(jobId) window.setTimeout(() => void pollPreviewAllJob(jobId), 600);
+    } catch(error){
+        assetPreviewAllState = {...assetPreviewAllState, submitting:false, error:`${error.code ? `${error.code}：` : ''}${error.message || '提交全库缓存失败'}`};
+        renderStorageSettingsModal();
+    }
+}
+async function pollPreviewAllJob(jobId){
+    if(!jobId) return;
+    try {
+        const data = await apiJsonResponse(assetManagerHttp.request(`/api/asset-thumbnails/jobs/${encodeURIComponent(jobId)}`, {method:'GET', credentials:'same-origin'}));
+        const task = data.task || {};
+        const running = ['queued','running'].includes(task.status);
+        assetPreviewAllState = {...assetPreviewAllState, job:{...task, result:task.result || null}, pollingJobId:running ? jobId : ''};
+        if(storageSettingsState.open) renderStorageSettingsModal();
+        if(running){ window.setTimeout(() => void pollPreviewAllJob(jobId), 800); return; }
+        if(task.status === 'succeeded'){
+            const result = task.result || {};
+            const notice = `全库预览缓存完成：新增 ${Number(result.generated || 0)} 项，跳过 ${Number(result.skipped || 0)} 项，失败 ${Number(result.failed || 0)} 项，耗时 ${Number(result.elapsed_seconds || 0)} 秒`;
+            assetPreviewAllState = {...assetPreviewAllState, notice, error:''};
+            setStatus(notice);
+        } else {
+            const message = task.error || '全库缓存失败';
+            assetPreviewAllState = {...assetPreviewAllState, error:message};
+            setStatus(`全库预览缓存失败：${message}`);
+        }
+        if(storageSettingsState.open) renderStorageSettingsModal();
+    } catch(error){
+        if([401,403,404].includes(error.status)){
+            assetPreviewAllState = {...assetPreviewAllState, pollingJobId:'', error:error.message || '缓存任务不可读取'};
+            if(storageSettingsState.open) renderStorageSettingsModal();
+            return;
+        }
+        window.setTimeout(() => void pollPreviewAllJob(jobId), 1500);
     }
 }
 function renderAssetVideoSettingsBody(){
@@ -11752,6 +11848,10 @@ async function handleClick(event){
         return;
     }
     if(target.closest?.('[data-board-thumbnail-run]')){ await generateBoardAssetThumbnails(true); return; }
+    // 【QIN-519】全库预览缓存：两段式确认，避免误触几十万张素材的后台预热。
+    if(target.closest?.('[data-preview-all-start]')){ requestPreviewAllConfirm(); return; }
+    if(target.closest?.('[data-preview-all-confirm]')){ await startPreviewAllCache(); return; }
+    if(target.closest?.('[data-preview-all-cancel]')){ cancelPreviewAllConfirm(); return; }
     if(target.closest?.('[data-board-thumbnail-background]')){ await generateBoardAssetThumbnails(true); return; }
     if(target.closest?.('[data-board-thumbnail-delete]')){ await deleteBoardAssetThumbnails(); return; }
     if(target.closest?.('[data-board-storyboard-generate]')){ await generateBoardVideoStoryboards(); return; }
