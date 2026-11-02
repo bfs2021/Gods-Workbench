@@ -64,6 +64,7 @@ tests/frontend/qin-494-topbar-date-consistency.test.mjs
 tests/frontend/qin-497-topbar-upper-shrink.test.mjs
 tests/frontend/qin-506-agent-project-select.test.mjs
 tests/frontend/qin-511-asset-cache.test.mjs
+tests/frontend/qin-518-registry-virtual-scroll-smooth.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs
 tests/frontend/test_c18_video_jump.mjs

@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 518,
+  "authorization_basis": "GitHub Issue #549, 2026-11-02",
+  "files": [
+    "web/css/pages/asset-manager.css",
+    "web/js/modules/asset-manager.js",
+    "tests/frontend/qin-489-asset-library-layout.test.mjs",
+    "tests/frontend/qin-518-registry-virtual-scroll-smooth.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-518.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-518-registry-virtual-scroll-smooth.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #549, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-518：素材库跨虚拟化阈值原地升级、预览视口提前量与悬浮提示条。"
+}
