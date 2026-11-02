@@ -1,4 +1,5 @@
 tests/frontend/agent-tasks.test.mjs
+tests/frontend/asset-manager-thumbnail-root-prompt.mjs
 tests/frontend/asset-share-media.test.mjs
 tests/frontend/c10-t3-assets-degradation.test.mjs
 tests/frontend/c11-t3-shortcuts.test.mjs

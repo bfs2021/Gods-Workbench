@@ -81,6 +81,20 @@ def _three_assets(runtime: dict[str, Path]) -> list[str]:
     ]
 
 
+# 缩略图产物扩展名随 format 设置变化（默认 jxl），断言不锁具体格式。
+CACHE_EXTENSIONS = (".jpg.png", ".jxl", ".webp")
+
+
+def _cache_files_for(base: Path) -> list[Path]:
+    if not base.exists():
+        return []
+    return sorted(
+        path
+        for path in base.glob("*")
+        if path.is_file() and path.name.endswith(CACHE_EXTENSIONS)
+    )
+
+
 def _cache_files(runtime: dict[str, Path], folder: str = "god-cache") -> list[Path]:
     base = runtime["data"] / "media_output" / folder
     if not base.exists():
@@ -176,7 +190,7 @@ def test_cache_folder_setting_changes_real_path(
 def test_custom_mode_rejects_directory_outside_allowed_roots(
     media_runtime: dict[str, Path], tmp_path: Path
 ) -> None:
-    """指定目录不在允许根内必须失败关闭，且不产生任何缓存文件。"""
+    """指定目录不在允许根内必须失败关闭（缓存专用码），且不产生任何缓存文件。"""
     ids = _three_assets(media_runtime)
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -188,24 +202,29 @@ def test_custom_mode_rejects_directory_outside_allowed_roots(
         media_repo.generate_thumbnail({"asset_ids": ids[:1], "width": 256})
 
     assert error.value.status_code == 403
+    assert error.value.code == "CACHE_DIRECTORY_NOT_ALLOWED"
     assert _cache_files(media_runtime) == []
+    assert list(outside.rglob("*")) == []
 
 
 def test_custom_mode_accepts_registered_directory(
     media_runtime: dict[str, Path], tmp_path: Path
 ) -> None:
-    """指定目录在允许根内时按该目录分桶，缓存仍落在受管产物目录内。"""
+    """指定目录在允许根内时缓存真实写入该目录（QIN-515 AC1）。"""
     ids = _three_assets(media_runtime)
+    custom = media_runtime["roots"] / "cache-home"
+    custom.mkdir()
     media_repo.patch_thumbnail_settings(
-        {"mode": "custom", "directory": str(media_runtime["roots"])}
+        {"mode": "custom", "directory": str(custom)}
     )
 
     result = media_repo.generate_thumbnail({"asset_ids": ids, "width": 256})
 
     assert result["generated"] == 3
-    bucket = result["items"][0]["output"].split("/")[2]
-    assert bucket.startswith("root_")
-    assert all(item["output"].split("/")[2] == bucket for item in result["items"])
+    written = _cache_files_for(custom / "god-cache")
+    assert [path.name.split(".")[0] for path in written] == sorted(ids)
+    # 受管数据目录下不再新增同一批产物。
+    assert _cache_files(media_runtime) == []
 
 
 def test_delete_removes_layered_cache_and_regenerates(

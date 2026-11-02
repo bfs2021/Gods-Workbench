@@ -733,6 +733,35 @@ def resolve_within_roots(raw_path: str, *, root_id: str | None = None) -> Path:
     raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
 
 
+def resolve_cache_write_directory(raw_path: str) -> Path:
+    """解析并创建允许根内的受管缓存目录（仅缓存落盘使用）。
+
+    安全边界与 ``resolve_within_roots`` 完全一致，不放宽任何 403 语义：
+    - 未配置允许根、路径越界、重解析点指向根外，一律失败关闭；
+    - 目录按需创建，创建后再复检一次，避免父级重解析点在创建期间被替换。
+
+    返回真实（已解析）目录路径；调用方只能在返回值内写缓存文件。
+    """
+    resolved = resolve_within_roots(raw_path)
+    if resolved.exists() and not resolved.is_dir():
+        raise CleanroomException(
+            400, "INVALID_CACHE_DIRECTORY", "缓存目录位置已被同名文件占用"
+        )
+    if not resolved.is_dir():
+        try:
+            resolved.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise CleanroomException(
+                403, "CACHE_DIRECTORY_NOT_WRITABLE", "缓存目录无法创建或不可写"
+            ) from exc
+    roots = allowed_roots()
+    _ensure_reparse_targets_within_roots(resolved, roots)
+    final = resolved.resolve()
+    if not any(final == root or final.is_relative_to(root) for root in roots):
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
+    return final
+
+
 def coerce_root_id(root_id: str | None) -> str | None:
     """把请求或索引记录里的根身份归一为 ``root_identity_id`` 形态。
 

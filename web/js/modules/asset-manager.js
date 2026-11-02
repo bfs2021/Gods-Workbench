@@ -420,7 +420,9 @@ let registryMasonryObserver = null;
 let registryMasonryScheduleRevision = 0;
 // 九宫格单图缓存：接口返回后端合成的 3×3 单图路径，面板只渲染这一张。
 const videoStoryboardImageCache = new Map();
-let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, error:''};
+let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', savedMode:'source', savedDirectory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, error:'', cacheBlocked:null, grantingRoot:false};
+// 切换缓存目录的确认弹窗：迁移 / 删除 / 取消（取消不改设置，继续用原目录）。
+let thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
 let thumbnailCacheVersion = 0; // 【修复问题1】仅作为无 asset_id 的旧版 URL 的会话级版本，任务完成不再全局变化
 let projects = [];
 function requestedRegistryProjectId(){
@@ -1229,6 +1231,12 @@ function directoryFieldInput(key){
     if(key === BOARD_CREATE_PATH_FIELD_KEY) return document.getElementById('boardCreatePath');
     return document.getElementById('storageDir_' + key);
 }
+function thumbnailCacheTargetText(){
+    const folder = thumbnailGeneratorState.cacheFolder || 'god-cache';
+    return thumbnailGeneratorState.mode === 'custom'
+        ? `真实写入所选目录下的 ${folder} 子目录；切换目录时会询问原缓存迁移还是删除，所选目录自动登记为允许根`
+        : `写入应用受管数据目录内的 ${folder}，不写入素材源目录`;
+}
 function renderAssetThumbnailCacheDirectoryBody(){
     const known = thumbnailKnownDirectories();
     const mode = thumbnailGeneratorState.mode === 'custom' ? 'custom' : 'source';
@@ -1237,10 +1245,10 @@ function renderAssetThumbnailCacheDirectoryBody(){
         : '';
     return `<div class="board-directory-cache">
         <div class="asset-pref-title"><i data-lucide="folder-clock"></i><span>缓存目录</span></div>
-        <p class="board-settings-hint">缩略图缓存写入应用受管数据目录内的 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}，按素材源或所选目录分桶；同一源文件未变更时直接复用已有缓存。</p>
+        <p class="board-settings-hint">缩略图缓存${escapeHtml(thumbnailCacheTargetText())}；同一源文件未变更时直接复用已有缓存。</p>
         <div class="thumbnail-cache-options board-thumbnail-options">
-            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
-            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-board-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 受管数据目录</small></span></button>
+            <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-board-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 写入所选目录</small></span></button>
         </div>
         ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
             <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
@@ -1285,6 +1293,7 @@ function renderAssetPreviewSettingsBody(){
         <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>重新生成会覆盖同名缓存文件，不进入回收站。</small></div>
         ${renderThumbnailFormatOptions()}
         ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error board-thumbnail-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
+        ${renderThumbnailCacheBlock()}
         <div class="board-thumbnail-actions">
             <button class="hw-btn hw-btn-danger" type="button" data-board-thumbnail-delete ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="image-off"></i><span>${thumbnailGeneratorState.deleting ? '正在删除…' : `删除缩略图 ${ids.length}`}</span></button>
             <button class="hw-btn hw-btn-gold" type="button" data-board-thumbnail-run ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.submittingBackground ? 'loader-2' : 'circle-play'}"></i><span>${thumbnailGeneratorState.submittingBackground ? '正在提交…' : `后台重新生成 ${ids.length}`}</span></button>
@@ -1494,6 +1503,42 @@ async function ensureCreateLibraryPathAllowedRoot(path){
         }
     }
     throw new Error('允许根配置已变化，请重新创建资源库');
+}
+// 用户显式指定缓存目录这一步本身就是登记许可：与「创建资源库」同口径自动登记允许根，
+// 不让用户先撞一次 403 再点按钮。登记失败不抛错，交给生成链路的提示块说明原因。
+async function ensureThumbnailCacheRootAllowed(directory, options={}){
+    const path = String(directory || '').trim();
+    if(!path) return {ok:false, registered:false, reason:'empty'};
+    if(!canManageAllowedRoots()) return {ok:false, registered:false, reason:'forbidden'};
+    const announce = options.announce !== false;
+    for(let attempt = 0; attempt < 2; attempt++){
+        let snapshot;
+        try {
+            snapshot = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {method:'GET', credentials:'same-origin'}));
+        } catch(error){
+            return {ok:false, registered:false, error, reason:'unavailable'};
+        }
+        applyAllowedRootSettingsData(snapshot);
+        if((snapshot.roots || []).some(root => root.active !== false && assetPathWithinAllowedRoot(path, root.path))){
+            return {ok:true, registered:false};
+        }
+        try {
+            const updated = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {
+                method:'POST', credentials:'same-origin',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({path, expected_version:Number(snapshot.revision || 1)}),
+            }));
+            applyAllowedRootSettingsData(updated);
+            if(announce) setStatus(`已将 ${path} 加入允许根，缓存将写入该目录`);
+            return {ok:true, registered:true};
+        } catch(error){
+            // 已被别的窗口登记：视为成功，不重复写。
+            if(error?.code === 'ALLOWED_ROOT_ALREADY_REGISTERED') return {ok:true, registered:false};
+            if(attempt === 0 && error?.code === 'VERSION_CONFLICT') continue;
+            return {ok:false, registered:false, error, reason:'rejected'};
+        }
+    }
+    return {ok:false, registered:false, reason:'unstable'};
 }
 async function createPresetAssetBoard(){
     if(boardCreateState.saving) return;
@@ -2197,13 +2242,165 @@ async function withDirectorySaving(closeBrowser, task){
 async function saveThumbnailCacheDirectory(pathValue, closeBrowser=false){
     const trimmed = String(pathValue ?? '').trim();
     if(!trimmed){ setStatus('缓存根目录不能为空'); return; }
-    thumbnailGeneratorState = {...thumbnailGeneratorState, mode:'custom', directory:trimmed, error:''};
     const input = document.getElementById('thumbnailDirectory');
     if(input) input.value = trimmed;
+    // 换到别的目录：先问原缓存是迁移、删除还是取消，别让选择器一挂载就把旧缓存留在原地。
+    if(commitThumbnailSettingsChange('custom', trimmed)){
+        if(closeBrowser) serverDirectoryBrowserState = {...serverDirectoryBrowserState, open:false, saving:false, error:''};
+        return;
+    }
     await withDirectorySaving(closeBrowser, async () => {
+        const granted = await ensureThumbnailCacheRootAllowed(trimmed, {announce:false});
         await persistThumbnailStorageSettings();
-        setStatus((closeBrowser ? '已挂载并保存缓存目录：' : '缓存目录已保存：') + trimmed);
+        setStatus((closeBrowser ? '已挂载并保存缓存目录：' : '缓存目录已保存：') + trimmed + thumbnailCacheGrantSuffix(granted));
     });
+}
+// 自动登记失败时把原因留在状态行，生成时仍会弹出可登记的提示块。
+function thumbnailCacheGrantSuffix(granted){
+    if(!granted || granted.ok) return granted?.registered ? '（已加入允许根）' : '';
+    if(granted.reason === 'forbidden') return '（当前身份不能登记允许根，请管理员在 设置 › 允许根 登记）';
+    return '（未能加入允许根：' + String(granted.error?.message || '目录不可用') + '）';
+}
+// 设置快照统一入口：同时记住"已保存"的目录，供切换判断使用。
+function applyThumbnailSettingsSnapshot(data={}, extra={}){
+    const mode = data.mode === 'custom' ? 'custom' : 'source';
+    const directory = String(data.directory || '');
+    // 格式 / 版本号由 QIN-513 引入，切换缓存目录的响应也带这两项；缺省时保留现值，
+    // 不能把 revision 归 1，否则后续 CAS 保存会误判版本冲突。
+    const format = data.format === 'webp' ? 'webp' : (data.format === 'jxl' ? 'jxl' : (thumbnailGeneratorState.format || 'jxl'));
+    const revision = Number.isFinite(Number(data.revision)) ? Number(data.revision) : Number(thumbnailGeneratorState.revision || 1);
+    thumbnailGeneratorState = {
+        ...thumbnailGeneratorState,
+        mode,
+        directory,
+        cacheFolder:data.cache_folder || thumbnailGeneratorState.cacheFolder || 'god-cache',
+        format,
+        revision,
+        savedMode:mode,
+        savedDirectory:directory,
+        error:'',
+        ...extra,
+    };
+    return thumbnailGeneratorState;
+}
+function thumbnailCacheSwitchResultText(data={}){
+    const action = String(data.cache_action || 'keep');
+    if(action === 'migrate') return `缓存目录已切换，迁移 ${Number(data.cache_moved || 0)} 个文件，跳过 ${Number(data.cache_skipped || 0)} 个同名文件`;
+    if(action === 'delete') return `缓存目录已切换，已删除原缓存 ${Number(data.cache_deleted || 0)} 个文件`;
+    return '缓存目录已切换';
+}
+function renderThumbnailCacheSwitchDialog(){
+    const state = thumbnailCacheSwitchState;
+    let overlay = document.getElementById('thumbnailCacheSwitchOverlay');
+    if(!state.open){ overlay?.remove(); return; }
+    if(!overlay){
+        overlay = document.createElement('div');
+        overlay.id = 'thumbnailCacheSwitchOverlay';
+        overlay.className = 'storage-settings-overlay';
+        document.body.appendChild(overlay);
+    }
+    const busy = state.busy;
+    const targetLabel = state.toMode === 'custom' ? state.toDirectory : '受管数据目录（跟随素材源）';
+    overlay.innerHTML = `<div class="storage-settings-modal storage-settings-modal-compact thumbnail-cache-switch-modal" role="dialog" aria-modal="true" aria-label="切换缓存目录">
+        <div class="storage-settings-head"><div><strong>是否迁移原缓存</strong><span>缓存目录要换位置，原目录里的缓存文件需要一个去处。</span></div><button type="button" data-thumbnail-cache-switch="cancel" aria-label="关闭" ${busy ? 'disabled' : ''}><i data-lucide="x"></i></button></div>
+        <div class="asset-pref-body">
+            <div class="asset-pref-section">
+                <p class="thumbnail-cache-switch-paths"><span>原目录</span><code>${escapeHtml(state.fromMode === 'custom' ? (state.fromDirectory || '所选目录') : '受管数据目录（跟随素材源）')}</code><span>新目录</span><code>${escapeHtml(targetLabel)}</code></p>
+                <ul class="thumbnail-cache-switch-notes">
+                    <li><strong>迁移</strong>：把原缓存搬到新目录，同名文件保留新目录已有版本。</li>
+                    <li><strong>删除</strong>：清空原目录下的缓存文件，新目录从零开始。</li>
+                    <li><strong>取消</strong>：不改动设置，继续使用原目录。</li>
+                </ul>
+                ${state.error ? `<div class="thumbnail-cache-error">${escapeHtml(state.error)}</div>` : ''}
+            </div>
+        </div>
+        <div class="thumbnail-cache-actions">
+            <button class="hw-btn" type="button" data-thumbnail-cache-switch="cancel" ${busy ? 'disabled' : ''}>取消</button>
+            <button class="hw-btn" type="button" data-thumbnail-cache-switch="delete" ${busy ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>${busy && state.action === 'delete' ? '正在删除…' : '删除'}</span></button>
+            <button class="hw-btn hw-btn-gold" type="button" data-thumbnail-cache-switch="migrate" ${busy ? 'disabled' : ''}><i data-lucide="folder-input"></i><span>${busy && state.action === 'migrate' ? '正在迁移…' : '迁移'}</span></button>
+        </div>
+    </div>`;
+    markAssetFloatingSurface(overlay, {surface:'thumbnail-cache-switch', content:'.thumbnail-cache-switch-modal', close:() => confirmThumbnailCacheSwitch('cancel')});
+    refreshIcons();
+}
+function openThumbnailCacheSwitchDialog(toMode, toDirectory){
+    thumbnailCacheSwitchState = {
+        open:true, busy:false, action:'', error:'',
+        fromMode:String(thumbnailGeneratorState.savedMode || 'source'),
+        fromDirectory:String(thumbnailGeneratorState.savedDirectory || ''),
+        toMode:toMode === 'custom' ? 'custom' : 'source',
+        toDirectory:String(toDirectory || ''),
+    };
+    renderThumbnailCacheSwitchDialog();
+}
+function cancelThumbnailCacheSwitch(){
+    if(thumbnailCacheSwitchState.busy) return;
+    thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
+    renderThumbnailCacheSwitchDialog();
+    // 取消即继续用原目录：输入框回退到已保存值，界面不显示未生效的路径。
+    thumbnailGeneratorState = {...thumbnailGeneratorState, mode:thumbnailGeneratorState.savedMode || thumbnailGeneratorState.mode, directory:thumbnailGeneratorState.savedDirectory || ''};
+    const input = document.getElementById('thumbnailDirectory');
+    if(input) input.value = thumbnailGeneratorState.savedDirectory || '';
+    renderThumbnailCacheHost();
+    setStatus('已取消切换，继续使用原缓存目录');
+}
+async function confirmThumbnailCacheSwitch(action){
+    const state = thumbnailCacheSwitchState;
+    if(!state.open || state.busy) return;
+    if(action === 'cancel'){ cancelThumbnailCacheSwitch(); return; }
+    if(!['migrate', 'delete'].includes(action)) return;
+    thumbnailCacheSwitchState = {...state, busy:true, action, error:''};
+    renderThumbnailCacheSwitchDialog();
+    // 新目录先自动登记为允许根；登记被拒时后端也会失败关闭，这里提前给出原因。
+    if(state.toMode === 'custom'){
+        const granted = await ensureThumbnailCacheRootAllowed(state.toDirectory, {announce:false});
+        if(granted.reason === 'rejected'){
+            thumbnailCacheSwitchState = {...thumbnailCacheSwitchState, busy:false, action:'', error:'未能把新目录加入允许根：' + String(granted.error?.message || '目录不可用')};
+            renderThumbnailCacheSwitchDialog();
+            return;
+        }
+    }
+    try {
+        const data = await apiJsonResponse(assetManagerApi.switchThumbnailCache({mode:state.toMode, directory:state.toDirectory, cache_action:action}));
+        applyThumbnailSettingsSnapshot(data);
+        thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
+        renderThumbnailCacheSwitchDialog();
+        renderThumbnailCacheHost();
+        render();
+        setStatus(thumbnailCacheSwitchResultText(data));
+    } catch(error) {
+        thumbnailCacheSwitchState = {...thumbnailCacheSwitchState, busy:false, action:'', error:error.message || '切换缓存目录失败'};
+        renderThumbnailCacheSwitchDialog();
+        setStatus(thumbnailCacheSwitchState.error);
+    }
+}
+// 缓存模式 / 目录的统一提交入口：真的换了根就问旧缓存去处，否则只保存设置。
+function commitThumbnailSettingsChange(nextMode, nextDirectory){
+    const mode = nextMode === 'custom' ? 'custom' : 'source';
+    const directory = mode === 'custom' ? String(nextDirectory || '').trim() : '';
+    thumbnailGeneratorState = {...thumbnailGeneratorState, mode, directory, error:''};
+    if(mode === 'custom' && !directory) return false;
+    const changed = mode !== (thumbnailGeneratorState.savedMode || 'source')
+        || (mode === 'custom' && pathCompareKey(directory) !== pathCompareKey(thumbnailGeneratorState.savedDirectory || ''));
+    if(changed){
+        openThumbnailCacheSwitchDialog(mode, directory);
+        return true;
+    }
+    if(!directorySettingsPage && storageSettingsState.open){
+        ensureThumbnailCacheRootAllowed(directory, {announce:false})
+            .then(granted => persistThumbnailStorageSettings().then(() => {
+                setStatus(`缓存目录已设置：${directory || '受管数据目录'}${thumbnailCacheGrantSuffix(granted)}`);
+            }))
+            .catch(err => {
+                thumbnailGeneratorState.error = err.message || '缓存目录创建失败';
+                renderStorageSettingsModal();
+            });
+    }
+    return false;
+}
+// 设置页 / 生成弹窗改缓存目录：先确认旧缓存去处，确认后再落设置。
+function applyThumbnailCacheDirectoryField(directory){
+    commitThumbnailSettingsChange('custom', directory);
 }
 async function saveDirectoryPath(key, pathValue, closeBrowser=false){
     const trimmed = String(pathValue || '').trim();
@@ -2337,15 +2534,7 @@ async function openStorageSettings(tab='boards'){
             loading:false,
             message:localCaptionProviders().length ? '已连接可用模型' : '请先配置 API 平台',
         };
-        thumbnailGeneratorState = {
-            ...thumbnailGeneratorState,
-            loading:false,
-            mode:thumbnail.mode === 'custom' ? 'custom' : 'source',
-            directory:thumbnail.directory || '',
-            cacheFolder:thumbnail.cache_folder || 'god-cache',
-            format:thumbnail.format === 'webp' ? 'webp' : 'jxl',
-            revision:Number(thumbnail.revision || 1),
-        };
+        applyThumbnailSettingsSnapshot(thumbnail, {loading:false});
         if(proxy) applyAssetProxySettings(proxy);
         else assetProxySettingsState = {...assetProxySettingsState, loading:false, message:'代理设置读取失败'};
         renderStorageSettingsModal();
@@ -2628,7 +2817,7 @@ async function loadGlobalDirectorySettings(){
         applyStorageSettingsData(storage);
         if(roots) applyAllowedRootSettingsData(roots);
         registryStatus = status;
-        thumbnailGeneratorState = {...thumbnailGeneratorState, mode:thumbnail.mode, directory:thumbnail.directory || '', cacheFolder:thumbnail.cache_folder || 'god-cache', format:thumbnail.format === 'webp' ? 'webp' : 'jxl', revision:Number(thumbnail.revision || 1), loading:false};
+        applyThumbnailSettingsSnapshot(thumbnail, {loading:false});
         if(isTauriClientMode()) await loadClientUploadSourceDir();
         directorySettingsReady = true;
         currentStatusText = '目录已同步';
@@ -3325,15 +3514,7 @@ async function persistThumbnailStorageSettings(patch={}){
     if(mode === 'custom' && !directory && patch.format === undefined) return null;
     const expectedVersion = Number(thumbnailGeneratorState.revision || 1);
     const data = await apiJsonResponse(assetManagerApi.updateThumbnailSettings({mode,directory,...patch,expected_version:expectedVersion}));
-    thumbnailGeneratorState = {
-        ...thumbnailGeneratorState,
-        mode:data.mode === 'custom' ? 'custom' : 'source',
-        directory:data.directory || '',
-        cacheFolder:data.cache_folder || thumbnailGeneratorState.cacheFolder || 'god-cache',
-        format:data.format === 'webp' ? 'webp' : 'jxl',
-        revision:Number(data.revision || expectedVersion + 1),
-        error:'',
-    };
+    applyThumbnailSettingsSnapshot(data, {revision:Number(data.revision || expectedVersion + 1)});
     if(data.cache_directory) setStatus(`缓存目录已就绪：${data.cache_directory}`);
     return data;
 }
@@ -3348,6 +3529,13 @@ function thumbnailGeneratorRequest(){
         else renderThumbnailGeneratorModal();
         return null;
     }
+    // 后端按已保存的设置落盘；界面上的目录还没确认切换时必须先问旧缓存去处。
+    if(mode !== (thumbnailGeneratorState.savedMode || 'source')
+        || (mode === 'custom' && pathCompareKey(directory) !== pathCompareKey(thumbnailGeneratorState.savedDirectory || ''))){
+        openThumbnailCacheSwitchDialog(mode, directory);
+        setStatus('缓存目录尚未切换，请先选择原缓存的处理方式');
+        return null;
+    }
     return {
         ids, mode, directory, transcodeVideos,
         payload:{asset_ids:ids, mode, directory, width:256, transcode_videos:transcodeVideos, replace_existing:true},
@@ -3356,6 +3544,94 @@ function thumbnailGeneratorRequest(){
 function thumbnailGeneratorResultText(result={}, prefix='缩略图完成'){
     const videoText = `；MP4 新转码 ${Number(result.transcoded || 0)}，已有 ${Number(result.transcode_cached || 0)}，失败 ${Number(result.transcode_failed || 0)}`;
     return `${prefix}：新生成 ${Number(result.generated || 0)}，已有 ${Number(result.cached || 0)}，失败 ${Number(result.failed || 0)}，跳过 ${Number(result.skipped || 0)}${videoText}`;
+}
+const THUMBNAIL_CACHE_BLOCK_CODES = ['CACHE_DIRECTORY_NOT_ALLOWED', 'CACHE_DIRECTORY_NOT_FOUND'];
+function isThumbnailCacheBlockError(error){
+    return THUMBNAIL_CACHE_BLOCK_CODES.includes(String(error?.code || ''));
+}
+// 缓存目录被拒时的提示块：说清「写哪个目录失败、为什么、可以怎么做」。
+function thumbnailCacheBlock(error, payload, ids=[], transcodeVideos=false){
+    if(!isThumbnailCacheBlockError(error)) return null;
+    return {
+        code:String(error.code || ''),
+        message:String(error.message || '缓存目录无法写入'),
+        directory:String(thumbnailGeneratorState.directory || ''),
+        canGrant:canManageAllowedRoots(),
+        payload:payload ? {...payload} : null,
+        ids:Array.isArray(ids) ? [...ids] : [],
+        transcodeVideos:Boolean(transcodeVideos),
+    };
+}
+function renderThumbnailCacheBlock(){
+    const block = thumbnailGeneratorState.cacheBlocked;
+    if(!block) return '';
+    const busy = thumbnailGeneratorState.grantingRoot;
+    const directory = block.directory || '所选目录';
+    const actions = block.canGrant
+        ? `<div class="thumbnail-cache-block-actions"><button type="button" class="hw-btn hw-btn-gold" data-thumbnail-cache-grant ${busy ? 'disabled' : ''}>${busy ? '正在登记…' : '添加到允许根并重试'}</button><button type="button" class="hw-btn" data-thumbnail-cache-cancel ${busy ? 'disabled' : ''}>取消</button></div>`
+        : `<small class="thumbnail-cache-block-hint">请管理员在 设置 › 允许根 中登记该目录后重试。</small>`;
+    return `<div class="thumbnail-cache-block" data-thumbnail-cache-block><div class="thumbnail-cache-block-text"><strong>无法写入 ${escapeHtml(directory)}</strong><span>${escapeHtml(block.message)}</span></div>${actions}</div>`;
+}
+function renderThumbnailCacheHost(){
+    if(thumbnailGeneratorState.open) renderThumbnailGeneratorModal();
+    else renderStorageSettingsModal();
+}
+async function registerThumbnailCacheAllowedRoot(path){
+    const snapshot = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {method:'GET', credentials:'same-origin'}));
+    applyAllowedRootSettingsData(snapshot);
+    const updated = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {
+        method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path, expected_version:Number(snapshot.revision || 1)}),
+    }));
+    applyAllowedRootSettingsData(updated);
+    return updated;
+}
+// 管理员确认后：登记允许根 → 用原请求参数自动重试一次（AC4）。
+async function grantThumbnailCacheRootAndRetry(){
+    const block = thumbnailGeneratorState.cacheBlocked;
+    if(!block || thumbnailGeneratorState.grantingRoot) return;
+    if(!block.directory || !block.payload){
+        thumbnailGeneratorState = {...thumbnailGeneratorState, cacheBlocked:{...block, message:'缺少缓存目录或原始请求参数，请重新选择目录后生成'}};
+        renderThumbnailCacheHost();
+        return;
+    }
+    thumbnailGeneratorState = {...thumbnailGeneratorState, grantingRoot:true, error:''};
+    renderThumbnailCacheHost();
+    try {
+        await registerThumbnailCacheAllowedRoot(block.directory);
+    } catch(error) {
+        // AC7：版本冲突只提示刷新，不静默重发覆盖他人改动。
+        const conflict = error?.code === 'VERSION_CONFLICT';
+        thumbnailGeneratorState = {
+            ...thumbnailGeneratorState,
+            grantingRoot:false,
+            cacheBlocked:{...block, conflict, message:conflict ? '允许根配置已被其他窗口修改，请刷新后重试（未自动重发）' : (error.message || '添加允许根失败')},
+        };
+        renderThumbnailCacheHost();
+        setStatus(thumbnailGeneratorState.cacheBlocked.message);
+        return;
+    }
+    thumbnailGeneratorState = {...thumbnailGeneratorState, grantingRoot:false, cacheBlocked:null, generating:true};
+    renderThumbnailCacheHost();
+    setStatus(`已把 ${block.directory} 加入允许根，正在按原参数重试生成…`);
+    try {
+        const data = await apiJsonResponse(assetManagerApi.generateThumbnails(block.payload));
+        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, open:false};
+        document.getElementById('thumbnailGeneratorOverlay')?.remove();
+        render();
+        setStatus(thumbnailGeneratorResultText(block.transcodeVideos ? data : {...data, transcoded:0, transcode_cached:0, transcode_failed:0}));
+    } catch(error) {
+        const again = thumbnailCacheBlock(error, block.payload, block.ids, block.transcodeVideos);
+        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, error:error.message || '生成缩略图失败', cacheBlocked:again};
+        renderThumbnailCacheHost();
+        setStatus(error.message || '生成缩略图失败');
+    }
+}
+// AC5：用户取消只收起提示，不发登记请求、不重试、不改写设置项。
+function dismissThumbnailCacheBlock(){
+    if(thumbnailGeneratorState.grantingRoot) return;
+    thumbnailGeneratorState = {...thumbnailGeneratorState, cacheBlocked:null};
+    renderThumbnailCacheHost();
 }
 function watchThumbnailBackgroundJob(taskId, failures=0){
     if(!taskId) return;
@@ -3401,20 +3677,14 @@ async function openThumbnailGenerator(){
     thumbnailGeneratorState = {...thumbnailGeneratorState, open:true, loading:true, error:''};
     renderThumbnailGeneratorModal();
     try {
+        // 提示块要判断管理员身份（是否展示「添加到允许根并重试」），先确保身份已就绪。
+        if(!registryPrincipal && !registryPrincipalLoading) await loadRegistryPrincipal();
         const [settings, storage] = await Promise.all([
             apiJsonResponse(assetManagerApi.getThumbnailSettings()),
             apiJsonResponse(assetManagerApi.getStorageSettings()).catch(() => null),
         ]);
         if(storage) applyStorageSettingsData(storage);
-        thumbnailGeneratorState = {
-            ...thumbnailGeneratorState,
-            loading:false,
-            mode:settings.mode === 'custom' ? 'custom' : 'source',
-            directory:settings.directory || '',
-            cacheFolder:settings.cache_folder || 'god-cache',
-            format:settings.format === 'webp' ? 'webp' : 'jxl',
-            revision:Number(settings.revision || 1),
-        };
+        applyThumbnailSettingsSnapshot(settings, {loading:false});
     } catch(err){
         const missingApi = /not found/i.test(String(err.message || ''));
         thumbnailGeneratorState = {
@@ -3448,14 +3718,14 @@ function renderThumbnailGeneratorModal(){
         <div class="storage-settings-head"><div><strong>生成缩略图</strong><span>预先生成缓存，提升大量素材的浏览速度。</span></div><button type="button" data-thumbnail-generator-close aria-label="关闭" ${busy ? 'disabled' : ''}><i data-lucide="x"></i></button></div>
         <div class="asset-pref-body">
             <div class="asset-pref-section">
-                <div class="thumbnail-cache-notice"><i data-lucide="folder-plus"></i><div><strong>将写入 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</strong><span>缓存落在应用受管数据目录内的此文件夹，不写入素材源目录；缓存文件不会进入素材索引。</span></div></div>
+                <div class="thumbnail-cache-notice"><i data-lucide="folder-plus"></i><div><strong>将写入 ${escapeHtml(thumbnailGeneratorState.cacheFolder)}</strong><span>${escapeHtml(thumbnailCacheTargetText())}；缓存文件不会进入素材索引。</span></div></div>
             </div>
             ${renderThumbnailFormatOptions()}
             <div class="asset-pref-section">
                 <div class="asset-pref-title"><i data-lucide="hard-drive"></i><span>缓存存储位置</span></div>
                 <div class="thumbnail-cache-options">
-                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 素材源分桶</small></span></button>
-                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 所选目录分桶</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'source' ? 'is-active' : ''}" data-thumbnail-mode="source"><i data-lucide="folders"></i><span><strong>跟随素材源</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 受管数据目录</small></span></button>
+                    <button type="button" class="thumbnail-cache-option ${mode === 'custom' ? 'is-active' : ''}" data-thumbnail-mode="custom"><i data-lucide="folder-cog"></i><span><strong>指定缓存目录</strong><small>${escapeHtml(thumbnailGeneratorState.cacheFolder)} · 写入所选目录</small></span></button>
                 </div>
                 ${mode === 'custom' ? `<div class="thumbnail-cache-directory">
                     <label class="storage-dir-row"><span>选择已登记目录</span><select id="thumbnailDirectoryPreset"><option value="">手工输入路径</option>${known.map(item => `<option value="${escapeAttr(item.path)}" ${pathCompareKey(item.path) === pathCompareKey(thumbnailGeneratorState.directory) ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.path)}</option>`).join('')}</select></label>
@@ -3465,6 +3735,7 @@ function renderThumbnailGeneratorModal(){
             <div class="asset-pref-section thumbnail-cache-summary"><span><i data-lucide="images"></i>${selectedCount ? `已选择 ${selectedCount} 项` : `当前视图 ${ids.length} 项`}</span><small>图片、文档、3D、字体和视频将按支持能力生成预览。</small></div>
             <label class="thumbnail-video-transcode"><input id="thumbnailTranscodeVideos" type="checkbox" ${thumbnailGeneratorState.transcodeVideos ? 'checked' : ''}><span><strong>非 MP4 视频同时转码</strong><small>转码缓存单独落在应用数据目录，便于浏览器播放。</small></span></label>
             ${thumbnailGeneratorState.error ? `<div class="thumbnail-cache-error">${escapeHtml(thumbnailGeneratorState.error)}</div>` : ''}
+            ${renderThumbnailCacheBlock()}
         </div>
         <div class="thumbnail-cache-actions"><button class="hw-btn" type="button" data-thumbnail-generator-close ${busy ? 'disabled' : ''}>取消</button><button class="hw-btn thumbnail-background-action" type="button" data-thumbnail-generator-background title="关闭弹窗并在后台生成" ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.submittingBackground ? 'loader-2' : 'circle-play'}"></i><span>${thumbnailGeneratorState.submittingBackground ? '正在提交…' : '后台生成'}</span></button><button class="hw-btn hw-btn-gold" type="button" data-thumbnail-generator-run ${busy || !ids.length ? 'disabled' : ''}><i data-lucide="${thumbnailGeneratorState.generating ? 'loader-2' : 'images'}"></i><span>${thumbnailGeneratorState.generating ? '正在生成…' : `生成缩略图 ${ids.length}`}</span></button></div>
     </div>`;
@@ -3486,9 +3757,10 @@ async function generateAssetThumbnails(){
         render();
         setStatus(thumbnailGeneratorResultText(transcodeVideos ? data : {...data, transcoded:0, transcode_cached:0, transcode_failed:0}));
     } catch(err){
-        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, error:err.message || '生成缩略图失败'};
+        const blocked = thumbnailCacheBlock(err, payload, ids, transcodeVideos);
+        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, error:err.message || '生成缩略图失败', cacheBlocked:blocked};
         renderThumbnailGeneratorModal();
-        setStatus(thumbnailGeneratorState.error);
+        setStatus(blocked ? `缓存目录无法写入：${blocked.directory || '所选目录'}` : thumbnailGeneratorState.error);
     }
 }
 async function generateAssetThumbnailsInBackground(){
@@ -3505,9 +3777,10 @@ async function generateAssetThumbnailsInBackground(){
         setStatus(`已转入后台生成 ${ids.length} 项，可继续使用资产中心`);
         watchThumbnailBackgroundJob(task.id || '');
     } catch(err){
-        thumbnailGeneratorState = {...thumbnailGeneratorState, submittingBackground:false, error:err.message || '后台任务提交失败'};
+        const blocked = thumbnailCacheBlock(err, payload, ids, transcodeVideos);
+        thumbnailGeneratorState = {...thumbnailGeneratorState, submittingBackground:false, error:err.message || '后台任务提交失败', cacheBlocked:blocked};
         renderThumbnailGeneratorModal();
-        setStatus(thumbnailGeneratorState.error);
+        setStatus(blocked ? `缓存目录无法写入：${blocked.directory || '所选目录'}` : thumbnailGeneratorState.error);
     }
 }
 async function generateBoardAssetThumbnails(background=false){
@@ -3541,9 +3814,10 @@ async function generateBoardAssetThumbnails(background=false){
         }
         renderStorageSettingsModal();
     } catch(err){
-        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, submittingBackground:false, error:err.message || '缩略图生成失败'};
+        const blocked = thumbnailCacheBlock(err, payload, ids, transcodeVideos);
+        thumbnailGeneratorState = {...thumbnailGeneratorState, generating:false, submittingBackground:false, error:err.message || '缩略图生成失败', cacheBlocked:blocked};
         renderStorageSettingsModal();
-        setStatus(thumbnailGeneratorState.error);
+        setStatus(blocked ? `缓存目录无法写入：${blocked.directory || '所选目录'}` : thumbnailGeneratorState.error);
     }
 }
 async function deleteBoardAssetThumbnails(){
@@ -11229,11 +11503,9 @@ async function handleClick(event){
     const boardThumbnailMode = target.closest?.('[data-board-thumbnail-mode]');
     if(boardThumbnailMode){
         syncStorageSettingsInputsToState();
-        thumbnailGeneratorState.directory = String(document.getElementById('thumbnailDirectory')?.value || thumbnailGeneratorState.directory || '').trim();
+        const nextDirectory = String(document.getElementById('thumbnailDirectory')?.value || thumbnailGeneratorState.directory || '').trim();
         thumbnailGeneratorState.transcodeVideos = Boolean(document.getElementById('thumbnailTranscodeVideos')?.checked ?? thumbnailGeneratorState.transcodeVideos);
-        thumbnailGeneratorState.mode = boardThumbnailMode.dataset.boardThumbnailMode === 'custom' ? 'custom' : 'source';
-        thumbnailGeneratorState.error = '';
-        if(!directorySettingsPage && thumbnailGeneratorState.mode === 'source') await persistThumbnailStorageSettings();
+        commitThumbnailSettingsChange(boardThumbnailMode.dataset.boardThumbnailMode === 'custom' ? 'custom' : 'source', nextDirectory);
         renderStorageSettingsModal();
         return;
     }
@@ -11246,15 +11518,18 @@ async function handleClick(event){
     if(target.closest?.('[data-thumbnail-generator-close]')){ closeThumbnailGenerator(); return; }
     const thumbnailMode = target.closest?.('[data-thumbnail-mode]');
     if(thumbnailMode){
-        thumbnailGeneratorState.directory = String(document.getElementById('thumbnailDirectory')?.value || thumbnailGeneratorState.directory || '').trim();
+        const nextDirectory = String(document.getElementById('thumbnailDirectory')?.value || thumbnailGeneratorState.directory || '').trim();
         thumbnailGeneratorState.transcodeVideos = Boolean(document.getElementById('thumbnailTranscodeVideos')?.checked);
-        thumbnailGeneratorState.mode = thumbnailMode.dataset.thumbnailMode === 'custom' ? 'custom' : 'source';
-        thumbnailGeneratorState.error = '';
+        commitThumbnailSettingsChange(thumbnailMode.dataset.thumbnailMode === 'custom' ? 'custom' : 'source', nextDirectory);
         renderThumbnailGeneratorModal();
         return;
     }
     if(target.closest?.('[data-thumbnail-generator-run]')){ await generateAssetThumbnails(); return; }
     if(target.closest?.('[data-thumbnail-generator-background]')){ await generateAssetThumbnailsInBackground(); return; }
+    const cacheSwitchAction = target.closest?.('[data-thumbnail-cache-switch]');
+    if(cacheSwitchAction){ await confirmThumbnailCacheSwitch(cacheSwitchAction.dataset.thumbnailCacheSwitch || ''); return; }
+    if(target.closest?.('[data-thumbnail-cache-grant]')){ await grantThumbnailCacheRootAndRetry(); return; }
+    if(target.closest?.('[data-thumbnail-cache-cancel]')){ dismissThumbnailCacheBlock(); return; }
     if(target.closest?.('[data-local-ai-start]')){
         localUploadManageMode = true;
         render();
@@ -18987,7 +19262,9 @@ document.addEventListener('click', event => {
     if(detailNavigate){ navigateDetailPreview(Number(detailNavigate.dataset.detailNavigate || 0)); return; }
     const detailZoom = event.target.closest?.('[data-detail-zoom]');
     if(detailZoom){ adjustDetailPreviewZoom(Number(detailZoom.dataset.detailZoom || 0)); return; }
-    if(event.target.closest?.('#storageSettingsOverlay,#boardCreateOverlay,#boardSourceOverlay,#boardEditOverlay,#boardFolderCreateOverlay,#thumbnailGeneratorOverlay')){
+    // 挂在 body 上的浮层不在 #assetManagerRoot 内，root 的点击委托收不到事件；
+    // 新增 body 级浮层时务必把容器 id 加到这份清单，否则按钮点击全部无效。
+    if(event.target.closest?.('#storageSettingsOverlay,#boardCreateOverlay,#boardSourceOverlay,#boardEditOverlay,#boardFolderCreateOverlay,#thumbnailGeneratorOverlay,#thumbnailCacheSwitchOverlay')){
         handleClick(event).catch(err => setStatus(err.message || '操作失败'));
         return;
     }
@@ -19049,6 +19326,12 @@ function handleDetailCinemaPointer(event){
 }
 document.addEventListener('keydown', event => {
     if(event.key === 'Escape'){
+        // 缓存目录切换弹窗属于最上层确认框，先于目录设置页自身状态处理。
+        if(thumbnailCacheSwitchState.open){
+            event.preventDefault();
+            cancelThumbnailCacheSwitch();
+            return;
+        }
         if(pendingPurgeRoot){
             event.preventDefault();
             pendingPurgeRoot = null;
@@ -19678,12 +19961,7 @@ document.addEventListener('change', event => {
         thumbnailGeneratorState.directory = event.target.value || '';
         const input = document.getElementById('thumbnailDirectory');
         if(input) input.value = thumbnailGeneratorState.directory;
-        if(!directorySettingsPage && storageSettingsState.open && thumbnailGeneratorState.mode === 'custom' && thumbnailGeneratorState.directory){
-            persistThumbnailStorageSettings().catch(err => {
-                thumbnailGeneratorState.error = err.message || '缓存目录创建失败';
-                renderStorageSettingsModal();
-            });
-        }
+        applyThumbnailCacheDirectoryField(thumbnailGeneratorState.directory);
         return;
     }
     if(event.target?.id === 'boardSourceExisting'){

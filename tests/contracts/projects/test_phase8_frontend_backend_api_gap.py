@@ -318,6 +318,8 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/storage-files/delete",
         # 2026-09-25 Phase 11 B5：媒体与缩略图路径统一注册为失败关闭。
         "/api/asset-proxy/settings",
+        # 2026-11-01 QIN-515：切换缓存目录确认后迁移 / 删除 / 保留原缓存。
+        "/api/asset-thumbnails/cache/switch",
         "/api/asset-thumbnails/delete",
         "/api/asset-thumbnails/delete-storyboards",
         "/api/asset-thumbnails/generate",
@@ -461,6 +463,8 @@ KNOWN_BACKEND_PATHS = frozenset(
         "/healthz",
         # 2026-09-25 Phase 11 B5：媒体与缩略图路径已注册，当前统一失败关闭。
         "/api/asset-proxy/settings",
+        # 2026-11-01 QIN-515：切换缓存目录确认后迁移 / 删除 / 保留原缓存。
+        "/api/asset-thumbnails/cache/switch",
         "/api/asset-thumbnails/delete",
         "/api/asset-thumbnails/delete-storyboards",
         "/api/asset-thumbnails/generate",

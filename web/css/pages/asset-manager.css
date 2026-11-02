@@ -1174,6 +1174,19 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .thumbnail-cache-summary span svg { width:14px; height:14px; }
 .thumbnail-cache-summary small { color:var(--muted); font-size: var(--gw-type-label-md); font-weight:700; text-align:right; }
 .thumbnail-cache-error { margin:0 18px 14px; padding:9px 10px; border:1px solid var(--danger); color:var(--danger); font-size: var(--gw-type-label-md); font-weight:850; }
+/* 缓存目录被拒提示（QIN-515）：目录、原因与可执行动作同屏，管理员可一键登记重试。 */
+.thumbnail-cache-block { margin:0 18px 14px; padding:10px 12px; border:1px solid var(--danger); background:rgba(207,61,50,.08); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.thumbnail-cache-block-text { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.thumbnail-cache-block-text strong { color:var(--text); font-size: var(--gw-type-label-md); font-weight:900; word-break:break-all; }
+.thumbnail-cache-block-text span { color:var(--danger); font-size: var(--gw-type-label-md); font-weight:750; }
+.thumbnail-cache-block-actions { display:flex; align-items:center; gap:8px; }
+.thumbnail-cache-block-hint { color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
+.thumbnail-cache-switch-modal { width:min(560px,calc(100vw - 32px)); }
+.thumbnail-cache-switch-paths { margin:0 0 10px; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:center; }
+.thumbnail-cache-switch-paths span { color:var(--muted); font-size: var(--gw-type-label-md); font-weight:850; }
+.thumbnail-cache-switch-paths code { padding:4px 6px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-size: var(--gw-type-label-md); word-break:break-all; }
+.thumbnail-cache-switch-notes { margin:0; padding-left:18px; color:var(--muted); font-size: var(--gw-type-label-md); line-height:1.7; }
+.thumbnail-cache-switch-notes strong { color:var(--text); }
 .registry-recycle-overlay { z-index:92; }
 .registry-recycle-dialog { width:min(520px,calc(100vw - 28px)); border:1px solid var(--text); background:var(--panel); color:var(--text); box-shadow:0 18px 42px rgba(20,24,21,.24); }
 .registry-recycle-dialog > header { min-height:68px; padding:12px 14px; border-bottom:1px solid var(--line-2); display:grid; grid-template-columns:38px minmax(0,1fr) 32px; align-items:center; gap:10px; }
