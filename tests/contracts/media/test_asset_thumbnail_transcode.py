@@ -206,18 +206,12 @@ def test_transcode_cache_and_replace_existing_are_independent(
     assert len(calls) == 2
 
 
-def test_transcode_failure_is_reported_without_blocking_other_items(
+def test_transcode_failure_does_not_block_thumbnail_or_other_items(
     media_runtime: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     video_id, _ = _register_asset(media_runtime, "broken.mp4")
     image_id, _ = _register_asset(media_runtime, "still.png")
-
-    def thumbnail(path: Path, width: int, image_format: str = "webp") -> bytes:
-        if path.suffix.lower() == ".mp4":
-            raise CleanroomException(503, "THUMBNAIL_FAILED", "视频缩略图失败")
-        return _webp_bytes(width)
-
-    monkeypatch.setattr(media_repo, "_thumbnail_bytes", thumbnail)
+    _fake_thumbnails(monkeypatch)
     _fake_ffmpeg(monkeypatch, fail=True)
 
     result = media_repo.generate_thumbnail(
@@ -228,15 +222,40 @@ def test_transcode_failure_is_reported_without_blocking_other_items(
         }
     )
 
-    assert result["generated"] == 1 and result["failed"] == 1
+    assert result["generated"] == 2 and result["failed"] == 0
     assert result["transcoded"] == 0 and result["transcode_failed"] == 1
     assert result["data_status"] == "partial"
-    assert "thumbnail_failures_present" in result["data_gaps"]
     assert "video_transcode_failures_present" in result["data_gaps"]
     video_item = result["items"][0]
+    assert video_item["status"] == "generated"
     assert video_item["transcode_status"] == "failed"
     assert video_item["transcode_error"]["code"] == "MEDIA_PROCESS_FAILED"
-    assert video_item["error"]["code"] == "THUMBNAIL_FAILED"
+
+
+def test_thumbnail_failure_does_not_block_transcode(
+    media_runtime: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video_id, _ = _register_asset(media_runtime, "thumbnail-broken.mp4")
+
+    def fail_thumbnail(path: Path, width: int, image_format: str = "webp") -> bytes:
+        raise CleanroomException(503, "THUMBNAIL_FAILED", "视频缩略图失败")
+
+    monkeypatch.setattr(media_repo, "_thumbnail_bytes", fail_thumbnail)
+    _fake_ffmpeg(monkeypatch)
+
+    result = media_repo.generate_thumbnail(
+        {"asset_ids": [video_id], "transcode_videos": True, "replace_existing": True}
+    )
+
+    item = result["items"][0]
+    assert result["failed"] == 1 and result["transcoded"] == 1
+    assert result["transcode_failed"] == 0
+    assert result["data_status"] == "partial"
+    assert "thumbnail_failures_present" in result["data_gaps"]
+    assert "video_transcode_failures_present" not in result["data_gaps"]
+    assert item["status"] == "failed"
+    assert item["error"]["code"] == "THUMBNAIL_FAILED"
+    assert item["transcode_status"] == "generated"
 
 
 def test_unknown_media_type_is_not_a_transcode_failure(
@@ -269,9 +288,11 @@ def test_background_job_reports_two_stage_result_and_asset_progress(
     ]
     _fake_thumbnails(monkeypatch)
     _fake_ffmpeg(monkeypatch)
+    payload = {"asset_ids": ids, "transcode_videos": True, "replace_existing": True}
+    sync_result = media_repo.generate_thumbnail(payload)
 
     job_id, poll_hint = media_repo.run_background_thumbnail(
-        {"asset_ids": ids, "transcode_videos": True, "replace_existing": True}
+        payload
     )
 
     assert poll_hint == f"/api/asset-thumbnails/jobs/{job_id}"
@@ -280,6 +301,7 @@ def test_background_job_reports_two_stage_result_and_asset_progress(
     assert job["result"]["generated"] == 2
     assert job["result"]["transcoded"] == 2
     assert job["result"]["transcode_failed"] == 0
+    assert job["result"] == sync_result
 
 
 @pytest.mark.skipif(
