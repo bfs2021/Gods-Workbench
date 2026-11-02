@@ -1225,9 +1225,14 @@ class IndexJobs:
         return digest.hexdigest()
 
     def _scan(self, job_id, attempt, roots, request):
+        from gw.asset_registry import repository as repo
+
         files = []
         entries = 0
         progress_saved_at = time.monotonic()
+        configured_exclusion_roots, custom_cache_base = (
+            repo._index_scan_exclusion_configuration()
+        )
         scopes = request.get("scopes") or [
             {"root_id": root_id, "prefix": "", "storage_root_id": root_id}
             for root_id in request["roots"]
@@ -1281,6 +1286,15 @@ class IndexJobs:
                         data_status="not_integrated",
                         unavailable=True,
                     )
+            exclusion_roots = repo._index_scan_exclusions_for_scope(
+                scan_root_resolved,
+                configured_exclusion_roots,
+                custom_cache_base,
+            )
+            if repo._index_scan_scope_is_excluded(
+                scan_root_resolved, prefix, exclusion_roots
+            ):
+                continue
             pending = [scan_root]
             while pending:
                 folder = pending.pop()
@@ -1306,7 +1320,13 @@ class IndexJobs:
                             continue
                         path = Path(child.path)
                         if stat.S_ISDIR(info.st_mode):
+                            if repo._index_scan_directory_is_excluded(
+                                path, exclusion_roots
+                            ):
+                                continue
                             pending.append(path)
+                            continue
+                        if repo._index_scan_file_name_is_excluded(path.name):
                             continue
                         if not stat.S_ISREG(info.st_mode):
                             continue

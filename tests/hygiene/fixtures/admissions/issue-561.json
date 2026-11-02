@@ -1,0 +1,31 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 561,
+  "authorization_basis": "GitHub Issue #561, 2026-11-02",
+  "files": [
+    "gw/asset_registry/index_jobs.py",
+    "gw/asset_registry/repository.py",
+    "gw/api/routes_asset_registry.py",
+    "web/js/modules/asset-manager.js",
+    "tests/contracts/assets/test_index_exclusion_guard.py",
+    "tests/frontend/qin-523-cache-exclusion-hint.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-561.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_index_exclusion_guard.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #561, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-523-cache-exclusion-hint.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #561, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-523：缓存与回收目录扫描排除、素材库内缓存提示及契约覆盖。"
+}
