@@ -254,3 +254,70 @@ def test_c10_inventory_media_thumbnail_and_missing_dependency_are_truthful(
     )
     assert client.get(path).status_code == 401
     assert client.get(f"{path}/{created[0]}/media").status_code == 401
+
+
+def test_c10_inventory_thumbnail_batch_matches_single_artifact(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """QIN-511 预授权：批量 ``asset_ids`` 与单条 ``asset_id`` 指向同一缓存产物。
+
+    既有单条入参断言原样保留；本例只补前端真实使用的批量形状，防止「批量被
+    当成单条而 400」这类契约错位再次逃出测试网。
+    """
+    sources: list[Path] = []
+    for name in ("alpha.png", "beta.png", "gamma.png"):
+        target = tmp_path / "media" / name
+        target.write_bytes(PNG_BYTES)
+        sources.append(target)
+    created = _import(client, [{"name": s.name, "kind": "image"} for s in sources])
+    path = "/api/asset-registry/assets"
+    for asset_id, source in zip(created, sources, strict=True):
+        assert (
+            client.patch(
+                f"{path}/{asset_id}",
+                headers=AUTH,
+                json={
+                    "display_path": source.name,
+                    "root_id": storage.root_identity_id(source.parent.resolve()),
+                },
+            ).status_code
+            == 200
+        )
+
+    settings = client.get("/api/asset-thumbnails/settings", headers=AUTH)
+    assert settings.status_code == 200, settings.text
+    # 钉死 webp：默认 jxl 经 ffmpeg -c:v libjxl，CI 镜像无此编码器会生成 0 张。
+    updated = client.patch(
+        "/api/asset-thumbnails/settings",
+        headers=AUTH,
+        json={"format": "webp", "expected_version": settings.json()["revision"]},
+    )
+    assert updated.status_code == 200, updated.text
+
+    batch = client.post(
+        "/api/asset-thumbnails/generate",
+        headers=AUTH,
+        json={"asset_ids": created, "width": 64},
+    )
+    assert batch.status_code == 200, batch.text
+    body = batch.json()
+    assert (body["generated"], body["cached"], body["failed"]) == (3, 0, 0), body
+    batch_outputs = sorted(body["outputs"])
+    assert all(name.startswith("media_output/god-cache/") for name in batch_outputs), body
+
+    removed = client.post(
+        "/api/asset-thumbnails/delete", headers=AUTH, json={"asset_ids": created}
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["removed"] == 3, removed.text
+
+    single_outputs: list[str] = []
+    for asset_id in created:
+        one = client.post(
+            "/api/asset-thumbnails/generate",
+            headers=AUTH,
+            json={"asset_id": asset_id, "width": 64},
+        )
+        assert one.status_code == 200, one.text
+        single_outputs.extend(one.json()["outputs"])
+    assert sorted(single_outputs) == batch_outputs
