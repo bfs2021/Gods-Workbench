@@ -54,9 +54,66 @@ test('新建资源库折叠右侧详情栏后释放网格宽度，不保留空�
 });
 
 test('管理员创建时将未登记路径加入允许根，非管理员沿用现有权限校验', () => {
-    assert.match(source, /async function ensureCreateLibraryPathAllowedRoot\(path\)\{\s*await loadRegistryPrincipal\(\);\s*if\(!canManageAllowedRoots\(\)\) return;/);
+    assert.match(source, /async function ensureCreateLibraryPathAllowedRoot\(path\)\{\s*await loadRegistryPrincipal\(\);\s*if\(!canManageAllowedRoots\(\)\) return true;/);
     assert.match(source, /body:JSON\.stringify\(\{path, expected_version:Number\(snapshot\.revision \|\| 1\)\}\)/);
-    assert.match(source, /await ensureCreateLibraryPathAllowedRoot\(path\);\s*source = await attachPathToAssetBoard\('', `\$\{name\}素材`, path\)/);
+    assert.match(source, /const allowed = await ensureCreateLibraryPathAllowedRoot\(path\);[\s\S]*?source = await attachPathToAssetBoard\('', `\$\{name\}素材`, path\)/);
+});
+
+test('新建资源库命中已移除旧根时确认恢复并继续创建', () => {
+    assert.match(source, /function confirmRestoreRemovedAllowedRoot\(root\)[\s\S]*?旧根已移除，是否恢复？[\s\S]*?data-root-restore-confirm[^>]*>恢复并继续/);
+    assert.match(source, /data-root-restore-cancel/);
+    assert.match(source, /surface:'asset-root-restore-confirm'[\s\S]*?close:\(\) => close\(false\)/);
+    assert.match(source, /filter\(root => root\.active === false && assetPathWithinAllowedRoot\(path, root\.path\)\)[\s\S]*?sort\(\(left, right\) => pathCompareKey\(right\.path\)\.length - pathCompareKey\(left\.path\)\.length\)/);
+    assert.match(source, /`\/api\/storage-settings\/roots\/\$\{encodeURIComponent\(removedRoot\.id\)\}\/restore`[\s\S]*?body:JSON\.stringify\(\{expected_version:Number\(snapshot\.revision \|\| 1\)\}\)/);
+    assert.match(source, /if\(!await confirmRestoreRemovedAllowedRoot\(removedRoot\)\) return false;/);
+    assert.match(source, /const allowed = await ensureCreateLibraryPathAllowedRoot\(path\);\s*if\(!allowed\)\{[\s\S]*?资源库未创建[\s\S]*?return;\s*\}\s*source = await attachPathToAssetBoard/);
+});
+
+test('旧根确认后只恢复最具体祖先，取消不写入允许根', async () => {
+    const pathHelperStart = source.indexOf('function assetPathWithinAllowedRoot(');
+    const pathHelperEnd = source.indexOf('\nfunction confirmRestoreRemovedAllowedRoot(', pathHelperStart);
+    const ensureStart = source.indexOf('async function ensureCreateLibraryPathAllowedRoot(');
+    const ensureEnd = source.indexOf('\n// 用户显式指定缓存目录', ensureStart);
+    assert.ok(pathHelperStart >= 0 && pathHelperEnd > pathHelperStart && ensureStart >= 0 && ensureEnd > ensureStart);
+    const pathHelper = source.slice(pathHelperStart, pathHelperEnd);
+    const ensureHelper = source.slice(ensureStart, ensureEnd);
+    const simulate = async confirmed => {
+        const calls = [];
+        const snapshot = {
+            revision:7,
+            roots:[
+                {id:'removed-parent', path:'D:\\Vault', active:false},
+                {id:'removed-child', path:'D:\\Vault\\assets', active:false},
+            ],
+        };
+        const context = {
+            pathCompareKey:value => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(),
+            loadRegistryPrincipal:async () => {},
+            canManageAllowedRoots:() => true,
+            confirmRestoreRemovedAllowedRoot:async () => confirmed,
+            applyAllowedRootSettingsData:() => {},
+            assetManagerHttp:{request:(url, options={}) => ({url, ...options})},
+            apiJsonResponse:async request => {
+                calls.push(request);
+                if(request.method === 'GET') return snapshot;
+                if(request.url.endsWith('/restore')) return {...snapshot, revision:8, roots:snapshot.roots.map(root => ({...root, active:root.id === 'removed-child'}))};
+                throw new Error(`unexpected request ${request.method} ${request.url}`);
+            },
+        };
+        const result = await runInNewContext(`${pathHelper}\n${ensureHelper}\nensureCreateLibraryPathAllowedRoot('D:/Vault/assets/new')`, context);
+        return {result, calls};
+    };
+
+    const accepted = await simulate(true);
+    assert.equal(accepted.result, true);
+    const restoreCall = accepted.calls.find(call => call.url.endsWith('/restore'));
+    assert.match(restoreCall.url, /removed-child\/restore$/);
+    assert.deepEqual(JSON.parse(restoreCall.body), {expected_version:7});
+    assert.equal(accepted.calls.filter(call => call.url === '/api/storage-settings/roots' && call.method === 'POST').length, 0);
+
+    const cancelled = await simulate(false);
+    assert.equal(cancelled.result, false);
+    assert.equal(cancelled.calls.some(call => call.url.endsWith('/restore') || call.method === 'POST'), false);
 });
 
 test('新增资源库弹窗模板包含错误回显容器与状态图标', () => {

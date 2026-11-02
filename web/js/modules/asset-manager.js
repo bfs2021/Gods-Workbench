@@ -1482,13 +1482,64 @@ function assetPathWithinAllowedRoot(path, rootPath){
     const root = pathCompareKey(rootPath);
     return Boolean(candidate && root && (candidate === root || candidate.startsWith(`${root}/`)));
 }
+function confirmRestoreRemovedAllowedRoot(root){
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'storage-settings-overlay root-restore-confirm-overlay';
+        overlay.innerHTML = `<section class="board-source-modal" data-floating-content role="dialog" aria-modal="true" aria-labelledby="rootRestoreConfirmTitle">
+            <header class="storage-settings-head"><div><strong id="rootRestoreConfirmTitle">旧根已移除，是否恢复？</strong><span>恢复后会继续创建资源库并重新扫描该目录。</span></div><button class="hw-btn" type="button" data-root-restore-cancel aria-label="关闭" title="关闭"><i data-lucide="x"></i></button></header>
+            <p class="board-create-summary">${escapeHtml(root.path || '')}</p>
+            <div class="board-create-actions"><button class="hw-btn" type="button" data-root-restore-cancel>取消</button><button class="hw-btn hw-btn-gold" type="button" data-root-restore-confirm>恢复并继续</button></div>
+        </section>`;
+        let finished = false;
+        const close = confirmed => {
+            if(finished) return;
+            finished = true;
+            overlay.remove();
+            resolve(Boolean(confirmed));
+        };
+        document.body.appendChild(overlay);
+        markAssetFloatingSurface(overlay, {surface:'asset-root-restore-confirm', content:'[role="dialog"]', close:() => close(false)});
+        overlay.addEventListener('click', event => {
+            if(event.target.closest('[data-root-restore-cancel]')){ close(false); return; }
+            if(event.target.closest('[data-root-restore-confirm]')) close(true);
+        });
+        refreshIcons();
+    });
+}
 async function ensureCreateLibraryPathAllowedRoot(path){
     await loadRegistryPrincipal();
-    if(!canManageAllowedRoots()) return;
+    if(!canManageAllowedRoots()) return true;
+    let restorationApprovedRootId = '';
     for(let attempt = 0; attempt < 2; attempt++){
         const snapshot = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {method:'GET', credentials:'same-origin'}));
         applyAllowedRootSettingsData(snapshot);
-        if((snapshot.roots || []).some(root => root.active !== false && assetPathWithinAllowedRoot(path, root.path))) return;
+        if((snapshot.roots || []).some(root => root.active !== false && assetPathWithinAllowedRoot(path, root.path))) return true;
+        const removedRoots = (snapshot.roots || [])
+            .filter(root => root.active === false && assetPathWithinAllowedRoot(path, root.path))
+            .sort((left, right) => pathCompareKey(right.path).length - pathCompareKey(left.path).length);
+        const removedRoot = restorationApprovedRootId
+            ? removedRoots.find(root => String(root.id) === restorationApprovedRootId)
+            : removedRoots[0];
+        if(restorationApprovedRootId && !removedRoot) throw new Error('允许根配置已变化，请重新创建资源库');
+        if(removedRoot){
+            if(!restorationApprovedRootId){
+                if(!await confirmRestoreRemovedAllowedRoot(removedRoot)) return false;
+                restorationApprovedRootId = String(removedRoot.id);
+            }
+            try {
+                const restored = await apiJsonResponse(assetManagerHttp.request(`/api/storage-settings/roots/${encodeURIComponent(removedRoot.id)}/restore`, {
+                    method:'POST', credentials:'same-origin',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({expected_version:Number(snapshot.revision || 1)}),
+                }));
+                applyAllowedRootSettingsData(restored);
+                return true;
+            } catch(error){
+                if(attempt === 0 && ['ALLOWED_ROOT_ALREADY_ACTIVE','VERSION_CONFLICT'].includes(error.code)) continue;
+                throw error;
+            }
+        }
         try {
             const updated = await apiJsonResponse(assetManagerHttp.request('/api/storage-settings/roots', {
                 method:'POST', credentials:'same-origin',
@@ -1496,7 +1547,7 @@ async function ensureCreateLibraryPathAllowedRoot(path){
                 body:JSON.stringify({path, expected_version:Number(snapshot.revision || 1)}),
             }));
             applyAllowedRootSettingsData(updated);
-            return;
+            return true;
         } catch(error){
             if(attempt === 0 && ['ALLOWED_ROOT_ALREADY_REGISTERED','VERSION_CONFLICT'].includes(error.code)) continue;
             throw error;
@@ -1566,7 +1617,14 @@ async function createPresetAssetBoard(){
         markIndexState('pending');
         setStatus('正在校验路径并登记素材来源…');
         try {
-            await ensureCreateLibraryPathAllowedRoot(path);
+            const allowed = await ensureCreateLibraryPathAllowedRoot(path);
+            if(!allowed){
+                boardCreateState.saving = false;
+                renderCreateLibraryModal();
+                markIndexState('skipped');
+                setStatus('已取消恢复，资源库未创建');
+                return;
+            }
             source = await attachPathToAssetBoard('', `${name}素材`, path);
         } catch(err) {
             boardCreateState.saving = false;
