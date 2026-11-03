@@ -6,9 +6,10 @@ name: Release Desktop and Full Regression
 #   1. 全量 Python 回归（含 tests/e2e 真实浏览器端到端，约 3932 个用例）；
 #   2. 前端契约测试全量重跑；
 #   3. Windows NSIS 桌面安装包完整源码编译、打包与产物上传。
-# 触发方式：发布 Tag（v*）或手动 workflow_dispatch。
+# 触发方式：发布 Tag（v*）或手动触发完整发布；master push 仅预热 CLI 缓存。
 on:
   push:
+    branches: [master]
     tags:
       - "v*"
   workflow_dispatch:
@@ -30,8 +31,58 @@ permissions:
   contents: read
 
 jobs:
+  tauri-cli-cache:
+    name: 预热 Tauri CLI 工具缓存
+    # 仅 master push 写默认分支缓存；PR 不运行发布工作流。
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: windows-latest
+    steps:
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 记录 Rust 工具链缓存键
+        id: rust-cache-key
+        shell: pwsh
+        run: |
+          $rustVersion = (rustc -V).Trim().Split(' ')[1]
+          $rustHost = ((rustc -Vv | Select-String '^host:').ToString() -replace '^host:\s*', '')
+          "version=$rustVersion" >> $env:GITHUB_OUTPUT
+          "host=$rustHost" >> $env:GITHUB_OUTPUT
+
+      - name: 准备 Tauri CLI 缓存目录
+        shell: pwsh
+        run: |
+          $cacheRoot = Join-Path $env:RUNNER_TEMP 'gw-tauri-cli'
+          New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot 'bin') | Out-Null
+
+      - name: 恢复 Tauri CLI 缓存
+        id: tauri-cli-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gw-tauri-cli
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache-key.outputs.version }}-${{ steps.rust-cache-key.outputs.host }}-2.12.3
+
+      - name: 缓存未命中时安装 Tauri CLI
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version 2.12.3 --locked --root "$env:RUNNER_TEMP\gw-tauri-cli"
+
+      - name: 验证 Tauri CLI 缓存
+        shell: pwsh
+        run: |
+          $binary = Join-Path $env:RUNNER_TEMP 'gw-tauri-cli\bin\cargo-tauri.exe'
+          if (-not (Test-Path -LiteralPath $binary)) { throw 'Tauri CLI 缓存缺少 cargo-tauri.exe' }
+          & $binary --version
+
+      - name: 保存 Tauri CLI 缓存
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gw-tauri-cli
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache-key.outputs.version }}-${{ steps.rust-cache-key.outputs.host }}-2.12.3
+
   full-regression:
     name: Full regression (all Python tests and frontend contracts)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -112,14 +163,53 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: 记录 Rust 工具链缓存键
+        id: rust-cache-key
+        shell: pwsh
+        run: |
+          $rustVersion = (rustc -V).Trim().Split(' ')[1]
+          $rustHost = ((rustc -Vv | Select-String '^host:').ToString() -replace '^host:\s*', '')
+          "version=$rustVersion" >> $env:GITHUB_OUTPUT
+          "host=$rustHost" >> $env:GITHUB_OUTPUT
+
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path clients/desktop/Cargo.toml
 
       - name: Run desktop unit tests
         run: cargo test --locked --manifest-path clients/desktop/Cargo.toml
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.12.3 --locked
+      - name: 准备 Tauri CLI 缓存目录
+        shell: pwsh
+        run: |
+          $cacheRoot = Join-Path $env:RUNNER_TEMP 'gw-tauri-cli'
+          New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot 'bin') | Out-Null
+
+      - name: 恢复 Tauri CLI 缓存
+        id: tauri-cli-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gw-tauri-cli
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache-key.outputs.version }}-${{ steps.rust-cache-key.outputs.host }}-2.12.3
+
+      - name: 缓存未命中时安装 Tauri CLI
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version 2.12.3 --locked --root "$env:RUNNER_TEMP\gw-tauri-cli"
+
+      - name: 验证并接入 Tauri CLI
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'gw-tauri-cli\bin'
+          $binary = Join-Path $bin 'cargo-tauri.exe'
+          if (-not (Test-Path -LiteralPath $binary)) { throw 'Tauri CLI 缓存缺少 cargo-tauri.exe' }
+          & $binary --version
+          Add-Content -Path $env:GITHUB_PATH -Value $bin -Encoding utf8
+
+      - name: 保存 Tauri CLI 缓存
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gw-tauri-cli
+          key: tauri-cli-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-cache-key.outputs.version }}-${{ steps.rust-cache-key.outputs.host }}-2.12.3
 
       - name: Build Windows NSIS installer
         working-directory: clients/desktop
