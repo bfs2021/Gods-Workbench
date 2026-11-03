@@ -73,6 +73,7 @@ tests/frontend/qin-525-preview-cache-merge.test.mjs
 tests/frontend/qin-526-recycle-bin-governance.test.mjs
 tests/frontend/qin-527-custom-library-rack.test.mjs
 tests/frontend/qin-530-asset-sidebar-redesign.test.mjs
+tests/frontend/qin-531-asset-topbar-cards.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs
 tests/frontend/test_c18_video_jump.mjs

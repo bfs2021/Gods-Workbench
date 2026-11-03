@@ -9489,7 +9489,8 @@ function registryCategoryLabel(category=''){
 }
 function renderRegistryOverviewStats(){
     const globalTotal = (registryFacets.categories || []).reduce((total, item) => total + Number(item.count || 0), 0) || (registryFacets.kinds || []).reduce((total, item) => total + Number(item.count || 0), 0) || registryTotal;
-    const referenceCanvasTotal = (canvasAssetsData.canvases || []).filter(item => (item.kind || 'classic') === 'reference').length;
+    // 【QIN-531】画布卡片改为全量统计：智能画布 + 参考画布 + 普通画布一并计入，与其它分类卡片同构。
+    const canvasTotal = Array.isArray(canvasAssetsData.canvases) ? canvasAssetsData.canvases.length : 0;
     const stats = [
         {id:'', name:'资产总量', value:globalTotal, icon:'boxes', primary:true},
         {id:'image', name:'图片', value:registryCategoryCount('image'), icon:'image'},
@@ -9498,13 +9499,15 @@ function renderRegistryOverviewStats(){
         {id:'document', name:'文档', value:registryCategoryCount('document'), icon:'files'},
         {id:'model', name:'模型', value:registryCategoryCount('model'), icon:'box'},
         {id:'font', name:'字体', value:registryCategoryCount('font'), icon:'type'},
-        {id:'reference-canvas', name:'参考画布', value:referenceCanvasTotal, icon:'map', canvasType:true},
+        // 【QIN-531】卡片更名「画布」；data-registry-stat 仍沿用 reference-canvas，既有跳转不动。
+        {id:'reference-canvas', name:'画布', value:canvasTotal, icon:'map'},
         {id:'other', name:'其他', value:registryCategoryCount('other'), icon:'package-open'},
     ];
     return `<section class="registry-overview-stats" aria-label="资产统计">${stats.map(stat => {
         const ratio = globalTotal ? Math.round(Number(stat.value || 0) / globalTotal * 100) : 0;
         const active = registryStatCategory === stat.id;
-        return `<button type="button" class="registry-stat-card ${stat.primary ? 'primary' : ''} ${active ? 'active' : ''}" data-registry-stat="${escapeAttr(stat.id)}" aria-pressed="${active}"><span class="registry-stat-icon"><i data-lucide="${stat.icon}"></i></span><span class="registry-stat-copy"><small>${stat.name}</small><strong>${Number(stat.value || 0).toLocaleString('zh-CN')}</strong></span><em>${stat.primary ? '统一资产索引' : stat.canvasType ? '画布类型' : `${ratio}%`}</em><span class="registry-stat-meter" aria-hidden="true"><span style="--vault-ratio:${Math.min(100, Math.max(0, ratio))}%"></span></span></button>`;
+        // 双行结构：第 1 行名称 + 占比，第 2 行「图标 + 数量」与高光渐变进度条。
+        return `<button type="button" class="registry-stat-card ${stat.primary ? 'primary' : ''} ${active ? 'active' : ''}" data-registry-stat="${escapeAttr(stat.id)}" aria-pressed="${active}"><span class="registry-stat-icon"><i data-lucide="${stat.icon}"></i></span><span class="registry-stat-copy"><small>${stat.name}</small><strong>${Number(stat.value || 0).toLocaleString('zh-CN')}</strong></span><em>${stat.primary ? '统一资产索引' : `${ratio}%`}</em><span class="registry-stat-meter" aria-hidden="true"><span style="--vault-ratio:${Math.min(100, Math.max(0, ratio))}%"></span></span></button>`;
     }).join('')}</section>`;
 }
 async function toggleRegistryFeature(featureId){
@@ -10248,8 +10251,8 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"></i><span>排序</span><select class="asset-sort-select" id="registrySort" aria-label="资产排序"><option value="newest" ${registrySort==='newest'?'selected':''}>最近新增</option><option value="oldest" ${registrySort==='oldest'?'selected':''}>最早新增</option><option value="name" ${registrySort==='name'?'selected':''}>名称</option><option value="size_desc" ${registrySort==='size_desc'?'selected':''}>大小降序</option></select></label>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select></label>
+            <label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"></i><span>排序</span><select class="asset-sort-select" id="registrySort" aria-label="资产排序"><option value="newest" ${registrySort==='newest'?'selected':''}>最近新增</option><option value="oldest" ${registrySort==='oldest'?'selected':''}>最早新增</option><option value="name" ${registrySort==='name'?'selected':''}>名称</option><option value="size_desc" ${registrySort==='size_desc'?'selected':''}>大小降序</option></select><b class="registry-select-caret" aria-hidden="true"></b></label>
+            <label class="hw-btn registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select><b class="registry-select-caret" aria-hidden="true"></b></label>
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
             ${options.allowUrl ? '<button class="hw-btn" type="button" data-registry-add-url><i data-lucide="link"></i><span>添加 URL</span></button>' : ''}
@@ -12570,6 +12573,21 @@ async function linkSelectedRegistryAssets(){
 }
 async function handleClick(event){
     const target = event.target;
+    // 【QIN-531】排序/分组一体化胶囊：点击卡片任意区域都调起原生选择菜单，而不是只认 select 本体。
+    const selectCapsule = target.closest?.('.registry-toolbar-select');
+    if(selectCapsule && !target.closest?.('select')){
+        const select = selectCapsule.querySelector('select');
+        if(select){
+            event.preventDefault();
+            if(typeof select.showPicker === 'function'){
+                try { select.showPicker(); } catch(err) { select.focus(); }
+            } else {
+                select.focus();
+                select.click();
+            }
+            return;
+        }
+    }
     if(target.closest?.('[data-governance-refresh]')){
         await refreshGovernanceSuggestions();
         return;

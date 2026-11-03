@@ -125,38 +125,39 @@ body.gw-signal.gw-page--asset-manager .registry-overview-stats {
     border: 0 !important;
     background: transparent !important;
 }
+/* QIN-531：双行紧凑概览卡片。第 1 行 名称 + 占比（资产总量保留金底徽标），第 2 行 图标 + 数量 + 高光渐变进度条。 */
 html body.gw-signal.gw-page--asset-manager .registry-stat-card {
     --vault-meter: var(--vault-accent);
     display: grid;
-    grid-template-columns: 16px minmax(0,1fr) auto;
-    grid-template-rows: 14px 25px 4px;
-    gap: 4px;
-    padding: 8px;
-    min-height: 69px !important;
+    grid-template-columns: 16px minmax(0,auto) minmax(24px,1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    align-items: center;
+    column-gap: 6px;
+    row-gap: 3px;
+    padding: 5px 9px;
+    min-height: 44px !important;
     border: 1px solid var(--vault-line) !important;
-    border-radius: 8px !important;
-    background: var(--vault-well) !important;
-    box-shadow: inset 0 2px 4px rgb(0 0 0 / .22) !important;
+    border-radius: 7px !important;
+    background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
+    box-shadow: inset 0 1px rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .38) !important;
 }
 html body.gw-signal.gw-page--asset-manager .registry-stat-card:is(.active,:hover) { border-color: var(--vault-accent) !important; }
 body.gw-signal.gw-page--asset-manager .registry-stat-copy { display: contents; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card small { grid-area: 1 / 1 / 2 / 3;    white-space: nowrap;  font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-regular); letter-spacing:0;}
-body.gw-signal.gw-page--asset-manager .registry-stat-card strong { grid-area: 2 / 2 / 3 / 4; font: 700 var(--gw-type-body-lg)/25px var(--gw-font-mono); letter-spacing: 0; margin: 0; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card.primary strong { color: var(--vault-bright) !important;   font-family:var(--gw-font-body) !important; font-size:var(--gw-type-body-sm) !important; line-height:var(--gw-leading-body-sm) !important; font-weight:var(--gw-weight-medium) !important; letter-spacing:0 !important;}
-body.gw-signal.gw-page--asset-manager .registry-stat-card em { display: block; grid-area: 1 / 3; font: 700 var(--gw-type-label-md)/14px var(--gw-font-mono); color: var(--vault-meter) !important; white-space: nowrap; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card.primary em { padding: 0 3px; background: color-mix(in srgb,var(--vault-accent) 12%,transparent); opacity: 1; border-radius: 3px; }
-body.gw-signal.gw-page--asset-manager .registry-stat-icon { grid-area: 2 / 1; width: 16px; height: 25px; background: transparent !important; color: var(--vault-meter) !important; }
-body.gw-signal.gw-page--asset-manager .registry-stat-icon svg { width: 15px; height: 15px; }
-body.gw-signal.gw-page--asset-manager .registry-stat-meter { grid-area: 3 / 1 / 4 / 4; height: 4px; border-radius: 2px; overflow: hidden; background: var(--vault-bg); }
-body.gw-signal.gw-page--asset-manager .registry-stat-meter > span { display: block; height: 100%; width: var(--vault-ratio,0%); background: var(--vault-meter); }
+body.gw-signal.gw-page--asset-manager .registry-stat-card small { grid-area: 1 / 1 / 2 / 3; display: block; min-width: 0; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vault-muted); font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:14px; font-weight:var(--gw-weight-regular); letter-spacing:0;}
+body.gw-signal.gw-page--asset-manager .registry-stat-card strong { grid-area: 2 / 2 / 3 / 3; align-self: center; color: var(--vault-text); font: 700 var(--gw-type-body-md)/16px var(--gw-font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0; margin: 0; }
+body.gw-signal.gw-page--asset-manager .registry-stat-card.primary strong { color: var(--vault-gold) !important; }
+body.gw-signal.gw-page--asset-manager .registry-stat-card em { grid-area: 1 / 3 / 2 / 4; display: block; align-self: center; justify-self: end; color: var(--vault-meter) !important; font: 700 var(--gw-type-label-md)/14px var(--gw-font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: nowrap; }
+body.gw-signal.gw-page--asset-manager .registry-stat-card.primary em { padding: 0 4px; background: color-mix(in srgb,var(--vault-accent) 14%,transparent); border-radius: 3px; color: var(--vault-gold) !important; opacity: 1; }
+body.gw-signal.gw-page--asset-manager .registry-stat-icon { grid-area: 2 / 1 / 3 / 2; width: 16px; height: 16px; border-radius: 0; background: transparent !important; color: var(--vault-meter) !important; }
+body.gw-signal.gw-page--asset-manager .registry-stat-icon svg { width: 13px; height: 13px; }
+/* 深凹槽底轨 + 水平高光渐变填充（微光扩散阴影），高度 4px。 */
+body.gw-signal.gw-page--asset-manager .registry-stat-meter { grid-area: 2 / 3 / 3 / 4; align-self: center; height: 4px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb,#000 52%,var(--vault-well)); box-shadow: inset 0 1px 2px rgb(0 0 0 / .68); }
+body.gw-signal.gw-page--asset-manager .registry-stat-meter > span { display: block; height: 100%; width: var(--vault-ratio,0%); border-radius: inherit; background: linear-gradient(90deg,color-mix(in srgb,var(--vault-meter) 52%,#000) 0%,var(--vault-meter) 62%,color-mix(in srgb,var(--vault-meter) 68%,#fff) 100%); box-shadow: 0 0 6px color-mix(in srgb,var(--vault-meter) 50%,transparent); }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="video"] { --vault-meter: #22c5d5; }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="audio"] { --vault-meter: #bd8bf0; }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="model"] { --vault-meter: #26ba93; }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="document"] { --vault-meter: var(--vault-muted); }
-body.gw-signal.gw-page--asset-manager .registry-stat-card:is([data-registry-stat="reference-canvas"],[data-registry-stat="other"]) { text-align: center; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card:is([data-registry-stat="reference-canvas"],[data-registry-stat="other"]) :is(small,strong) { grid-column: 1 / 4; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card:is([data-registry-stat="reference-canvas"],[data-registry-stat="other"]) em { grid-area: 3 / 1 / 4 / 4; line-height: 9px; }
-body.gw-signal.gw-page--asset-manager .registry-stat-card:is([data-registry-stat="reference-canvas"],[data-registry-stat="other"]) :is(.registry-stat-icon,.registry-stat-meter) { display: none; }
 body.gw-signal.gw-page--asset-manager .asset-content { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar {
     display: flex;
