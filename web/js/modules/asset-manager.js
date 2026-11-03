@@ -6087,7 +6087,9 @@ function registryBoardCustomGroups(board=assetBoardById(activeTab)){
     return registryCustomGroups[registryBoardGroupKey(board)] || [];
 }
 function registryAssetFolderPath(item={}){
-    const relative = String(item.relative_path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    // 【QIN-527】素材库索引产物只带 canonical_relpath（relative_path 仅媒体产物有），
+    // 目录层级必须回退到 canonical_relpath，否则真实物理子目录会全部压到「根目录」。
+    const relative = String(item.relative_path || item.canonical_relpath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     const index = relative.lastIndexOf('/');
     return index > 0 ? relative.slice(0, index) : '';
 }
@@ -7179,14 +7181,26 @@ async function openRegistryAssetFromGlobalSearch(assetId, startTime = null){
     }
 }
 function registryNavFolderActive(){
+    // 【QIN-527】看板态以看板自身的来源/目录选择为准，机架与右网格共用同一口径
+    const board = assetRackBoard();
+    if(board) return Boolean(boardSourceSelection[board.id] || boardFolderSelection[board.id]);
     return Boolean(registryNavFolder.rootId || registryNavFolder.path);
 }
 function registryNavFolderMatches(item={}){
+    // 看板态由 customAssetLibraryItems 完成来源/目录收敛，此处不再二次叠加
+    if(assetRackBoard()) return true;
     if(!registryNavFolderActive()) return true;
     if(registryNavFolder.rootId && String(item.storage_root_id || '') !== registryNavFolder.rootId) return false;
     return registryAssetMatchesFolder(item, registryNavFolder.path);
 }
 function registryNavFolderLabel(){
+    const board = assetRackBoard();
+    if(board){
+        const rootName = assetRackBoardRoots(board).find(root => root.id === String(boardSourceSelection[board.id] || ''))?.name || '';
+        const path = String(boardFolderSelection[board.id] || '');
+        const folderName = path === '__root__' ? '根目录' : (path.split('/').filter(Boolean).pop() || '');
+        return [rootName, folderName].filter(Boolean).join(' / ');
+    }
     if(!registryNavFolderActive()) return '';
     const rootName = (registryFacets.roots || []).find(root => String(root.id || '') === registryNavFolder.rootId)?.name || '';
     const folderName = registryNavFolder.path.split('/').filter(Boolean).pop() || '';
@@ -8542,7 +8556,7 @@ function render(){
     renderBoardNavigation();
     const customLibraryActive = assetBoardById(activeTab)?.system === false;
     const pageClass = String(activeTab || 'assets').replace(/[^a-z0-9_-]/gi, '-');
-    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${activeTab === 'registry' && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}`;
+    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${(activeTab === 'registry' || customLibraryActive) && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}`;
     syncRegistryDetailGridWidth();
     if(activeTab === 'registry') renderRegistryManager();
     else if(activeTab === 'scripts') renderScriptAssetsManager();
@@ -9307,10 +9321,12 @@ function customAssetLibraryIncludesAsset(board,item={}){
     if(!board.sourceBoard && !sources.some(source => !source.hidden)) return false;
     return !board.automaticHidden;
 }
-function customAssetLibraryBaseItems(board){
+function customAssetLibraryBaseItems(board, options={}){
     const kinds = new Set(Array.isArray(board?.kinds) ? board.kinds : []);
     const extensions = new Set(Array.isArray(board?.extensions) ? board.extensions : []);
-    const sourceId = board?.sourceBoard ? String(board.rootId || '') : (boardSourceSelection[board?.id] || '');
+    // 【QIN-527】机架需要按来源分别计数，忽略当前来源选择才能避免其余来源计数被压成 0
+    const ignoreSourceSelection = Boolean(options.ignoreSourceSelection);
+    const sourceId = ignoreSourceSelection ? '' : (board?.sourceBoard ? String(board.rootId || '') : (boardSourceSelection[board?.id] || ''));
     const sources = Array.isArray(board?.sources) ? board.sources : [];
     const sourceIds = new Set([...sources.map(source => source.id), ...(board?.excludedSourceIds || [])]);
     const visibleSourceIds = new Set(sources.filter(source => !source.hidden).map(source => source.id));
@@ -9400,40 +9416,12 @@ function customBoardFolderTree(items=[], directories=[]){
     sortNodes(roots);
     return roots;
 }
-function renderCustomBoardFolderNode(board, node, depth=0){
-    const active = (boardFolderSelection[board.id] || '') === node.path;
-    const collapsed = (boardCollapsedFolders[board.id] || []).includes(node.path);
-    const hidden = customBoardFolderIsHidden(board.id, node.path);
-    const directlyHidden = (boardHiddenFolders[board.id] || []).includes(node.path);
-    const expandable = node.children.length > 0;
-    return `<div class="library-folder-branch">
-        <div class="library-folder-node ${hidden ? 'is-hidden' : ''}" style="--folder-depth:${Math.min(depth, 6)}">
-            ${expandable ? `<button class="library-folder-toggle" type="button" data-board-folder-toggle="${escapeAttr(node.path)}" data-board-id="${escapeAttr(board.id)}" aria-expanded="${!collapsed}" title="${collapsed ? '展开文件夹' : '折叠文件夹'}"><i data-lucide="${collapsed ? 'chevron-right' : 'chevron-down'}"></i></button>` : '<span class="library-folder-toggle-spacer" aria-hidden="true"></span>'}
-            <button class="library-folder-row ${active ? 'active' : ''}" type="button" data-board-folder="${escapeAttr(node.path)}" data-board-id="${escapeAttr(board.id)}" title="${escapeAttr(node.path)}"><i data-lucide="${active ? 'folder-open' : 'folder'}"></i><span>${escapeHtml(node.name)}</span><small>${node.count}</small></button>
-            <button class="library-folder-visibility ${hidden ? 'is-hidden' : ''}" type="button" data-board-folder-visibility="${escapeAttr(node.path)}" data-board-id="${escapeAttr(board.id)}" aria-pressed="${directlyHidden}" title="${directlyHidden ? '显示此文件夹内素材' : hidden ? '上级文件夹已隐藏' : '隐藏此文件夹内素材'}"><i data-lucide="${hidden ? 'eye-off' : 'eye'}"></i></button>
-        </div>
-        ${expandable && !collapsed ? `<div class="library-folder-children">${node.children.map(child => renderCustomBoardFolderNode(board, child, depth + 1)).join('')}</div>` : ''}
-    </div>`;
-}
 function saveCollapsedLibraryFolders(){
     try { localStorage.setItem(ASSET_LIBRARY_FOLDER_COLLAPSED_KEY, JSON.stringify(boardCollapsedFolders)); }
     catch(_) {}
 }
 function customBoardFolderParentPaths(nodes=[]){
     return nodes.flatMap(node => node.children.length ? [node.path, ...customBoardFolderParentPaths(node.children)] : []);
-}
-function renderCustomBoardFolders(board, items=[]){
-    const tree = customBoardFolderTree(items, customBoardCachedFolderEntries(board, items));
-    const active = boardFolderSelection[board.id] || '';
-    const rootCount = items.filter(item => !registryAssetFolderPath(item)).length;
-    return `<section class="registry-facet-section library-folder-section">
-        <div class="registry-facet-title"><strong>文件夹</strong><span class="library-folder-tree-actions"><em>${tree.length}</em><button type="button" data-board-folder-create="${escapeAttr(board.id)}" title="在当前目录新建文件夹" aria-label="新建文件夹"><i data-lucide="folder-plus"></i></button><button type="button" data-board-folder-expand-all="${escapeAttr(board.id)}" title="展开全部文件夹" aria-label="展开全部文件夹"><i data-lucide="unfold-vertical"></i></button><button type="button" data-board-folder-collapse-all="${escapeAttr(board.id)}" title="全部折叠" aria-label="全部折叠"><i data-lucide="fold-vertical"></i></button></span></div>
-        <div class="library-folder-list">
-            <button class="library-folder-row ${active ? '' : 'active'}" type="button" data-board-folder="" data-board-id="${escapeAttr(board.id)}" style="--folder-depth:0"><i data-lucide="folders"></i><span>全部文件夹</span><small>${items.length}</small></button>
-            ${rootCount ? `<button class="library-folder-row ${active === '__root__' ? 'active' : ''}" type="button" data-board-folder="__root__" data-board-id="${escapeAttr(board.id)}" style="--folder-depth:0"><i data-lucide="file-box"></i><span>根目录</span><small>${rootCount}</small></button>` : ''}
-            ${tree.map(node => renderCustomBoardFolderNode(board, node)).join('') || '<div class="tree-empty">暂无文件夹，可点击右上角新建</div>'}
-        </div>
-    </section>`;
 }
 function customBoardWritableRoots(board, parent=''){
     const baseItems = customAssetLibraryBaseItems(board);
@@ -9566,6 +9554,8 @@ function renderCustomBoardGroups(board, items=[]){
     const active = boardGroupSelection[board.id] || '';
     const availableIds = new Set(items.map(item => item.id));
     const groups = registryBoardCustomGroups(board);
+    // 【QIN-527】无分组时不再输出整段灰字说明，入口由工具栏「加入分组」承担
+    if(!groups.length) return '';
     return `<section class="registry-facet-section library-group-section">
         <div class="registry-facet-title"><strong>分组目录</strong><span>${groups.length}</span></div>
         <div class="library-group-list">
@@ -9573,7 +9563,7 @@ function renderCustomBoardGroups(board, items=[]){
             ${groups.map(group => {
                 const count = (group.assetIds || []).filter(id => availableIds.has(id)).length;
                 return `<button class="library-group-row ${active === group.id ? 'active' : ''}" type="button" data-board-group="${escapeAttr(group.id)}" data-board-id="${escapeAttr(board.id)}" title="${escapeAttr(group.name)}"><i data-lucide="bookmark"></i><span>${escapeHtml(group.name)}</span><small>${count}</small></button>`;
-            }).join('') || '<div class="tree-empty">选择素材后使用“加入分组”创建目录</div>'}
+            }).join('')}
         </div>
     </section>`;
 }
@@ -9587,10 +9577,12 @@ function customBoardReferenceCanvases(board, items=[]){
 function renderCustomBoardReferenceCanvases(board, items=[]){
     const active = boardReferenceCanvasSelection[board.id] || '';
     const canvases = customBoardReferenceCanvases(board, items);
+    // 【QIN-527】无参考画布时同样不再输出占位灰字
+    if(!canvases.length) return '';
     return `<section class="registry-facet-section library-reference-section">
         <div class="registry-facet-title"><strong>参考画布</strong><span>${canvases.length}</span></div>
         <div class="library-group-list">
-            ${canvases.map(canvas => `<button class="library-group-row ${active === canvas.id ? 'active' : ''}" type="button" data-board-reference-canvas="${escapeAttr(canvas.id)}" data-board-id="${escapeAttr(board.id)}" title="单击查看素材，双击进入完整画布"><i data-lucide="map"></i><span>${escapeHtml(canvas.title || '未命名参考画布')}</span><small>${canvas.boardAssetCount}</small></button>`).join('') || '<div class="tree-empty">保存参考画布后会显示在这里</div>'}
+            ${canvases.map(canvas => `<button class="library-group-row ${active === canvas.id ? 'active' : ''}" type="button" data-board-reference-canvas="${escapeAttr(canvas.id)}" data-board-id="${escapeAttr(board.id)}" title="单击查看素材，双击进入完整画布"><i data-lucide="map"></i><span>${escapeHtml(canvas.title || '未命名参考画布')}</span><small>${canvas.boardAssetCount}</small></button>`).join('')}
         </div>
     </section>`;
 }
@@ -9601,25 +9593,6 @@ function openReferenceCanvasDetail(canvasId){
 }
 function customBoardSourceCount(sourceId){
     return Number((registryFacets.roots || []).find(item => String(item.id || '') === String(sourceId || ''))?.count || 0);
-}
-function renderCustomBoardSources(board, automaticCount, totalCount){
-    const activeSource = board.sourceBoard ? String(board.rootId || '') : (boardSourceSelection[board.id] || '');
-    const visibleSources = (board.sources || []).filter(source => !source.hidden);
-    if(board.sourceBoard){
-        const source = visibleSources[0] || {id:board.rootId, name:board.name, path:''};
-        return `<section class="library-source-section">
-            <div class="registry-facet-title"><strong>素材来源</strong><span>已登记</span></div>
-            <div class="library-source-list"><button class="library-source-row active" type="button" aria-current="true" title="${escapeAttr(source.path || source.name)}"><span><i data-lucide="database"></i></span><b>${escapeHtml(source.name)}</b><small>${customBoardSourceCount(source.id)}</small></button></div>
-        </section>`;
-    }
-    return `<section class="library-source-section">
-        <div class="registry-facet-title"><strong>素材来源</strong><button type="button" data-board-source-settings="${escapeAttr(board.id)}" title="设置素材来源"><i data-lucide="settings-2"></i></button></div>
-        <div class="library-source-list">
-            <button class="library-source-row ${activeSource ? '' : 'active'}" type="button" data-board-source="" data-board-id="${escapeAttr(board.id)}"><span><i data-lucide="layers-3"></i></span><b>全部素材</b><small>${totalCount == null ? '' : Number(totalCount || 0)}</small></button>
-            ${board.automaticHidden ? '' : `<button class="library-source-row ${activeSource === '__automatic__' ? 'active' : ''}" type="button" data-board-source="__automatic__" data-board-id="${escapeAttr(board.id)}"><span><i data-lucide="sparkles"></i></span><b>自动归档</b><small>${automaticCount}</small></button>`}
-            ${visibleSources.map(source => `<button class="library-source-row ${activeSource === source.id ? 'active' : ''}" type="button" data-board-source="${escapeAttr(source.id)}" data-board-id="${escapeAttr(board.id)}" title="${escapeAttr(source.path)}"><span><i data-lucide="folder"></i></span><b>${escapeHtml(source.name)}</b><small>${customBoardSourceCount(source.id)}</small></button>`).join('')}
-        </div>
-    </section>`;
 }
 function customBoardTagEntries(items=[]){
     const counts = new Map();
@@ -10226,8 +10199,50 @@ function renderRegistryDetail(){
  * 顶部双段拨片在「目录层级」与「智能筛选」之间切换，状态落 localStorage；
  * 目录层级只呈现已登记素材库根目录与素材 relative_path 反映的真实物理子目录，
  * 点击节点直接收敛右网格（纯前端过滤，无整页刷新）；智能筛选收敛为紧凑硬件胶囊。
+ *
+ * QIN-527：同一套机架覆盖自定义资源库看板（Input / 剧本 / 制片等）。
+ * 看板态下「来源」= 看板绑定的素材来源，「目录」= 该来源素材 relative_path 反映的真实物理子目录；
+ * 选中的来源与目录写回看板既有状态（boardSourceSelection / boardFolderSelection），
+ * 因此素材增删改查、分组、参考画布等既有链路一律不变。
  * ------------------------------------------------------------------------- */
+function assetRackBoard(){
+    const board = assetBoardById(activeTab);
+    return board && board.system === false ? board : null;
+}
+function assetRackBoardPool(board=assetRackBoard()){
+    return board ? customAssetLibraryBaseItems(board, {ignoreSourceSelection:true}) : [];
+}
+function assetRackBoardRoots(board){
+    const pool = assetRackBoardPool(board);
+    const counts = new Map();
+    pool.forEach(item => {
+        const id = String(item.storage_root_id || '');
+        if(!id) return;
+        counts.set(id, (counts.get(id) || 0) + 1);
+    });
+    const sources = (board.sources || []).filter(source => !source.hidden);
+    const roots = sources.map(source => ({
+        id:String(source.id || ''),
+        name:String(source.name || '未命名来源'),
+        count:counts.get(String(source.id || '')) || 0,
+        availability:'',
+    })).filter(root => root.id);
+    if(!roots.length && board.sourceBoard && board.rootId){
+        const id = String(board.rootId);
+        roots.push({id, name:String(board.name || '未命名来源'), count:counts.get(id) || 0, availability:''});
+    }
+    if(!board.sourceBoard && !board.automaticHidden){
+        const known = new Set([...sources.map(source => String(source.id || '')), ...(board.excludedSourceIds || []).map(String)]);
+        const automaticCount = pool.filter(item => !known.has(String(item.storage_root_id || ''))).length;
+        if(automaticCount || boardSourceSelection[board.id] === '__automatic__'){
+            roots.push({id:'__automatic__', name:'自动归档', count:automaticCount, availability:''});
+        }
+    }
+    return roots;
+}
 function assetRackRoots(){
+    const board = assetRackBoard();
+    if(board) return assetRackBoardRoots(board);
     const facets = (registryFacets.roots || []).filter(root => String(root.availability || '') !== 'removed');
     if(facets.length){
         return facets.map(root => ({
@@ -10263,9 +10278,23 @@ function assetRackRegisteredFoldersByRoot(){
 }
 function assetRackFolderTree(rootId){
     const root = String(rootId || '');
+    const board = assetRackBoard();
+    if(board){
+        if(root === '__automatic__') return [];
+        const items = assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root);
+        const directories = (registryRootFolders.get(root) || []).map(folder => String(folder?.path || '')).filter(Boolean);
+        return customBoardFolderTree(items, directories);
+    }
     const items = registryAssets.filter(item => String(item.storage_root_id || '') === root);
     const directories = assetRackRegisteredFoldersByRoot().get(root) || [];
     return customBoardFolderTree(items, directories);
+}
+function assetRackRootOnlyCount(rootId){
+    // 看板态保留「根目录」节点：只筛选未落在任何子目录的素材
+    const board = assetRackBoard();
+    if(!board) return 0;
+    const root = String(rootId || '');
+    return assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root && !registryAssetFolderPath(item)).length;
 }
 function assetRackFolderKeys(){
     const keys = [];
@@ -10305,7 +10334,11 @@ function setAssetRackMode(mode){
         saveAssetRackCollapsed(false);
     }
     render();
-    if(next === 'folders') loadAssetRackRegisteredFolders().catch(() => null);
+    if(next === 'folders'){
+        const board = assetRackBoard();
+        if(board) loadCustomBoardFolderDirectories(board).catch(() => null);
+        else loadAssetRackRegisteredFolders().catch(() => null);
+    }
 }
 function setAssetRackCollapsed(collapsed){
     assetRackCollapsed = Boolean(collapsed);
@@ -10331,6 +10364,21 @@ function toggleAssetRackFoldersAll(){
 function selectAssetRackFolder(rootId, path){
     const root = String(rootId || '');
     const folder = String(path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const board = assetRackBoard();
+    if(board){
+        const currentRoot = String(boardSourceSelection[board.id] || '');
+        const currentFolder = String(boardFolderSelection[board.id] || '');
+        const same = currentRoot === root && currentFolder === folder;
+        boardSourceSelection[board.id] = same ? '' : root;
+        boardFolderSelection[board.id] = same ? '' : folder;
+        if(!same && folder && folder !== '__root__'){
+            const segments = folder.split('/').filter(Boolean);
+            segments.slice(0, -1).forEach((_segment, index) => assetRackExpandedFolders.add(`${root}::${segments.slice(0, index + 1).join('/')}`));
+            saveAssetRackExpandedFolders();
+        }
+        render();
+        return;
+    }
     const same = registryNavFolder.rootId === root && registryNavFolder.path === folder;
     registryNavFolder = same ? {rootId:'', path:''} : {rootId:root, path:folder};
     if(!same && folder){
@@ -10342,6 +10390,14 @@ function selectAssetRackFolder(rootId, path){
     render();
 }
 function clearAssetRackFolder(){
+    const board = assetRackBoard();
+    if(board){
+        if(!boardSourceSelection[board.id] && !boardFolderSelection[board.id]) return;
+        boardSourceSelection[board.id] = '';
+        boardFolderSelection[board.id] = '';
+        render();
+        return;
+    }
     if(!registryNavFolderActive()) return;
     registryNavFolder = {rootId:'', path:''};
     render();
@@ -10385,9 +10441,17 @@ function renderAssetRackRail(){
 }
 function renderAssetRackFolderToolbar(){
     const roots = assetRackRoots();
-    const targetRoot = registryNavFolder.rootId || (roots.length === 1 ? roots[0].id : '');
+    const board = assetRackBoard();
+    const selectedRoot = board ? String(boardSourceSelection[board.id] || '') : registryNavFolder.rootId;
+    const targetRoot = selectedRoot || (roots.length === 1 ? roots[0].id : '');
+    // 看板态复用既有「新建文件夹」弹窗（可选来源、创建实体目录），保持唯一写入链路
+    const createAttrs = board
+        ? `data-board-folder-create="${escapeAttr(board.id)}"`
+        : `data-asset-rack-folder-create="${escapeAttr(targetRoot)}"`;
+    const createTitle = board ? '新建文件夹' : '在根目录新建文件夹';
     return `<div class="asset-rack-tools" role="toolbar" aria-label="目录操作">
-        <button class="asset-rack-tool" type="button" data-asset-rack-folder-create="${escapeAttr(targetRoot)}" title="在根目录新建文件夹" aria-label="在根目录新建文件夹"><i data-lucide="folder-plus"></i></button>
+        <button class="asset-rack-tool" type="button" ${createAttrs} title="${createTitle}" aria-label="${createTitle}"><i data-lucide="folder-plus"></i></button>
+        ${board ? `<button class="asset-rack-tool" type="button" data-board-source-settings="${escapeAttr(board.id)}" title="设置素材来源" aria-label="设置素材来源"><i data-lucide="settings-2"></i></button>` : ''}
         <button class="asset-rack-tool" type="button" data-asset-rack-expand-all title="展开或折叠全部文件夹" aria-label="展开或折叠全部文件夹"><i data-lucide="unfold-vertical"></i></button>
         <button class="asset-rack-tool" type="button" data-asset-rack-clear-folder ${registryNavFolderActive() ? '' : 'disabled'} title="清除目录过滤" aria-label="清除目录过滤"><i data-lucide="rotate-ccw"></i></button>
     </div>`;
@@ -10395,34 +10459,54 @@ function renderAssetRackFolderToolbar(){
 function renderAssetRackFolderNode(rootId, node, depth=0){
     const root = String(rootId || '');
     const key = `${root}::${node.path}`;
-    const active = registryNavFolder.rootId === root && registryNavFolder.path === node.path;
+    const board = assetRackBoard();
+    const active = board
+        ? String(boardSourceSelection[board.id] || '') === root && String(boardFolderSelection[board.id] || '') === node.path
+        : registryNavFolder.rootId === root && registryNavFolder.path === node.path;
     const expanded = assetRackExpandedFolders.has(key);
     const expandable = node.children.length > 0;
+    // 看板态保留既有「隐藏此文件夹」能力，压成行内单图标，不新增工具栏占位
+    const hidden = board ? customBoardFolderIsHidden(board.id, node.path) : false;
+    const directlyHidden = board ? (boardHiddenFolders[board.id] || []).includes(node.path) : false;
+    const eye = board && node.path !== '__root__'
+        ? `<button class="asset-rack-folder-eye ${hidden ? 'is-hidden' : ''}" type="button" data-board-folder-visibility="${escapeAttr(node.path)}" data-board-id="${escapeAttr(board.id)}" aria-pressed="${directlyHidden}" title="${directlyHidden ? '显示此文件夹内素材' : hidden ? '上级文件夹已隐藏' : '隐藏此文件夹内素材'}"><i data-lucide="${hidden ? 'eye-off' : 'eye'}"></i></button>`
+        : '';
     return `<div class="asset-rack-branch">
         <div class="asset-rack-node ${active ? 'is-active' : ''}" style="--rack-depth:${Math.min(depth, 6)}">
             ${expandable
                 ? `<button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠文件夹' : '展开文件夹'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>`
                 : '<span class="asset-rack-twisty-spacer" aria-hidden="true"></span>'}
             <button class="asset-rack-folder" type="button" data-asset-rack-folder-root="${escapeAttr(root)}" data-asset-rack-folder-path="${escapeAttr(node.path)}" aria-pressed="${active}" title="${escapeAttr(node.path)}"><i data-lucide="${active ? 'folder-open' : 'folder'}"></i><span>${escapeHtml(node.name)}</span><em>${Number(node.count || 0)}</em></button>
+            ${eye}
         </div>
         ${expandable && expanded ? `<div class="asset-rack-children">${node.children.map(child => renderAssetRackFolderNode(root, child, depth + 1)).join('')}</div>` : ''}
     </div>`;
 }
 function renderAssetRackFolderRoots(){
     const roots = assetRackRoots();
-    if(!roots.length) return '<div class="asset-rack-empty">尚未登记素材库根目录</div>';
+    const board = assetRackBoard();
+    if(!roots.length){
+        // AC4：空状态不只给一行灰字，直接给可点的登记入口，闭环新手引导
+        return `<div class="asset-rack-empty-guide"><p>尚未登记素材库根目录</p><small>登记后即可按真实磁盘子目录浏览</small><button class="hw-btn hw-btn-gold asset-rack-empty-action" type="button" data-asset-rack-register-root><i data-lucide="folder-plus"></i><span>登记素材根目录</span></button></div>`;
+    }
     return roots.map(root => {
         const key = `${root.id}::${ASSET_RACK_ROOT_KEY}`;
         const expanded = assetRackExpandedFolders.has(key);
-        const active = registryNavFolder.rootId === root.id && !registryNavFolder.path;
+        const active = board
+            ? String(boardSourceSelection[board.id] || '') === root.id && !String(boardFolderSelection[board.id] || '')
+            : registryNavFolder.rootId === root.id && !registryNavFolder.path;
         const tree = expanded ? assetRackFolderTree(root.id) : [];
+        const rootOnly = board && root.id !== '__automatic__' ? assetRackRootOnlyCount(root.id) : 0;
         return `<section class="asset-rack-root ${active ? 'is-active' : ''}">
             <div class="asset-rack-root-row">
                 <button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠来源' : '展开来源'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>
                 <button class="asset-rack-root-btn" type="button" data-asset-rack-folder-root="${escapeAttr(root.id)}" data-asset-rack-folder-path="" aria-pressed="${active}" title="${escapeAttr(root.name)}"><i data-lucide="hard-drive"></i><span>${escapeHtml(root.name)}</span><em>${Number(root.count || 0)}</em></button>
             </div>
             ${root.availability === 'offline' ? '<div class="asset-rack-root-offline">来源离线</div>' : ''}
-            ${tree.length ? `<div class="asset-rack-children">${tree.map(node => renderAssetRackFolderNode(root.id, node)).join('')}</div>` : ''}
+            ${(tree.length || rootOnly) ? `<div class="asset-rack-children">
+                ${rootOnly ? renderAssetRackFolderNode(root.id, {path:'__root__', name:'根目录', count:rootOnly, children:[]}) : ''}
+                ${tree.map(node => renderAssetRackFolderNode(root.id, node)).join('')}
+            </div>` : ''}
         </section>`;
     }).join('');
 }
@@ -10433,19 +10517,32 @@ function assetRackKindLabel(kind=''){
     return ASSET_RACK_KIND_LABELS[key] || registryKindLabel(key);
 }
 function renderAssetRackKindBadges(){
+    const board = assetRackBoard();
+    const pool = board ? assetRackBoardPool(board) : null;
+    const countFor = kind => {
+        if(!board) return registryFacetKindCount(kind);
+        // 索引产物的 kind 常为 indexed，类型必须按扩展名归类，与服务端 facets 口径一致
+        return pool.filter(item => registryAssetCategory(item) === kind).length;
+    };
     const fallbackKinds = [
-        {id:'image', name:'image', count:registryFacetKindCount('image')},
-        {id:'video', name:'video', count:registryFacetKindCount('video')},
-        {id:'audio', name:'audio', count:registryFacetKindCount('audio')},
-        {id:'document', name:'document', count:registryFacetKindCount('document')},
-        {id:'model', name:'model', count:registryFacetKindCount('model')},
+        {id:'image', name:'image', count:0},
+        {id:'video', name:'video', count:0},
+        {id:'audio', name:'audio', count:0},
+        {id:'document', name:'document', count:0},
+        {id:'model', name:'model', count:0},
     ];
-    const kinds = (registryFacets.kinds || []).length ? registryFacets.kinds : fallbackKinds;
-    return `<div class="asset-rack-kind-grid">${kinds.map(item => {
+    const baseKinds = (registryFacets.kinds || []).length ? registryFacets.kinds : fallbackKinds;
+    // 看板态只展示本看板实际包含的类型，避免点了注定为空的类型
+    const kinds = board
+        ? baseKinds.filter(item => countFor(String(item.id || item.name || '')) > 0 || registryKind === String(item.id || item.name || ''))
+        : baseKinds;
+    const body = kinds.map(item => {
         const value = String(item.id || item.name || '');
         const active = registryKind === value;
-        return `<button type="button" class="asset-rack-kind ${active ? 'is-active' : ''}" data-registry-kind="${escapeAttr(value)}" aria-pressed="${active}" title="按${escapeAttr(assetRackKindLabel(item.name))}筛选"><i data-lucide="${escapeAttr(registryKindIcon(item.name))}"></i><span>${escapeHtml(assetRackKindLabel(item.name))}</span><em>${Number(item.count || 0)}</em></button>`;
-    }).join('')}</div>`;
+        const count = board ? countFor(value) : Number(item.count || 0);
+        return `<button type="button" class="asset-rack-kind ${active ? 'is-active' : ''}" data-registry-kind="${escapeAttr(value)}" aria-pressed="${active}" title="按${escapeAttr(assetRackKindLabel(item.name))}筛选"><i data-lucide="${escapeAttr(registryKindIcon(item.name))}"></i><span>${escapeHtml(assetRackKindLabel(item.name))}</span><em>${count}</em></button>`;
+    }).join('');
+    return `<div class="asset-rack-kind-grid">${body || '<div class="asset-rack-empty">本库暂无可筛选类型</div>'}</div>`;
 }
 function renderAssetRackRecentCapsules(){
     const options = [{value:0, label:'全部'}, {value:7, label:'近7天'}, {value:30, label:'近30天'}];
@@ -10455,7 +10552,11 @@ function renderAssetRackRecentCapsules(){
     }).join('')}</div>`;
 }
 function renderAssetRackTagCloud(){
-    const tags = registryTagsByGroup().flatMap(group => group.tags);
+    const board = assetRackBoard();
+    // 看板态只列本看板素材真实携带的标签，计数同样来自看板素材池
+    const tags = board
+        ? customBoardTagEntries(assetRackBoardPool(board))
+        : registryTagsByGroup().flatMap(group => group.tags);
     if(!tags.length) return '<div class="asset-rack-empty">暂无标签</div>';
     return `<div class="asset-rack-cloud">${tags.slice(0, 36).map(tag => {
         const include = registryIncludeTags.has(tag.id);
@@ -10480,14 +10581,23 @@ function renderAssetRackPresets(){
         ${presets.length ? `<div class="asset-rack-presets">${presets.map(item => `<span class="asset-rack-preset"><button type="button" data-registry-preset="${escapeAttr(item.id)}" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</button><button type="button" class="asset-rack-pill-x" data-registry-preset-delete="${escapeAttr(item.id)}" aria-label="删除预设"><i data-lucide="x"></i></button></span>`).join('')}</div>` : '<div class="asset-rack-empty">暂无预设</div>'}
     </section>`;
 }
+function renderAssetRackBoardExtras(board){
+    // 看板既有能力（分组目录 / 参考画布）压缩进筛选面板，保留入口且不再堆叠灰字
+    const items = customAssetLibraryBaseItems(board);
+    const extras = `${renderCustomBoardGroups(board, items)}${renderCustomBoardReferenceCanvases(board, items)}`;
+    return extras ? `<div class="asset-rack-board-extras">${extras}</div>` : '';
+}
 function renderAssetRackFilters(){
+    const board = assetRackBoard();
+    const registryScope = !board;
     return `<div class="asset-rack-pane" role="tabpanel" aria-label="智能筛选">
         <section class="asset-rack-group"><div class="asset-rack-label"><strong>时间跨度</strong></div>${renderAssetRackRecentCapsules()}</section>
         <section class="asset-rack-group"><div class="asset-rack-label"><strong>素材类型</strong></div>${renderAssetRackKindBadges()}</section>
-        ${renderRegistryProjectFacetSection()}
-        ${renderAssetRackCollections()}
-        <section class="asset-rack-group"><div class="asset-rack-label"><strong>标签与 AI 分类</strong><em>${(registryFacets.tags || []).length}</em></div>${renderAssetRackTagCloud()}</section>
-        ${renderAssetRackPresets()}
+        ${registryScope ? renderRegistryProjectFacetSection() : ''}
+        ${registryScope ? renderAssetRackCollections() : ''}
+        <section class="asset-rack-group"><div class="asset-rack-label"><strong>标签与 AI 分类</strong><em>${board ? customBoardTagEntries(assetRackBoardPool(board)).length : (registryFacets.tags || []).length}</em></div>${renderAssetRackTagCloud()}</section>
+        ${registryScope ? renderAssetRackPresets() : ''}
+        ${board ? renderAssetRackBoardExtras(board) : ''}
         <button type="button" class="hw-btn asset-rack-clear" data-registry-clear="all"><i data-lucide="x-circle"></i><span>清空智能筛选</span></button>
     </div>`;
 }
@@ -10498,9 +10608,9 @@ function renderAssetRackFolders(){
         <div class="asset-rack-tree" role="tree" aria-label="素材库目录层级">${renderAssetRackFolderRoots()}</div>
     </div>`;
 }
-function renderAssetRack(extraAttrs=''){
+function renderAssetRack(extraAttrs='', extraClass=''){
     const collapsed = assetRackCollapsed;
-    return `<aside class="asset-panel asset-nav registry-nav asset-rack ${collapsed ? 'is-collapsed' : ''}" ${extraAttrs}>
+    return `<aside class="asset-panel asset-nav registry-nav asset-rack ${extraClass} ${collapsed ? 'is-collapsed' : ''}" ${extraAttrs}>
         <header class="asset-rack-head">
             ${renderAssetRackSegmented()}
             <button class="asset-rack-collapse" type="button" data-asset-rack-collapse title="收起中栏为图标条" aria-label="收起中栏为图标条"><i data-lucide="chevrons-left"></i></button>
@@ -10527,7 +10637,6 @@ function renderRegistryManager(){
 function renderCustomAssetLibrary(board){
     if(!board){ activeTab = 'registry'; renderRegistryManager(); return; }
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
-    const sourceMatching = customAssetLibraryBaseItems(board);
     const matching = customAssetLibraryItems(board);
     const visible = registryVisibleAssetList(matching);
     if(selectedRegistryAssetId && !matching.some(item => item.id === selectedRegistryAssetId)){
@@ -10540,33 +10649,14 @@ function renderCustomAssetLibrary(board){
         : board.preset === 'other'
             ? '暂无可见资源。素材进入统一索引后会自动显示在这里。'
             : `暂无匹配的${preset.name.replace(/库$/, '')}资产。资产进入统一索引后会自动显示在这里。`;
-    const kindSummary = preset.kinds.map(registryKindLabel);
     const activeSourceId = board.sourceBoard ? String(board.rootId || '') : (boardSourceSelection[board.id] || '');
     const activeSource = (board.sources || []).find(source => source.id === activeSourceId) || null;
-    const knownSourceIds = [...new Set([...(board.sources || []).map(source => source.id), ...(board.excludedSourceIds || [])])];
-    const automaticCount = Math.max(0, registryCategoryCount(board.category) - knownSourceIds.reduce((total, sourceId) => total + customBoardSourceCount(sourceId), 0));
     const sourceLabel = activeSource ? activeSource.name : activeSourceId === '__automatic__' ? '自动归档' : '全部素材';
-    const sourceDescription = activeSource ? activeSource.path : activeSourceId === '__automatic__' ? preset.description : '显示本资源库全部可见来源';
     const activeFolderPath = boardFolderSelection[board.id] || '';
     const folderLabel = activeFolderPath === '__root__' ? '根目录' : activeFolderPath.split('/').filter(Boolean).pop() || '';
     const activeGroup = registryBoardCustomGroups(board).find(group => group.id === (boardGroupSelection[board.id] || '')) || null;
     const activeReferenceCanvas = (canvasAssetsData.canvases || []).find(canvas => canvas.id === (boardReferenceCanvasSelection[board.id] || '')) || null;
-    const boardTags = customBoardTagEntries(matching);
-    root.innerHTML = `<aside class="asset-panel asset-nav asset-context-nav library-board-nav">
-        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div><span class="library-board-mark"><i data-lucide="filter"></i></span></div>
-        <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-            ${renderAssetSmartFilterContents(board.name)}
-            <section class="asset-context-tree"><div class="nav-section-title">${escapeHtml(board.name)}</div>
-            ${renderCustomBoardSources(board, automaticCount, activeSourceId ? null : sourceMatching.length)}
-            <section class="library-board-summary"><span><i data-lucide="filter"></i></span><strong>${escapeHtml(sourceLabel)}</strong><p>${escapeHtml(sourceDescription)}</p><em>${matching.length} 个当前素材</em></section>
-            ${renderCustomBoardFolders(board, sourceMatching)}
-            ${renderCustomBoardGroups(board, sourceMatching)}
-            ${renderCustomBoardReferenceCanvases(board, sourceMatching)}
-            ${kindSummary.length ? `<section class="registry-facet-section"><div class="registry-facet-title"><strong>素材类型</strong></div>${kindSummary.map(name => `<div class="library-rule-row"><i data-lucide="check"></i><span>${escapeHtml(name)}</span></div>`).join('')}</section>` : ''}
-            <section class="registry-facet-section library-ai-section"><div class="registry-facet-title"><strong>AI 分类与标签</strong><span>${boardTags.length}</span></div>${boardTags.length ? `<div class="library-extension-list">${boardTags.map(tag => `<button class="${registryIncludeTags.has(tag.id) ? 'active' : ''}" type="button" data-registry-tag="${escapeAttr(tag.id)}" aria-pressed="${registryIncludeTags.has(tag.id)}">${escapeHtml(tag.name)} · ${tag.count}</button>`).join('')}</div>` : '<div class="tree-empty">暂无 AI 标签</div>'}</section>
-            <div class="nav-hint">${board.sourceBoard ? '此看板与已登记素材来源同步，新增文件会在索引后显示。' : '自动归档与用户路径相互独立，点击上方来源即可切换。'}</div></section>
-        </div>
-    </aside>
+    root.innerHTML = `${renderAssetRack('', 'library-board-nav')}
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(board, board.name, `${matching.length} 个匹配资产 · ${activeReferenceCanvas ? `参考画布：${activeReferenceCanvas.title || '未命名'}` : sourceLabel}${folderLabel ? ` · ${folderLabel}` : ''}${activeGroup ? ` · ${activeGroup.name}` : ''}`)}
         ${renderRegistryFilterChips()}
@@ -12485,6 +12575,12 @@ async function handleClick(event){
     const assetRackFolderCreate = target.closest?.('[data-asset-rack-folder-create]');
     if(assetRackFolderCreate){ await createAssetRackFolder(assetRackFolderCreate.dataset.assetRackFolderCreate || ''); return; }
     if(target.closest?.('[data-asset-rack-clear-folder]')){ clearAssetRackFolder(); return; }
+    // 【QIN-527】空状态引导：直接唤起登记素材来源/素材库根目录的既有弹窗
+    if(target.closest?.('[data-asset-rack-register-root]')){
+        const board = assetRackBoard();
+        openBoardSourceModal(board ? board.id : '', 'new');
+        return;
+    }
     const registryKindBtn = target.closest?.('[data-registry-kind]');
     if(registryKindBtn){ const value=registryKindBtn.dataset.registryKind||''; registryKind=registryKind===value?'':value; await refreshRegistryAssets(); return; }
     const registryRootBtn = target.closest?.('[data-registry-root]');
@@ -12498,7 +12594,7 @@ async function handleClick(event){
     const registryRemoveTag = target.closest?.('[data-registry-remove-tag]');
     if(registryRemoveTag){ const id=registryRemoveTag.dataset.registryRemoveTag||''; registryIncludeTags.delete(id); registryExcludeTags.delete(id); await refreshRegistryAssets(); return; }
     const registryClear = target.closest?.('[data-registry-clear]');
-    if(registryClear){ const key=registryClear.dataset.registryClear||''; if(key==='all'){ applyRegistryFilterDefinition({groupSimilar:registryGroupSimilar}); registryProjectFilterId=''; } else if(key==='project'){ registryProjectFilterId=''; } else if(key==='recent') registryRecentDays=0; else if(key==='kind') registryKind=''; else if(key==='category') registryStatCategory=''; else if(key==='collection') registryCollectionId=''; else if(key==='root') registryRootId=''; await refreshRegistryAssets(); return; }
+    if(registryClear){ const key=registryClear.dataset.registryClear||''; if(key==='all'){ applyRegistryFilterDefinition({groupSimilar:registryGroupSimilar}); registryProjectFilterId=''; const board = assetRackBoard(); if(board){ boardSourceSelection[board.id]=''; boardFolderSelection[board.id]=''; boardGroupSelection[board.id]=''; boardReferenceCanvasSelection[board.id]=''; } } else if(key==='project'){ registryProjectFilterId=''; } else if(key==='recent') registryRecentDays=0; else if(key==='kind') registryKind=''; else if(key==='category') registryStatCategory=''; else if(key==='collection') registryCollectionId=''; else if(key==='root') registryRootId=''; await refreshRegistryAssets(); return; }
     if(target.closest?.('[data-registry-preset-save]')){ await saveRegistryPreset(); return; }
     const registryPreset = target.closest?.('[data-registry-preset]');
     if(registryPreset){ const item=registryPresets.find(value=>value.id===(registryPreset.dataset.registryPreset||'')); if(item){applyRegistryFilterDefinition(item.definition||{});await refreshRegistryAssets();} return; }

@@ -1,0 +1,24 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 569,
+  "authorization_basis": "GitHub Issue #569 (QIN-527), 2026-11-03",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "web/pages/assets.html",
+    "tests/frontend/qin-489-asset-library-layout.test.mjs",
+    "tests/frontend/qin-527-custom-library-rack.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-569.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-527-custom-library-rack.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #569 (QIN-527), 2026-11-03",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-527：自定义资源库看板（Input / 剧本 / 制片等）中栏接入 QIN-524 双模机架，看板来源与真实物理子目录驱动过滤，分组目录、参考画布与隐藏文件夹能力保留；左栏重复智能筛选入口移除并按 AC3 更新 qin-489 旧断言；无根目录空状态给出登记引导。按用户 2026-11-03 授权，可改范围在票面 5 个文件外追加 web/pages/assets.html 与 tests/frontend/qin-489-asset-library-layout.test.mjs。分片按票号命名规则取 issue-569.json（issue-527.json 已被 QIN-506 占用）。"
+}
