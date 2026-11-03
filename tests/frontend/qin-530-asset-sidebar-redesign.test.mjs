@@ -5,6 +5,8 @@ import test from 'node:test';
 
 const html = readFileSync(new URL('../../web/pages/assets.html', import.meta.url), 'utf8');
 const controller = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
+const manager = readFileSync(new URL('../../web/js/modules/asset-manager.js', import.meta.url), 'utf8');
+const managerCss = readFileSync(new URL('../../web/css/pages/asset-manager.css', import.meta.url), 'utf8');
 
 class FakeElement {
   constructor(tagName = 'div') {
@@ -193,7 +195,7 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   assert.match(html, /\.asset-shell-overview-card\.is-active\s*\{[^}]*border-color:/);
   assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button::before\s*\{[^}]*content:\s*"" !important;[^}]*width:\s*14px/);
   assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button\s*\{[^}]*overflow:\s*visible !important/);
-  assert.match(html, /\.asset-shell-sidebar-actions \.hw-btn\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\)/);
+  assert.match(managerCss, /\.registry-toolbar-shell-actions\s*\{[^}]*display:\s*flex/);
   assert.match(html, /\.asset-shell-nav-empty\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\)/);
   assert.equal(walk(groups[0]).find(node => node.dataset.assetBoard === 'projects').classList.contains('is-active'), true);
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => button.children.some(child => child.className === 'card-connector-pin')));
@@ -219,7 +221,7 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   assert.equal(ui.frameTabs.find(tab => tab.dataset.tab === 'scripts').getAttribute('aria-selected'), 'true');
 });
 
-test('AC1/AC4 总览状态可见，底栏保留三键横排且高度约 40px', () => {
+test('AC1/AC14 总览状态可见，侧栏移除导入入口并把两个操作放在移出分组行末端', () => {
   const ui = loadSidebar([
     ['registry', '资产总览', true, 'library-big'],
     ['projects', '项目制片', false, 'clapperboard'],
@@ -228,12 +230,18 @@ test('AC1/AC4 总览状态可见，底栏保留三键横排且高度约 40px', (
   assert.equal(ui.overview.classList.contains('is-active'), true);
   assert.equal(ui.overview.getAttribute('aria-pressed'), 'true');
   assert.equal(ui.overviewCard.classList.contains('is-active'), true, '总览激活时整张外卡片高亮');
-  const footer = html.match(/<div class="asset-shell-sidebar-actions[\s\S]*?<\/div>\s*<\/aside>/)?.[0] || '';
-  assert.match(footer, /id="btnUnassignedInbox"/);
-  assert.match(footer, /onclick="WorkbenchAssets\.uploadAsset\(\)"[^>]*>[\s\S]*?<span>导入<\/span>/);
-  assert.match(footer, /id="assetSidebarSettings"/);
-  assert.equal((footer.match(/<button\b/g) || []).length, 3);
-  assert.match(html, /\.asset-shell-sidebar-actions\s*\{[^}]*height:\s*40px/);
+  assert.match(html, /<div id="assetSidebarActionState" hidden aria-hidden="true">[\s\S]*id="btnUnassignedInbox"/);
+  assert.doesNotMatch(html, /asset-shell-sidebar-actions/);
+  assert.doesNotMatch(html, /onclick="WorkbenchAssets\.uploadAsset\(\)"[^>]*title="导入外部资产文件"/);
+  const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
+  const toolbarEnd = manager.indexOf('function renderRegistryEditableTags(', toolbarStart);
+  const toolbar = manager.slice(toolbarStart, toolbarEnd);
+  const groupActions = toolbar.match(/<div class="registry-toolbar-group-actions">([\s\S]*?)<\/div>\s*<\/div>/)?.[1] || '';
+  assert.match(groupActions, /data-registry-group-remove[\s\S]*data-vault-shell-unassigned[\s\S]*data-vault-shell-settings/);
+  assert.match(manager, /onclick="parent\.GWUnassignedInbox\.open\(\)"/);
+  assert.match(manager, /onclick="parent\.WorkbenchAssets\.openAssetSettings\(\)"/);
+  assert.match(managerCss, /\.registry-toolbar-group-actions\s*\{[^}]*margin-left:\s*auto/);
+  assert.match(controller, /function syncToolbarEntry\(button = entry\(\)\)/);
   assert.match(html, /#assetCategories::before\s*\{[^}]*linear-gradient\(to bottom,#dfc384/);
   assert.match(controller, /className = 'card-connector-pin'/);
   assert.match(html, /#dfc384/);

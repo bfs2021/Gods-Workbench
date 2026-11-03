@@ -47,12 +47,21 @@ test('AC2: 状态显示在固定顶栏并从嵌入资产管理器回写', () => 
     assert.match(manager, /embeddedVault \? '' : `<div id="assetStatus"/);
 });
 
-test('AC3: 资产设置入口固定在左栏底部并转发到现有动作', () => {
+test('AC3/AC14: 左栏移除导入按钮，资产操作放在移出分组行末端', () => {
     // 【QIN-527】左栏底部重复的「智能筛选」按钮已移除，入口收敛到中栏双模机架拨片
     assert.doesNotMatch(html, /id="assetSidebarSmartFilter"/);
     assert.doesNotMatch(html, /WorkbenchAssets\.toggleSmartFilter\(\)/);
-    assert.match(html, /id="assetSidebarSettings"[^>]*onclick="WorkbenchAssets\.openAssetSettings\(\)"/);
-    assert.match(html, /class="asset-shell-sidebar-actions[^]*?id="btnUnassignedInbox"[^]*?WorkbenchAssets\.uploadAsset\(\)[^]*?id="assetSidebarSettings"/);
+    assert.match(html, /<div id="assetSidebarActionState" hidden aria-hidden="true">[\s\S]*id="btnUnassignedInbox"/);
+    assert.doesNotMatch(html, /asset-shell-sidebar-actions|assetSidebarSettings|WorkbenchAssets\.uploadAsset\(\)/);
+    const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
+    const toolbarEnd = manager.indexOf('function renderRegistryEditableTags(', toolbarStart);
+    const toolbar = manager.slice(toolbarStart, toolbarEnd);
+    const groupActions = toolbar.match(/<div class="registry-toolbar-group-actions">([\s\S]*?)<\/div>\s*<\/div>/)?.[1] || '';
+    assert.match(groupActions, /data-registry-group-remove[\s\S]*data-vault-shell-unassigned[\s\S]*data-vault-shell-settings/);
+    assert.match(toolbar, /onclick="parent\.GWUnassignedInbox\.open\(\)"/);
+    assert.match(toolbar, /onclick="parent\.WorkbenchAssets\.openAssetSettings\(\)"/);
+    assert.match(managerCss, /\.registry-toolbar-group-actions\s*\{[^}]*margin-left:\s*auto/);
+    assert.match(shell, /function syncToolbarEntry\(button = entry\(\)\)/);
     assert.match(shell, /async function openAssetSettings\(\)/);
     assert.match(shell, /#assetBoardTabs \[data-board-settings-open\]/);
     assert.match(vaultCss, /registry-toolbar \.vault-filters-toggle \{ display: none !important; }/);

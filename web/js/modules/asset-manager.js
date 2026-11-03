@@ -10223,6 +10223,23 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
     const coverflowAvailable = registryCoverflowAssets(board).length > 0;
     const coverflowLabel = coverflowAvailable ? '打开当前素材库 Coverflow' : '当前素材库没有图片或视频';
     const coverflowControl = `<button class="hw-btn registry-coverflow-open" type="button" data-registry-coverflow-open ${coverflowAvailable ? '' : 'disabled'} aria-label="${coverflowLabel}" title="${coverflowLabel}"><i data-lucide="images"></i><span>Coverflow</span></button>`;
+    const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
+    let shellUnassignedSource = null;
+    if(embeddedVault){
+        try { shellUnassignedSource = window.parent.document.getElementById('btnUnassignedInbox'); }
+        catch (_) { shellUnassignedSource = null; }
+    }
+    const shellUnassignedCount = shellUnassignedSource?.querySelector('[data-unassigned-count]')?.textContent || '';
+    const shellUnassignedVisibility = shellUnassignedSource?.style.display === 'none' ? ' style="display:none"' : '';
+    const groupActions = embeddedVault ? `<div class="registry-toolbar-group-actions">
+        <button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
+        <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>
+        <div class="registry-toolbar-shell-actions" aria-label="资产库操作">
+            <button class="hw-btn" type="button" data-vault-shell-unassigned${shellUnassignedVisibility} onclick="parent.GWUnassignedInbox.open()" title="尚未归属任何项目的资产（仅本人可见）"><i data-lucide="inbox"></i><span>未归属</span><span data-unassigned-count>${escapeHtml(shellUnassignedCount)}</span></button>
+            <button class="hw-btn" type="button" data-vault-shell-settings onclick="parent.WorkbenchAssets.openAssetSettings()" title="打开资产库设置"><i data-lucide="settings-2"></i><span>资产设置</span></button>
+        </div>
+    </div>` : `<button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
+            <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>`;
     return `<div class="content-toolbar registry-toolbar">
         ${options.hideHeading ? '' : `<div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>`}
         <div class="registry-toolbar-controls">
@@ -10236,8 +10253,7 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
             ${options.allowUrl ? '<button class="hw-btn" type="button" data-registry-add-url><i data-lucide="link"></i><span>添加 URL</span></button>' : ''}
-            <button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
-            <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>
+            ${groupActions}
         </div>
     </div>`;
 }

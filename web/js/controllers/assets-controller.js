@@ -99,6 +99,22 @@ window.GWUnassignedInbox = (() => {
 
   function entry() { return document.getElementById('btnUnassignedInbox'); }
 
+  function syncToolbarEntry(button = entry()) {
+    const frame = document.getElementById('assetVaultFrame');
+    let toolbarButton = null;
+    try { toolbarButton = frame?.contentDocument?.querySelector('[data-vault-shell-unassigned]') || null; }
+    catch (_) { return; }
+    if (!button || !toolbarButton) return;
+    toolbarButton.style.display = button.style.display === 'none' ? 'none' : '';
+    const count = button.querySelector('[data-unassigned-count]')?.textContent || '';
+    const toolbarCount = toolbarButton.querySelector('[data-unassigned-count]');
+    if (toolbarCount) toolbarCount.textContent = count;
+    const failed = button.dataset?.unassignedLoadState === 'error';
+    toolbarButton.title = failed ? '未归属资产暂时无法读取，点击重试' : '尚未归属任何项目的资产（仅本人可见）';
+    if (button.dataset?.unassignedLoadState) toolbarButton.dataset.unassignedLoadState = button.dataset.unassignedLoadState;
+    else delete toolbarButton.dataset.unassignedLoadState;
+  }
+
   function clearEntryError(button) {
     document.getElementById('unassignedInboxEntryStatus')?.remove();
     button?.removeAttribute('aria-describedby');
@@ -135,15 +151,18 @@ window.GWUnassignedInbox = (() => {
       const count = button.querySelector('[data-unassigned-count]');
       if (count) count.textContent = String(snapshot.total);
       if (button.dataset) button.dataset.unassignedLoadState = 'ready';
+      syncToolbarEntry(button);
       return 'shown';
     } catch (error) {
       if (error.status === 401 || error.status === 403) {
         clearEntryError(button);
         button.style.display = 'none';
+        syncToolbarEntry(button);
         return 'hidden';
       }
       button.style.display = '';
       showEntryError(button);
+      syncToolbarEntry(button);
       return 'error';
     }
   }

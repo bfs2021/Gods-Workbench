@@ -1437,6 +1437,10 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-toolbar .content-heading { flex:0 0 150px; }
 .registry-toolbar-controls { min-width:0; flex:1; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:5px; }
 .registry-toolbar .asset-search-wrap { min-width:170px; flex:1 1 210px; width:auto; }
+.registry-toolbar-group-actions { display:flex; flex:0 0 auto; align-items:center; gap:5px; max-width:100%; margin-left:auto; overflow-x:auto; white-space:nowrap; }
+.registry-toolbar-shell-actions { display:flex; flex:0 0 auto; align-items:center; gap:5px; }
+.registry-toolbar-group-actions > .hw-btn,
+.registry-toolbar-shell-actions > .hw-btn { flex:0 0 auto; white-space:nowrap; }
 /* 排序/分组标签保留文字说明，边框只放在真实 select 上。 */
 .registry-toolbar-select { position:relative; flex:0 0 auto; display:inline-flex; align-items:center; padding:0; gap:5px; border:0; border-radius:0; background:transparent; box-shadow:none; }
 .registry-toolbar-select > span { color:#d1d5db; font-size: var(--gw-type-label-md); }
