@@ -212,6 +212,43 @@ test('AC2 补充: 自动归档同样下钻真实子目录，目录索引补齐�
     assert.match(library, /ensureAssetRackDirectoryIndex\(\)/, '看板渲染入口必须触发目录索引补齐');
 });
 
+test('AC2 补充: 目录树必须合并磁盘真实子目录，新根目录默认展开', () => {
+    // 素材路径只能推出「有素材的目录」，磁盘上的空目录（如 3d/、111111111/）必须走磁盘浏览
+    const disk = functionSource('loadAssetRackDiskFolders');
+    assert.match(disk, /\/api\/storage-settings\/browse\?path=/, '磁盘子目录必须走只读目录浏览接口');
+    assert.match(disk, /credentials:'same-origin'/, '目录浏览必须携带会话凭证');
+    assert.match(disk, /__automatic__/, '自动归档必须聚合池内各素材根的磁盘目录');
+    assert.match(disk, /registryDiskFolderCache\.set\(key, \[\]\)/, '浏览失败（404/无权）必须静默降级为空，不得报错');
+    assert.match(disk, /await loadAssetAllowedRootPaths\(\)/, '浏览前必须先解析允许根路径映射');
+
+    // 历史索引根（root_xxx）不在本机库清单里，路径只能从允许根快照取
+    const allowed = functionSource('loadAssetAllowedRootPaths');
+    assert.match(allowed, /\/api\/storage-settings\/roots/, '必须读取允许根快照解析根目录磁盘路径');
+    assert.match(allowed, /catch\(_\) \{\}/, '快照不可读（editor 403）必须静默降级');
+
+    const rootPath = functionSource('assetRackRootDiskPath');
+    assert.match(rootPath, /source\?\.path/, '看板来源优先用看板绑定的路径');
+    assert.match(rootPath, /assetAllowedRootPaths\.get\(id\)/, '历史索引根必须回退到允许根快照');
+
+    const tree = functionSource('assetRackFolderTree');
+    assert.match(tree, /assetRackDiskDirectories\(root\)/, '普通来源建树必须合并磁盘目录');
+    assert.match(tree, /assetRackDiskDirectoriesForItems\(items\)/, '自动归档建树必须合并各素材根的磁盘目录');
+
+    // 新登记的根目录必须默认展开：旧逻辑只在 localStorage 为空时 seed 一次，此后新根永远折叠
+    const expand = functionSource('ensureAssetRackRootsExpanded');
+    assert.match(expand, /ASSET_RACK_KNOWN_ROOTS_KEY/, '必须持久化已知根目录集合以区分新根');
+    assert.match(expand, /assetRackExpandedFolders\.add/, '新出现的根目录必须写入展开集合');
+    assert.match(
+        functionSource('renderAssetRackFolders'),
+        /ensureAssetRackRootsExpanded\(\)/,
+        '目录层级渲染必须先确保根目录展开'
+    );
+
+    // 子目录展开时懒加载磁盘深层
+    const toggle = functionSource('toggleAssetRackFolder');
+    assert.match(toggle, /loadAssetRackDiskFolders\(rootId, path\)/, '展开目录节点必须懒加载磁盘子目录');
+});
+
 test('AC5: 测试登记到 node-files.txt 并完成卫生准入分片', () => {
     assert.match(
         NODE_FILES,
