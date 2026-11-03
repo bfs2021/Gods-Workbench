@@ -332,6 +332,8 @@ KNOWN_IMPLEMENTED = frozenset(
         # 2026-11-01 QIN-510：视频九宫格预生成（202 + 稳定 job_id），前端生成入口真实引用。
         "/api/asset-thumbnails/generate-storyboards",
         "/api/asset-thumbnails/jobs/{p}",
+        # 2026-11-03 QIN-525：全库预热任务暂停 / 继续 / 取消。
+        "/api/asset-thumbnails/jobs/{p}/control",
         "/api/asset-thumbnails/settings",
         "/api/audio-waveform-data",
         "/api/download-output",
@@ -477,6 +479,8 @@ KNOWN_BACKEND_PATHS = frozenset(
         # 2026-11-01 QIN-510：视频九宫格预生成（202 + 稳定 job_id），前端生成入口真实引用。
         "/api/asset-thumbnails/generate-storyboards",
         "/api/asset-thumbnails/jobs/{p}",
+        # 2026-11-03 QIN-525：全库预热任务暂停 / 继续 / 取消。
+        "/api/asset-thumbnails/jobs/{p}/control",
         "/api/asset-thumbnails/settings",
         "/api/audio-waveform-data",
         "/api/download-output",

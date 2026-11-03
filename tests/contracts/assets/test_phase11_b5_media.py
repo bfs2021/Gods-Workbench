@@ -40,9 +40,9 @@ def path(p):
 
 def test_b5_contract_and_fixtures():
     ps = pairs()
-    assert len(ps) == 16 and len({p for _, p in ps}) == 14
+    assert len(ps) == 17 and len({p for _, p in ps}) == 15
     f = json.loads((FIX / "phase11-b5-media-boundary.json").read_text(encoding="utf-8"))
-    assert f["path_count"] == 14 and f["method_path_count"] == 16
+    assert f["path_count"] == 15 and f["method_path_count"] == 17
     assert "p12-a4-1" in CATALOG.read_text(encoding="utf-8")
     for n in ("phase11-b5-media-boundary.json", "phase11-b5-fail-closed.json",
               "phase11-b5-async-policy.json"):

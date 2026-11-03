@@ -68,6 +68,8 @@ tests/frontend/qin-518-registry-virtual-scroll-smooth.test.mjs
 tests/frontend/qin-519-preview-all-button.test.mjs
 tests/frontend/qin-523-cache-exclusion-hint.test.mjs
 tests/frontend/qin-524-asset-nav-redesign.test.mjs
+tests/frontend/qin-525-preview-cache-control.test.mjs
+tests/frontend/qin-525-preview-cache-merge.test.mjs
 tests/frontend/qin-526-recycle-bin-governance.test.mjs
 tests/frontend/qin-527-custom-library-rack.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs

@@ -24,6 +24,7 @@ interfaces:
   - {name: post_asset_thumbnail_generate_background, method: POST, path: /api/asset-thumbnails/generate-background}
   - {name: post_asset_thumbnail_generate_storyboards, method: POST, path: /api/asset-thumbnails/generate-storyboards}
   - {name: get_asset_thumbnail_job, method: GET, path: /api/asset-thumbnails/jobs/{p}}
+  - {name: post_asset_thumbnail_job_control, method: POST, path: /api/asset-thumbnails/jobs/{p}/control}
   - {name: get_audio_waveform_data, method: GET, path: /api/audio-waveform-data}
   - {name: get_download_output, method: GET, path: /api/download-output}
   - {name: get_media_preview, method: GET, path: /api/media-preview}

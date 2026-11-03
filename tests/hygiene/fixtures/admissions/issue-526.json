@@ -5,6 +5,15 @@
   "files": [
     "web/js/core/workbench-shell.js",
     "web/pages/projects.html",
+    "web/pages/agents.html",
+    "web/pages/assets.html",
+    "web/pages/collab.html",
+    "web/pages/index.html",
+    "web/pages/production.html",
+    "web/pages/settings.html",
+    "web/pages/storyboard.html",
+    "web/pages/workflow.html",
+    "web/pages/workshop.html",
     "web/js/controllers/projects-controller.js",
     "web/js/modules/asset-manager.js",
     "web/css/pages/projects.css",
@@ -16,7 +25,8 @@
     "tests/frontend/qin-526-recycle-bin-governance.test.mjs",
     "tests/frontend/node-files.txt",
     "tests/hygiene/fixtures/admissions/issue-526.json",
-    "tests/hygiene/test_cleanroom_hygiene.py"
+    "tests/hygiene/test_cleanroom_hygiene.py",
+    "tests/frontend/qin-475-settings-ui-polish.test.mjs"
   ],
   "admitted_files": [],
   "accepted_test_files": [
