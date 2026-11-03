@@ -1131,10 +1131,16 @@ def delete_registry_asset(
             if exc.status_code == 404:
                 raise CleanroomException(404, "ASSET_NOT_FOUND", f"素材 {asset_id} 不存在")
             raise
-    result = repo.delete_asset(asset_id, _version(_payload(payload), required=True), context)
+    request_payload = _payload(payload)
+    recycler_mode = str(request_payload.get("recycler_mode") or "managed")
+    if recycler_mode not in {"source", "managed"}:
+        raise CleanroomException(400, "INVALID_REQUEST", "回收目录模式不合法")
+    result = repo.delete_asset(asset_id, _version(request_payload, required=True), context)
     from gw.asset_registry import lifecycle
     try:
-        operation = lifecycle.recycle_asset(asset_id, result, context)
+        operation = lifecycle.recycle_asset(
+            asset_id, result, context, recycler_mode=recycler_mode
+        )
         if operation is not None:
             result = {**result, "operation": operation}
     except Exception:

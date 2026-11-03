@@ -1,0 +1,138 @@
+.hw-drawer-panel#unifiedGlobalTrashDrawer {
+  width: min(1120px, 92vw);
+  max-width: 92vw;
+}
+
+.gw-trash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+}
+
+.gw-trash-toolbar .hw-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.gw-trash-toolbar svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.gw-recycler-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 72%);
+  backdrop-filter: blur(5px);
+}
+
+.gw-recycler-modal {
+  width: min(36rem, 94vw);
+  max-height: min(90vh, 46rem);
+  overflow: auto;
+  border: 1px solid rgb(223 195 132 / 40%);
+  border-radius: 1rem;
+  background: #0b0d12;
+  color: #e8e4dc;
+  box-shadow: 0 1rem 4rem rgb(0 0 0 / 55%);
+  outline: none;
+}
+
+.gw-recycler-modal > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+}
+
+.gw-recycler-modal > header h2 {
+  margin: 0;
+  color: #f2e8d1;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.gw-recycler-modal > header button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #e8e4dc;
+  cursor: pointer;
+  font-size: 1.25rem;
+}
+
+.gw-recycler-modal-body {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.2rem;
+  color: #bdc0c6;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.gw-recycler-modal-body label {
+  color: #e8e4dc;
+}
+
+.gw-recycler-path-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gw-recycler-path-row input {
+  min-width: 0;
+  min-height: 2.5rem;
+  flex: 1 1 auto;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 0.5rem;
+  background: #06070a;
+  padding: 0.5rem 0.7rem;
+  color: #f8f6f0;
+  font: inherit;
+}
+
+.gw-recycler-modal-help {
+  margin: 0;
+  color: #8f9299;
+}
+
+.gw-recycler-modal-error {
+  margin: 0;
+  color: #fca5a5;
+}
+
+.gw-recycler-modal-body footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .gw-trash-toolbar {
+    gap: 0.25rem;
+  }
+
+  .gw-trash-toolbar .hw-btn {
+    gap: 0.2rem;
+    padding-inline: 0.5rem;
+    font-size: 0.72rem;
+  }
+
+  .gw-recycler-path-row {
+    flex-direction: column;
+  }
+}

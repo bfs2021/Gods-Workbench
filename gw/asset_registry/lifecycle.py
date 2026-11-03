@@ -281,16 +281,80 @@ def rename_file(asset_id: str, payload: dict[str, Any], actor: Any) -> dict[str,
     }
 
 
-def _recycler_dir(kind: str, op_id: str) -> Path:
+def _recycler_dir(
+    kind: str,
+    op_id: str,
+    *,
+    asset_root_id: str | None = None,
+    recycler_mode: str = "managed",
+) -> tuple[Path, str | None]:
     date = storage.now_iso()[:10]
     safe_kind = "".join(ch for ch in kind if ch.isalnum() or ch == "-") or "other"
-    return storage.resolve_output_directory(
-        f"{_RECYCLER_RELATIVE}/{safe_kind}/{date}/{op_id}", must_exist=False
-    )
+    relative = f"{_RECYCLER_RELATIVE}/{safe_kind}/{date}/{op_id}"
+    from gw.settings.service import default_storage_settings_service
+
+    snapshot = default_storage_settings_service.get_snapshot()
+    trash_root = str((snapshot.dirs or {}).get("trash") or "").strip()
+    from gw.asset_library.repository import _local_root_identity
+
+    if trash_root:
+        # 自定义目录必须仍在当前准入根内；删除配置不能绕过允许根校验。
+        normalized = storage.validate_mount(trash_root)
+        root, _ = storage.resolve_asset_registration_root(normalized)
+        directory = storage.resolve_within_roots(
+            str(Path(normalized) / "god-recycler" / safe_kind / date / op_id)
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        directory = storage.resolve_within_roots(str(directory))
+        return directory, _local_root_identity(root)
+
+    if recycler_mode == "source":
+        selected_root_id = storage.coerce_root_id(asset_root_id)
+        root = next(
+            (
+                candidate
+                for candidate in storage.allowed_roots()
+                if storage.root_identity_id(candidate) == selected_root_id
+            ),
+            None,
+        )
+        if root is None or not asset_root_id:
+            raise CleanroomException(
+                409, "RECYCLE_ROOT_UNAVAILABLE", "素材来源允许根当前不可用，无法跟随素材盘回收"
+            )
+        directory = storage.resolve_request_path(
+            f"god-recycler/{safe_kind}/{date}/{op_id}", root_id=asset_root_id
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        directory = storage.resolve_request_path(
+            f"god-recycler/{safe_kind}/{date}/{op_id}", root_id=asset_root_id
+        )
+        return directory, _local_root_identity(root)
+
+    directory = storage.resolve_output_directory(relative, must_exist=False)
+    directory.mkdir(parents=True, exist_ok=True)
+    return storage.resolve_output_directory(relative, must_exist=True), None
+
+
+def _recycler_path_reference(path: Path, recycler_root_id: str | None) -> str:
+    if recycler_root_id:
+        root = _allowed_root_for_identity(recycler_root_id).resolve()
+        return path.resolve().relative_to(root).as_posix()
+    return path.resolve().relative_to(storage.data_root().resolve()).as_posix()
+
+
+def _resolve_recycler_path(path: str, recycler_root_id: str | None) -> Path:
+    if recycler_root_id:
+        return storage.resolve_request_path(path, root_id=recycler_root_id)
+    return storage.resolve_output_path(path)
 
 
 def recycle_asset(
-    asset_id: str, delete_result: dict[str, Any], actor: Any
+    asset_id: str,
+    delete_result: dict[str, Any],
+    actor: Any,
+    *,
+    recycler_mode: str = "managed",
 ) -> dict[str, Any]:
     """把原文件、manifest 与已登记派生物物理移入受控回收目录。"""
     from gw.asset_library.repository import (
@@ -311,8 +375,12 @@ def recycle_asset(
     source = _local_file_from_record(repo, asset)
     fingerprint = _fingerprint(source)
     op_id = _next_id("fop_")
-    directory = _recycler_dir(str(asset.get("kind") or "other"), op_id)
-    directory.mkdir(parents=True, exist_ok=True)
+    directory, recycler_root_id = _recycler_dir(
+        str(asset.get("kind") or "other"),
+        op_id,
+        asset_root_id=str(asset.get("root_id") or "") or None,
+        recycler_mode=recycler_mode,
+    )
     original_target = directory / ("original" + source.suffix.lower())
     if original_target.exists():
         raise CleanroomException(409, "RECYCLE_TARGET_EXISTS", "回收目标路径已存在")
@@ -354,7 +422,7 @@ def recycle_asset(
                 "name": plan_target.name,
                 "path": plan_target.name,
                 "source": _file_record(plan_source),
-                "recycler_path": plan_target.relative_to(storage.data_root()).as_posix(),
+                "recycler_path": _recycler_path_reference(plan_target, recycler_root_id),
             }
         )
 
@@ -364,7 +432,10 @@ def recycle_asset(
         "asset_id": asset_id,
         "actor": str(getattr(actor, "subject", "") or getattr(actor, "role", "")),
         "source": _file_record(source),
-        "target": {"recycler_dir": directory.relative_to(storage.data_root()).as_posix()},
+        "target": {
+            "recycler_dir": _recycler_path_reference(directory, recycler_root_id),
+            **({"recycler_root_id": recycler_root_id} if recycler_root_id else {}),
+        },
         "fingerprint": fingerprint,
         "state": "pending",
         "started_at": storage.now_iso(),
@@ -408,17 +479,18 @@ def recycle_asset(
     for path in derived_files:
         if not path.is_file():
             continue
-        derived_paths.append(path.relative_to(storage.data_root()).as_posix())
+        derived_paths.append(_recycler_path_reference(path, recycler_root_id))
 
     manifest = {
         "op_id": op_id,
         "asset_id": asset_id,
         "kind": asset.get("kind") or "other",
+        **({"recycler_root_id": recycler_root_id} if recycler_root_id else {}),
         "original": {
             **_identity(source),
             "fingerprint": fingerprint,
             "filename": source.name,
-            "recycler_path": original_target.relative_to(storage.data_root()).as_posix(),
+            "recycler_path": _recycler_path_reference(original_target, recycler_root_id),
         },
         "derived": derived,
         "partial_failures": partial_failures,
@@ -430,8 +502,9 @@ def recycle_asset(
     )
     recycler = {
         "original_file": manifest["original"]["recycler_path"],
-        "manifest": manifest_path.relative_to(storage.data_root()).as_posix(),
+        "manifest": _recycler_path_reference(manifest_path, recycler_root_id),
         "derived": derived_paths,
+        **({"recycler_root_id": recycler_root_id} if recycler_root_id else {}),
     }
 
     def mutate(raw_state: dict[str, Any]) -> bool:
@@ -453,7 +526,8 @@ def recycle_asset(
         "actor": str(getattr(actor, "subject", "") or getattr(actor, "role", "")),
         "source": _file_record(source),
         "target": {
-            "recycler_dir": directory.relative_to(storage.data_root()).as_posix()
+            "recycler_dir": _recycler_path_reference(directory, recycler_root_id),
+            **({"recycler_root_id": recycler_root_id} if recycler_root_id else {}),
         },
         "fingerprint": fingerprint,
         "state": "done",
@@ -500,8 +574,9 @@ def restore_asset_files(
     if not isinstance(manifest, dict):
         raise CleanroomException(409, "RESTORE_MANIFEST_MISSING", "回收条目缺少恢复清单")
     op_id = _next_id("fop_")
+    recycler_root_id = str(manifest.get("recycler_root_id") or "") or None
     original = dict(manifest.get("original") or {})
-    source = storage.resolve_output_path(str(original.get("recycler_path") or ""))
+    source = _resolve_recycler_path(str(original.get("recycler_path") or ""), recycler_root_id)
     try:
         if _fingerprint(source) != str(original.get("fingerprint") or ""):
             raise ValueError
@@ -530,13 +605,18 @@ def restore_asset_files(
     target.parent.mkdir(parents=True, exist_ok=True)
     restore_plan: list[tuple[Path, Path]] = []
     for item in manifest.get("derived", []):
-        plan_source = storage.resolve_output_path(str(item.get("recycler_path") or ""))
+        plan_source = _resolve_recycler_path(str(item.get("recycler_path") or ""), recycler_root_id)
         item_source = dict(item.get("source") or {})
         storage_path = item_source.get("storage_path")
         if storage_path is not None:
-            plan_target = storage.resolve_output_path(
-                str(item.get("recycler_path") or ""), must_exist=False
-            )
+            if recycler_root_id:
+                plan_target = storage.resolve_request_path(
+                    str(item.get("recycler_path") or ""), root_id=recycler_root_id
+                )
+            else:
+                plan_target = storage.resolve_output_path(
+                    str(item.get("recycler_path") or ""), must_exist=False
+                )
             plan_target.parent.mkdir(parents=True, exist_ok=True)
         else:
             derived_root = _allowed_root_for_identity(str(item_source.get("root_id") or ""))

@@ -1708,6 +1708,7 @@ window.WorkbenchProjects = (function () {
   }
 
   function init() {
+    if (!document.getElementById('projectsCardsStream')) return;
     syncFilters();
     // 不在初始化阶段读资产规模：此时卡片尚未由 render() 生成，会命中 0 个节点。
     load();

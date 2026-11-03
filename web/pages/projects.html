@@ -15,6 +15,7 @@
   <!-- Gods' Workbench 拟物科技公共硬件设计系统 -->
   <link rel="stylesheet" href="/static/css/base/hardware-design-system.css?ui=20261011-final">
   <link rel="stylesheet" href="/static/css/pages/project-date-range.css">
+  <link rel="stylesheet" href="/static/css/pages/projects.css">
   <style>
     /* 搜索及真实打开的项目表单保持完整输入高度。 */
     #projectSearchInput, #newProjectNameInput, #newProjectTypeSelect, #editProjectNameInput, #editProjectTypeSelect, #editProjectStageSelect, #newProjectModal select { min-height:40px; line-height:var(--gw-leading-body-md); }
@@ -448,7 +449,7 @@
         <div class="h-4 w-px bg-white/10"></div>
 
         <!-- 拟物金属垃圾桶按钮：统一回收站入口（整合制片项目与全局素材库回收站） -->
-        <button class="hw-mini-knob-box group cursor-pointer relative" id="topbarUnifiedTrashBtn" onclick="WorkbenchProjects.openGlobalTrashDrawer()" title="统一回收站（制片工程与素材库全局回收池）">
+        <button type="button" class="hw-mini-knob-box group cursor-pointer relative" id="topbarUnifiedTrashBtn" title="统一回收站（制片工程与素材库全局回收池）">
           <div class="hw-mini-knob border border-[#dfc384]/40 hover:border-[#dfc384] hover:shadow-[0_0_10px_rgba(223,195,132,0.4)] transition">
             <div class="hw-mini-knob-arc" style="border-top-color: #ef4444; border-right-color: #f59e0b;"></div>
             <div class="hw-mini-knob-inner flex items-center justify-center text-[#eddab3] group-hover:text-amber-300">
@@ -1004,10 +1005,11 @@
         </button>
       </div>
 
-      <a href="/static/pages/projects.html?openTrash=1" class="gw-type-body-sm font-mono text-[#dfc384] hover:underline flex items-center space-x-1" title="打开 Workbench 统一回收站">
-        <span>高级审计</span>
-        <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
-      </a>
+      <div class="gw-trash-toolbar" role="group" aria-label="回收站工具">
+        <button type="button" class="hw-btn btn-size-sm" onclick="WorkbenchProjects.refreshGlobalTrash()" aria-label="刷新回收站"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新</span></button>
+        <button type="button" class="hw-btn btn-size-sm" data-gw-recycler-change title="当前回收站路径：读取中（双击按钮可恢复默认）" aria-label="更改回收站目录"><i data-lucide="folder-cog" aria-hidden="true"></i><span>更改目录</span></button>
+        <button type="button" class="hw-btn btn-size-sm" onclick="GWWorkbenchShell.showMessage('清空回收站', '清空功能尚未开放。当前条目仍可安全恢复。')"><i data-lucide="trash-2" aria-hidden="true"></i><span>清空回收站</span></button>
+      </div>
     </div>
 
     <!-- 抽屉内容列表容器 -->
@@ -1015,15 +1017,12 @@
       <!-- 由 WorkbenchProjects 动态填充回收条目 -->
     </div>
 
-    <!-- 抽屉底栏安全说明与刷新 -->
-    <div class="p-2.5 bg-[#08090d] border-t border-white/5 flex items-center justify-between shrink-0 gw-type-body-sm font-mono text-slate-400">
+    <!-- 抽屉底栏安全说明 -->
+    <div class="p-2.5 bg-[#08090d] border-t border-white/5 flex items-center shrink-0 gw-type-body-sm font-mono text-slate-400">
       <div class="flex items-center space-x-1.5 text-emerald-400">
         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
         <span>所有条目均保留元数据与哈希映射，永不静默物理销毁</span>
       </div>
-      <button class="hw-btn hw-btn-gold cursor-pointer" onclick="WorkbenchProjects.refreshGlobalTrash()">
-        刷新回收池
-      </button>
     </div>
   </aside>
 

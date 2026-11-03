@@ -313,7 +313,7 @@ def test_static_layer_has_no_legacy_integration_markers(repo_root: Path):
 # 任何票增删自己的分片都不需要重算下面这个常量，也就不会形成并行 PR 的热点。
 ADMISSION_METADATA_PATH = ADMISSION_BASE_METADATA_PATH
 ADMISSION_BASE_METADATA_SHA256 = (
-    "8aab3aa2d3490e2998ec68c17a2d5b31b42c7a6cb122204b78ca7ce55b267f1d"
+    "8090ce1fbaa8ebeab119ea8a4d115b75faca7e76289532e4a54ac1f74b11658b"
 )
 QUARANTINED_PROMPT_ORIGINAL_PATH = (
     "web/system-prompts/infinite-canvas-prompt-templates.md"
@@ -1161,5 +1161,35 @@ def test_qin_517_allowed_roots_files_are_registered(repo_root: Path):
         "tests/contracts/assets/test_allowed_root_purge.py",
         "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
         "tests/hygiene/fixtures/admissions/issue-544.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }
+
+
+def test_qin_526_recycler_files_are_registered(repo_root: Path):
+    """QIN-526 回收站改动及卫生准入检查按 GitHub #567 登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 567
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #567, user-approved scope expansions 2026-11-03"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "web/js/core/workbench-shell.js",
+        "web/pages/projects.html",
+        "web/js/controllers/projects-controller.js",
+        "web/js/modules/asset-manager.js",
+        "web/css/pages/projects.css",
+        "web/css/pages/asset-manager.css",
+        "gw/api/routes_asset_registry.py",
+        "gw/asset_registry/lifecycle.py",
+        "tests/contracts/assets/test_qin_526_recycle_directory.py",
+        "tests/hygiene/fixtures/cleanroom_admission_metadata.json",
+        "tests/frontend/qin-526-recycle-bin-governance.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-526.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }

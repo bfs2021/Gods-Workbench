@@ -190,6 +190,26 @@
         "tests/hygiene/fixtures/cleanroom_admission_metadata.json",
         "tests/hygiene/test_cleanroom_hygiene.py"
       ]
+    },
+    {
+      "issue": 567,
+      "authorization_basis": "GitHub Issue #567, user-approved scope expansions 2026-11-03",
+      "files": [
+        "web/js/core/workbench-shell.js",
+        "web/pages/projects.html",
+        "web/js/controllers/projects-controller.js",
+        "web/js/modules/asset-manager.js",
+        "web/css/pages/projects.css",
+        "web/css/pages/asset-manager.css",
+        "gw/api/routes_asset_registry.py",
+        "gw/asset_registry/lifecycle.py",
+        "tests/contracts/assets/test_qin_526_recycle_directory.py",
+        "tests/hygiene/fixtures/cleanroom_admission_metadata.json",
+        "tests/frontend/qin-526-recycle-bin-governance.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-526.json",
+        "tests/hygiene/test_cleanroom_hygiene.py"
+      ]
     }
   ],
   "accepted_roots": [
