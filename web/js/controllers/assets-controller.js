@@ -266,6 +266,15 @@ window.WorkbenchAssets = (() => {
   let observer;
   let revision = 0;
   let categorySnapshot = '';
+  const SYSTEM_NAVIGATION_GROUPS = Object.freeze([
+    {id: 'projects', name: '项目制片', children: ['scripts']},
+    {id: 'assets', name: '托管资产', children: ['workflows']},
+    {id: 'canvas-assets', name: '画布资产', children: []},
+    {id: 'prompts', name: '提示词', children: []},
+    {id: 'local', name: '上传资源', children: []},
+    {id: 'governance', name: '治理建议', children: []},
+  ]);
+  const GROUPED_SYSTEM_BOARD_IDS = new Set(SYSTEM_NAVIGATION_GROUPS.flatMap(group => [group.id, ...group.children]));
 
   function manager() {
     try { return frame.contentDocument; } catch (_) { return null; }
@@ -347,28 +356,84 @@ window.WorkbenchAssets = (() => {
     const snapshot = JSON.stringify(rows);
     if (categorySnapshot === snapshot) return;
     categorySnapshot = snapshot;
+    const rowsById = new Map(rows.map(row => [row.id, row]));
+    const systemEntries = SYSTEM_NAVIGATION_GROUPS.map(group => {
+      const children = group.children.map(id => rowsById.get(id)).filter(Boolean);
+      const source = rowsById.get(group.id) || children.shift();
+      if (!source) return null;
+      return {row: {...source, name: group.name}, children};
+    }).filter(Boolean);
+    const userRows = rows.filter(row => row.id !== 'registry' && !GROUPED_SYSTEM_BOARD_IDS.has(row.id));
+    const renderGroup = (label, entries, emptyLabel = '') => {
+      const group = document.createElement('div');
+      group.className = 'asset-shell-nav-group';
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', label);
+      const heading = document.createElement('h3');
+      heading.className = 'asset-shell-nav-group-heading';
+      heading.textContent = label;
+      const items = document.createElement('div');
+      items.className = 'asset-shell-nav-group-items';
+      const createButton = (row, nested = false) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `asset-shell-nav-button tree-node-card${nested ? ' asset-shell-nav-button-sub' : ''}${row.active ? ' is-active' : ''}`;
+        if (row.active) button.setAttribute('aria-current', 'page');
+        button.title = row.name;
+        button.dataset.assetBoard = row.id;
+        button.dataset.assetBoardLevel = nested ? 'nested' : 'primary';
+        const pin = document.createElement('div');
+        pin.className = 'card-connector-pin';
+        pin.setAttribute('aria-hidden', 'true');
+        const icon = document.createElement('i');
+        icon.setAttribute('data-lucide', row.icon);
+        icon.setAttribute('aria-hidden', 'true');
+        const name = document.createElement('span');
+        name.className = 'asset-shell-nav-label';
+        name.textContent = row.name;
+        button.append(pin, icon, name);
+        button.addEventListener('click', () => activateBoard(row.id));
+        return button;
+      };
+      if (entries.length) {
+        for (const entry of entries) {
+          const node = document.createElement('div');
+          node.className = 'asset-shell-nav-node';
+          node.append(createButton(entry.row));
+          if (entry.children.length) {
+            const children = document.createElement('div');
+            children.className = 'asset-shell-nav-sublist';
+            children.setAttribute('role', 'group');
+            children.setAttribute('aria-label', `${entry.row.name}子项`);
+            for (const child of entry.children) children.append(createButton(child, true));
+            node.append(children);
+          }
+          items.append(node);
+        }
+      } else if (emptyLabel) {
+        const empty = document.createElement('span');
+        empty.className = 'asset-shell-nav-empty';
+        empty.textContent = emptyLabel;
+        items.append(empty);
+      }
+      group.append(heading, items);
+      return group;
+    };
     const fragment = document.createDocumentFragment();
-    for (const row of rows) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = `asset-shell-nav-button${row.active ? ' is-active' : ''}`;
-      button.setAttribute('role', 'tab');
-      button.setAttribute('aria-selected', String(row.active));
-      button.tabIndex = row.active ? 0 : -1;
-      button.dataset.assetBoard = row.id;
-      const icon = document.createElement('i');
-      icon.setAttribute('data-lucide', row.icon);
-      icon.setAttribute('aria-hidden', 'true');
-      const label = document.createElement('span');
-      label.textContent = row.name;
-      button.append(icon, label);
-      button.addEventListener('click', () => activateBoard(row.id));
-      fragment.append(button);
-    }
+    fragment.append(renderGroup('系统预设', systemEntries));
+    fragment.append(renderGroup('用户资源', userRows.map(row => ({row, children: []})), '尚无自定义资源'));
     const focused = categories.contains(document.activeElement)
       ? document.activeElement.dataset.assetBoard || null
       : null;
     categories.replaceChildren(fragment);
+    const overview = document.getElementById('assetSidebarOverview');
+    const registryActive = rows.some(row => row.id === 'registry' && row.active);
+    if (overview) {
+      overview.classList.toggle('is-active', registryActive);
+      overview.setAttribute('aria-pressed', String(registryActive));
+      if (registryActive) overview.setAttribute('aria-current', 'page');
+      else overview.removeAttribute('aria-current');
+    }
     window.lucide?.createIcons();
     if (focused !== null) {
       categories.querySelector(`[data-asset-board="${CSS.escape(focused)}"]`)?.focus();
@@ -494,5 +559,5 @@ window.WorkbenchAssets = (() => {
   // 首屏与壳层部分路由返回时都走同一个幂等绑定入口；不重复执行顶层脚本。
   rebind();
   window.addEventListener('pagehide', () => observer?.disconnect());
-  return {uploadAsset, openAssetSettings, openCreateAssetLibrary, toggleSmartFilter, rebind, showIndexJobStatus, indexJobStatusView: window.GWAssetJobStatus.view};
+  return {uploadAsset, openAssetSettings, openCreateAssetLibrary, activateAssetBoard: activateBoard, toggleSmartFilter, rebind, showIndexJobStatus, indexJobStatusView: window.GWAssetJobStatus.view};
 })();

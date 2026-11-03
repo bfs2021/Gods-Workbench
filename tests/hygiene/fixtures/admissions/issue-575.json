@@ -1,0 +1,24 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 575,
+  "authorization_basis": "GitHub Issue #575 (QIN-530), 2026-11-03",
+  "files": [
+    "web/pages/assets.html",
+    "web/js/controllers/assets-controller.js",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "tests/frontend/qin-530-asset-sidebar-redesign.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-575.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-530-asset-sidebar-redesign.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #575 (QIN-530), 2026-11-03",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-530：资产库左栏总览卡与系统/用户资源分组总线导航重构，保留剧本和工作流入口并收紧底栏布局。"
+}
