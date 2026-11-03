@@ -9,9 +9,8 @@ const styles = readFileSync(new URL('../../web/css/pages/asset-manager.css', imp
 const controller = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
 const shell = readFileSync(new URL('../../web/pages/assets.html', import.meta.url), 'utf8');
 
-test('新建资源入口位于侧栏资源库列表上方并沿用标准硬件按钮', () => {
-    assert.match(shell, /<button type="button" id="assetSidebarCreate" class="hw-btn w-full[^\"]*" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
-    assert.match(shell, /id="assetSidebarCreate"[\s\S]*?<\/button>[\s\S]*?<div class="gw-side-bus-list[^\"]*" id="assetCategories"/);
+test('新建资源入口嵌入总览卡片并沿用独立标准硬件按钮', () => {
+    assert.match(shell, /<div class="asset-shell-overview-card"[\s\S]*?id="assetSidebarOverview"[\s\S]*?id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"[\s\S]*?<nav class="gw-side-bus-list[^\"]*" id="assetCategories"/);
     assert.match(controller, /async function openCreateAssetLibrary\(\)[\s\S]*?button\.click\(\)/);
     assert.doesNotMatch(controller, /asset-shell-nav-create/);
 });
