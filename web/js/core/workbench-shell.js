@@ -124,7 +124,10 @@
 
   async function openGlobalTrashDrawer() {
     if (!await ensureGlobalTrashDrawer()) return false;
-    if (!window.WorkbenchProjects || !window.HardwareDeck?.openDrawer) return false;
+    if (!window.WorkbenchProjects || !window.HardwareDeck?.openDrawer) {
+      showRecyclerMessage('回收站暂不可用', '当前页面组件尚未完成初始化，请稍后重试。');
+      return false;
+    }
     window.WorkbenchProjects.openGlobalTrashDrawer();
     void loadGlobalTrashDirectoryTitle();
     return true;
@@ -320,14 +323,36 @@
 
   function bindGlobalTrash() {
     document.addEventListener('click', event => {
-      const button = event.target.closest?.('#topbarUnifiedTrashBtn');
+      const target = event.target;
+      const button = target.closest?.('#topbarUnifiedTrashBtn');
       if (button) {
         event.preventDefault();
         event.stopPropagation();
         void openGlobalTrashDrawer();
         return;
       }
-      const directoryButton = event.target.closest?.('[data-gw-recycler-change]');
+      const refreshButton = target.closest?.('[data-gw-recycler-refresh]');
+      if (refreshButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const refresh = window.WorkbenchProjects?.refreshGlobalTrash;
+        if (typeof refresh !== 'function') {
+          showRecyclerMessage('回收站暂不可用', '请重新打开回收站后重试。');
+          return;
+        }
+        Promise.resolve(refresh.call(window.WorkbenchProjects)).catch(error => {
+          showRecyclerMessage('回收站刷新失败', error?.message || '请稍后重试。');
+        });
+        return;
+      }
+      const clearButton = target.closest?.('[data-gw-recycler-clear]');
+      if (clearButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        showRecyclerMessage('清空回收站', '清空功能尚未开放。当前条目仍可安全恢复。');
+        return;
+      }
+      const directoryButton = target.closest?.('[data-gw-recycler-change]');
       if (!directoryButton) return;
       event.preventDefault();
       event.stopPropagation();
@@ -342,7 +367,7 @@
           void changeRecyclerDirectory();
         }, 250);
       }
-    });
+    }, true);
   }
 
   window.GWWorkbenchShell = Object.freeze({

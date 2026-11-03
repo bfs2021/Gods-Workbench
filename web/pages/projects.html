@@ -1006,9 +1006,9 @@
       </div>
 
       <div class="gw-trash-toolbar" role="group" aria-label="回收站工具">
-        <button type="button" class="hw-btn btn-size-sm" onclick="WorkbenchProjects.refreshGlobalTrash()" aria-label="刷新回收站"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新</span></button>
+        <button type="button" class="hw-btn btn-size-sm" data-gw-recycler-refresh aria-label="刷新回收站"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新</span></button>
         <button type="button" class="hw-btn btn-size-sm" data-gw-recycler-change title="当前回收站路径：读取中（双击按钮可恢复默认）" aria-label="更改回收站目录"><i data-lucide="folder-cog" aria-hidden="true"></i><span>更改目录</span></button>
-        <button type="button" class="hw-btn btn-size-sm" onclick="GWWorkbenchShell.showMessage('清空回收站', '清空功能尚未开放。当前条目仍可安全恢复。')"><i data-lucide="trash-2" aria-hidden="true"></i><span>清空回收站</span></button>
+        <button type="button" class="hw-btn btn-size-sm" data-gw-recycler-clear><i data-lucide="trash-2" aria-hidden="true"></i><span>清空回收站</span></button>
       </div>
     </div>
 
@@ -1037,6 +1037,6 @@
   <script src="/static/js/modules/project-date-range.js"></script>
   <script src="/static/js/modules/project-artifact-links.js"></script>
   <script src="/static/js/controllers/projects-controller.js"></script>
-<script src="/static/js/core/workbench-shell.js?v=20261009-parse-cf7"></script>
+<script src="/static/js/core/workbench-shell.js?v=20261103-qin526-recycler-qa"></script>
 </body>
 </html>
