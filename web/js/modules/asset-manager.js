@@ -6733,6 +6733,8 @@ async function refreshRegistryAssets(renderNow=true){
     registryPageHasMore = false;
     registryAssetsQueryCache.clear();
     resetRegistryAssetStructures();
+    // 筛选/排序变化后目录索引需要按新结果重算，否则会沿用旧查询的补拉结论
+    resetAssetRackDirectoryIndex();
     // 【审核 N1 加固】筛选/查询变化后旧对账跟踪页失效，避免跨筛选误删增量对账条目
     registryReconcilePageIds = new Set();
     registryPendingNewIds = new Set();
@@ -10276,11 +10278,40 @@ function assetRackRegisteredFoldersByRoot(){
     });
     return result;
 }
+function assetRackAutomaticDirectories(items=[]){
+    // 自动归档聚合了多个根目录，登记目录需要逐根合并（同路径去重）后才能参与建树
+    const seenRoots = new Set();
+    const directories = [];
+    items.forEach(item => {
+        const id = String(item.storage_root_id || '');
+        if(!id || seenRoots.has(id)) return;
+        seenRoots.add(id);
+        (registryRootFolders.get(id) || []).forEach(folder => {
+            const path = String(folder?.path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+            if(path) directories.push(path);
+        });
+    });
+    return directories;
+}
+function assetRackAutomaticItems(board=assetRackBoard()){
+    // 「自动归档」= 池内但未在看板来源中显式登记的素材，与 assetRackBoardRoots 的计数口径保持一致
+    if(!board) return [];
+    const knownSources = new Set([
+        ...(board.sources || []).map(source => String(source.id || '')),
+        ...(board.excludedSourceIds || []).map(String),
+    ]);
+    return assetRackBoardPool(board).filter(item => !knownSources.has(String(item.storage_root_id || '')));
+}
 function assetRackFolderTree(rootId){
     const root = String(rootId || '');
     const board = assetRackBoard();
     if(board){
-        if(root === '__automatic__') return [];
+        if(root === '__automatic__'){
+            // 【QIN-527 修复】自动归档同样要下钻真实物理子目录：生产库 900+ 条素材都落在
+            // 未显式登记的根上，早先返回空树会让用户只看到一行「自动归档」而误判没有层级。
+            const items = assetRackAutomaticItems(board);
+            return customBoardFolderTree(items, assetRackAutomaticDirectories(items));
+        }
         const items = assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root);
         const directories = (registryRootFolders.get(root) || []).map(folder => String(folder?.path || '')).filter(Boolean);
         return customBoardFolderTree(items, directories);
@@ -10294,7 +10325,8 @@ function assetRackRootOnlyCount(rootId){
     const board = assetRackBoard();
     if(!board) return 0;
     const root = String(rootId || '');
-    return assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root && !registryAssetFolderPath(item)).length;
+    const pool = root === '__automatic__' ? assetRackAutomaticItems(board) : assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root);
+    return pool.filter(item => !registryAssetFolderPath(item)).length;
 }
 function assetRackFolderKeys(){
     const keys = [];
@@ -10325,6 +10357,39 @@ async function loadAssetRackRegisteredFolders(force=false){
     }
     if(activeTab === 'registry') render();
 }
+let assetRackDirectoryIndexPromise = null;
+function resetAssetRackDirectoryIndex(){
+    assetRackDirectoryIndexPromise = null;
+}
+async function ensureAssetRackDirectoryIndex(){
+    // 【QIN-527 修复】目录层级必须覆盖整个素材库，而不是只覆盖网格已加载的那一屏：
+    // 生产库首屏 100 条全部落在根目录，只靠已加载窗口会让用户误判「没有子文件夹」。
+    // 这里静默续拉剩余分页（只并入 registryAssets，不做任何 DOM 追加），拉齐后统一重绘一次。
+    // 上限保护：最多 20 页 / 5000 条，超大库不至于把整库拉到内存里。
+    if(assetRackDirectoryIndexPromise) return assetRackDirectoryIndexPromise;
+    if(!registryHasMoreAssets()) return null;
+    const requestId = registryRequestSeq;
+    assetRackDirectoryIndexPromise = (async () => {
+        let pages = 0;
+        while(registryHasMoreAssets() && pages < 20 && registryAssets.length < 5000){
+            if(requestId !== registryRequestSeq) return;
+            const queryKey = registryQueryString({offset:registryNextOffset, cursor:registryNextCursor});
+            let data = registryAssetsQueryCache.get(queryKey);
+            if(!data){
+                data = await apiJsonResponse(assetManagerApi.getRegistryAssets(queryKey));
+                if(requestId !== registryRequestSeq) return;
+                setRegistryAssetCache(queryKey, registryAssetPageCacheEntry(data));
+            }
+            const before = registryAssets.length;
+            applyRegistryAssetResponse(data, {append:true});
+            pages += 1;
+            if(registryAssets.length === before) break;
+        }
+    })().catch(() => null);
+    await assetRackDirectoryIndexPromise;
+    if(requestId === registryRequestSeq && assetRackMode === 'folders') render();
+    return assetRackDirectoryIndexPromise;
+}
 function setAssetRackMode(mode){
     const next = ASSET_RACK_MODES.includes(String(mode || '')) ? String(mode) : 'folders';
     assetRackMode = next;
@@ -10336,6 +10401,7 @@ function setAssetRackMode(mode){
     render();
     if(next === 'folders'){
         const board = assetRackBoard();
+        void ensureAssetRackDirectoryIndex();
         if(board) loadCustomBoardFolderDirectories(board).catch(() => null);
         else loadAssetRackRegisteredFolders().catch(() => null);
     }
@@ -10496,7 +10562,7 @@ function renderAssetRackFolderRoots(){
             ? String(boardSourceSelection[board.id] || '') === root.id && !String(boardFolderSelection[board.id] || '')
             : registryNavFolder.rootId === root.id && !registryNavFolder.path;
         const tree = expanded ? assetRackFolderTree(root.id) : [];
-        const rootOnly = board && root.id !== '__automatic__' ? assetRackRootOnlyCount(root.id) : 0;
+        const rootOnly = board ? assetRackRootOnlyCount(root.id) : 0;
         return `<section class="asset-rack-root ${active ? 'is-active' : ''}">
             <div class="asset-rack-root-row">
                 <button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠来源' : '展开来源'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>
@@ -10633,6 +10699,7 @@ function renderRegistryManager(){
     </section>`;
     syncRegistryFacetLayout();
     if(assetRackMode === 'folders' && !assetRackCollapsed) loadAssetRackRegisteredFolders().catch(() => null);
+    if(assetRackMode === 'folders' && !assetRackCollapsed) void ensureAssetRackDirectoryIndex();
 }
 function renderCustomAssetLibrary(board){
     if(!board){ activeTab = 'registry'; renderRegistryManager(); return; }
@@ -10667,6 +10734,10 @@ function renderCustomAssetLibrary(board){
     </section>
     ${renderRegistryDetailResizer()}
     ${renderRegistryDetailPanel()}`;
+    // 注意：这里只能触发补齐目录索引（内部有 promise 去重，不会递归重绘）；
+    // 不可在此调用 loadCustomBoardFolderDirectories —— 它收尾会无条件 render()，
+    // 与渲染入口互相触发会直接把页面打成死循环。
+    if(assetRackMode === 'folders' && !assetRackCollapsed) void ensureAssetRackDirectoryIndex();
 }
 function projectStatusLabel(status='pending'){
     return {pending:'待处理',in_progress:'进行中',approved:'已通过',blocked:'已阻塞'}[status] || status;

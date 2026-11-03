@@ -175,6 +175,43 @@ test('AC4: 无根目录时给出可点的登记引导，直接唤起既有登记
     assert.match(CSS, /\.asset-rack-empty-guide \{ display:flex; flex-direction:column;/, '引导卡片必须有独立布局样式');
 });
 
+test('AC2 补充: 自动归档同样下钻真实子目录，目录索引补齐但不得递归重绘', () => {
+    const tree = functionSource('assetRackFolderTree');
+    assert.doesNotMatch(
+        tree,
+        /root === '__automatic__'\)\s*return \[\]/,
+        '自动归档不得再返回空树：生产库绝大多数素材都落在未显式登记的根上'
+    );
+    assert.match(tree, /assetRackAutomaticItems\(board\)/, '自动归档必须按未登记来源的素材建树');
+    assert.match(tree, /assetRackAutomaticDirectories\(items\)/, '自动归档必须合并各根目录的已登记目录');
+
+    const autoItems = functionSource('assetRackAutomaticItems');
+    assert.match(autoItems, /excludedSourceIds/, '自动归档口径必须与来源计数一致（含排除来源）');
+    assert.match(autoItems, /storage_root_id/, '自动归档必须按素材真实根归属过滤');
+    assert.match(
+        functionSource('assetRackRootOnlyCount'),
+        /assetRackAutomaticItems\(board\)/,
+        '自动归档下的根目录素材也必须能单独点开'
+    );
+
+    // 首屏 100 条常常全在根目录，目录树必须自行补齐分页，否则只看已加载窗口等于没有层级
+    const index = functionSource('ensureAssetRackDirectoryIndex');
+    assert.match(index, /registryHasMoreAssets\(\)/, '目录索引必须在仍有分页时继续补齐');
+    assert.match(index, /pages < 20/, '目录索引必须有页数上限，避免超大库拖死');
+    assert.match(index, /registryAssets\.length < 5000/, '目录索引必须有条数上限');
+    assert.match(index, /if\(assetRackDirectoryIndexPromise\) return/, '目录索引必须幂等，避免并发重复拉取');
+    assert.match(index, /render\(\);/, '补齐后必须重绘一次以呈现完整层级');
+
+    // 死循环回归：看板渲染入口不得调用收尾会无条件 render() 的目录加载
+    const library = functionSource('renderCustomAssetLibrary');
+    assert.doesNotMatch(
+        library,
+        /loadCustomBoardFolderDirectories\(/,
+        '看板渲染入口不得调用 loadCustomBoardFolderDirectories：它收尾会 render()，互相触发即死循环'
+    );
+    assert.match(library, /ensureAssetRackDirectoryIndex\(\)/, '看板渲染入口必须触发目录索引补齐');
+});
+
 test('AC5: 测试登记到 node-files.txt 并完成卫生准入分片', () => {
     assert.match(
         NODE_FILES,
