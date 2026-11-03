@@ -12,19 +12,23 @@ const read = relativePath => readFileSync(path.join(root, relativePath), 'utf8')
 const js = read('web/js/modules/asset-manager.js');
 const css = read('web/css/pages/asset-manager.css');
 
-// 1. 排序/分组：label 复用 .hw-btn 硬件材质并带图标，原生 select 保留功能。
+// 1. 排序/分组：胶囊复用 .hw-btn 硬件材质并带图标；QIN-531 起改为自绘 listbox（无原生 select）。
 assert.match(
   js,
-  /<label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"><\/i><span>排序<\/span>/,
-  '排序控件应复用 hw-btn 材质并带图标'
+  /<label class="hw-btn registry-toolbar-select" data-registry-select-capsule="\$\{kind\}"><i data-lucide="\$\{icon\}"><\/i><span>\$\{label\}<\/span>/,
+  '排序/分组控件应复用 hw-btn 材质并带图标'
 );
 assert.match(
   js,
-  /<label class="hw-btn registry-toolbar-select"><i data-lucide="layers"><\/i><span>分组<\/span>/,
-  '分组控件应复用 hw-btn 材质并带图标'
+  /renderRegistrySelectCapsule\(\{kind:'sort', icon:'arrow-down-wide-narrow', label:'排序'\}\)/,
+  '排序控件应传入排序图标与标签'
 );
-assert.match(js, /id="registrySort"/, '排序下拉 id 必须保留');
-assert.match(js, /id="registryGroupMode"/, '分组下拉 id 必须保留');
+assert.match(
+  js,
+  /renderRegistrySelectCapsule\(\{kind:'group', icon:'layers', label:'分组'\}\)/,
+  '分组控件应传入分组图标与标签'
+);
+assert.match(js, /id="\$\{kind === 'sort' \? 'registrySort' : 'registryGroupMode'\}"/, '排序/分组 id 必须保留');
 
 // 2. 列表/方格视图切换使用既有 segmented deck，方格比例切换为 hw-btn。
 assert.match(

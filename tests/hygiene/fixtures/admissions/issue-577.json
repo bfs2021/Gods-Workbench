@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 577,
+  "authorization_basis": "GitHub Issue #577 (QIN-531), 2026-11-03",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "web/css/pages/asset-vault.css",
+    "tests/frontend/qin-531-asset-topbar-cards.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-577.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-531-asset-topbar-cards.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #577 (QIN-531), 2026-11-03",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-531：统一资产库顶栏概览卡片改为 2 行紧凑网格（名称+占比 / 图标+数量+高光渐变进度条，min-height 44px），参考画布卡片更名「画布」并统计 canvasAssetsData.canvases 全量，排序/分组收口为单一下拉胶囊。分片按票号命名规则取 issue-577.json（票面写作 issue-531.json，但该文件名已被 GitHub #531 的既有分片占用）。"
+}
