@@ -37,11 +37,22 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: |
-            requirements.lock
-            requirements.lock.hashes
+          cache-dependency-path: requirements.lock.hashes
 
-      - name: 安装运行期与测试依赖（消费哈希锁）
+      - name: 记录 Python 缓存键版本
+        id: python-cache-key
+        run: echo "version=$(python -c 'import platform; print(platform.python_version())')" >> "$GITHUB_OUTPUT"
+
+      - name: 恢复 Python 依赖环境缓存
+        id: python-env-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/gw-python-venv
+          key: gw-python-venv-${{ runner.os }}-${{ runner.arch }}-${{ steps.python-cache-key.outputs.version }}-${{ hashFiles('requirements.lock.hashes') }}
+
+      - name: 复用或安装 Python 依赖环境
+        env:
+          PYTHON_ENV_CACHE_HIT: ${{ steps.python-env-cache.outputs.cache-hit }}
         # A-04：安装口径改为**哈希锁 + --require-hashes**，而不是只装区间依赖。
         # requirements.lock.hashes 为跨平台双段：Windows 段本机 CPython 3.11.9 实测，
         # Linux 段由 python:3.11-slim (CPython 3.11.16 / x86_64) 实测，两段均非伪造。
@@ -51,8 +62,17 @@ jobs:
         # 镜像已预装），缺失时按既有策略显式 skip，不伪造浏览器证据。
         # 浏览器内核安装随全量回归下放到 release-desktop.yml。
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --require-hashes -r requirements.lock.hashes
+          venv_path="${RUNNER_TEMP}/gw-python-venv"
+          if [[ "$PYTHON_ENV_CACHE_HIT" != "true" ]]; then
+            python -m venv "$venv_path"
+            "$venv_path/bin/python" -m pip install --upgrade pip
+            "$venv_path/bin/python" -m pip install --require-hashes -r requirements.lock.hashes
+          fi
+          if [[ ! -x "$venv_path/bin/python" ]]; then
+            echo "Python 依赖环境缓存缺少可执行文件。" >&2
+            exit 1
+          fi
+          echo "$venv_path/bin" >> "$GITHUB_PATH"
 
       - name: 验证关键依赖可导入
         run: python -c "import fastapi, httpx, pydantic, pytest, uvicorn, psutil, multipart, PIL, playwright, playwright.sync_api; print('依赖导入通过:', fastapi.__version__, pydantic.__version__, uvicorn.__version__, psutil.__version__, PIL.__version__, playwright.__file__)"
