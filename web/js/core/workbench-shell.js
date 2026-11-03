@@ -32,8 +32,350 @@
   // 以稳定指纹去重，避免外部脚本重复副作用和内联 const 重复声明。
   const executedRouteScriptKeys = new Set();
   let workshopRouteBootstrapped = false;
+  let globalTrashLoadPromise = null;
+  let recyclerDirectoryClickTimer = 0;
+  let recyclerDirectoryModalReturnFocus = null;
+  const RECYCLER_DEFAULT_PATH = 'data/registry_uploads/god-recycler（系统受管默认目录）';
   // popstate 时 location 已经改变，保留实际仍挂载的控制器地址。
   let mountedRouteHref = location.href;
+
+  function globalTrashDrawerMarkup() {
+    return document.getElementById('unifiedGlobalTrashDrawer');
+  }
+
+  function setGlobalTrashDirectoryTitle(path) {
+    const button = document.querySelector('[data-gw-recycler-change]');
+    if (!button) return;
+    const effective = path || RECYCLER_DEFAULT_PATH;
+    button.title = `当前回收站路径：${effective}（双击按钮可恢复默认）`;
+    button.setAttribute('aria-label', `更改回收站目录。当前路径：${effective}。双击恢复默认`);
+  }
+
+  async function loadGlobalTrashDirectoryTitle() {
+    try {
+      const response = await fetch('/api/storage-settings', {credentials: 'same-origin'});
+      if (!response.ok) return;
+      const settings = await response.json();
+      const root = String(settings.dirs?.trash || '').trim();
+      const separator = root.includes('\\') ? '\\' : '/';
+      const mode = localStorage.getItem('gw_recycler_mode') || 'managed';
+      const fallback = mode === 'source' ? '跟随素材来源盘符：<素材源目录>/god-recycler' : RECYCLER_DEFAULT_PATH;
+      setGlobalTrashDirectoryTitle(root ? `${root.replace(/[\\/]+$/, '')}${separator}god-recycler` : fallback);
+    } catch (_) {}
+  }
+
+  async function loadProjectsController() {
+    if (window.WorkbenchProjects) return;
+    const existing = [...document.scripts].find(script => script.src.includes('/static/js/controllers/projects-controller.js'));
+    if (existing) {
+      await new Promise(resolve => {
+        if (window.WorkbenchProjects) return resolve();
+        existing.addEventListener('load', resolve, {once: true});
+        existing.addEventListener('error', resolve, {once: true});
+      });
+      return;
+    }
+    await new Promise(resolve => {
+      const script = document.createElement('script');
+      script.src = '/static/js/controllers/projects-controller.js?v=qin-526';
+      script.dataset.gwGlobalTrashController = '1';
+      script.onload = resolve;
+      script.onerror = resolve;
+      document.body.appendChild(script);
+    });
+  }
+
+  async function ensureGlobalTrashDrawer() {
+    if (globalTrashDrawerMarkup()) return true;
+    if (!globalTrashLoadPromise) {
+      globalTrashLoadPromise = (async () => {
+        try {
+          const response = await fetch('/static/pages/projects.html', {credentials: 'same-origin'});
+          if (!response.ok) throw new Error(`回收站组件读取失败（HTTP ${response.status}）`);
+          const html = await response.text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const drawer = doc.getElementById('unifiedGlobalTrashDrawer');
+          const backdrop = doc.getElementById('unifiedGlobalTrashDrawer-backdrop');
+          if (!drawer || !backdrop) throw new Error('回收站组件不完整');
+          [backdrop, drawer].forEach(node => {
+            node.dataset.gwGlobalTrashShared = '1';
+            document.body.appendChild(document.importNode(node, true));
+          });
+          if (!document.querySelector('link[data-gw-global-trash-styles]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = '/static/css/pages/projects.css';
+            link.dataset.gwGlobalTrashStyles = '1';
+            document.head.appendChild(link);
+          }
+          await loadProjectsController();
+          return Boolean(window.WorkbenchProjects);
+        } catch (error) {
+          console.warn('[GW shell] global trash load failed', error);
+          window.GWWorkbenchShell?.showMessage?.(error.message || '回收站暂时无法打开');
+          return false;
+        } finally {
+          globalTrashLoadPromise = null;
+        }
+      })();
+    }
+    return globalTrashLoadPromise;
+  }
+
+  async function openGlobalTrashDrawer() {
+    if (!await ensureGlobalTrashDrawer()) return false;
+    if (!window.WorkbenchProjects || !window.HardwareDeck?.openDrawer) {
+      showRecyclerMessage('回收站暂不可用', '当前页面组件尚未完成初始化，请稍后重试。');
+      return false;
+    }
+    window.WorkbenchProjects.openGlobalTrashDrawer();
+    void loadGlobalTrashDirectoryTitle();
+    return true;
+  }
+
+  async function storageJson(path, options = {}) {
+    const response = await fetch(path, {credentials: 'same-origin', ...options});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = payload.detail && typeof payload.detail === 'object' ? payload.detail : {};
+      const error = new Error(detail.message || (typeof payload.detail === 'string' ? payload.detail : `请求失败（HTTP ${response.status}）`));
+      error.status = response.status;
+      error.code = detail.code || '';
+      throw error;
+    }
+    return payload;
+  }
+
+  function createRecyclerModal(title, content, onDismiss) {
+    document.getElementById('gwRecyclerModal')?.remove();
+    recyclerDirectoryModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overlay = document.createElement('div');
+    overlay.id = 'gwRecyclerModal';
+    overlay.className = 'gw-recycler-modal-backdrop';
+    overlay.innerHTML = `<section class="gw-recycler-modal" role="dialog" aria-modal="true" aria-labelledby="gwRecyclerModalTitle" tabindex="-1" data-floating-content>
+      <header><h2 id="gwRecyclerModalTitle">${title}</h2><button type="button" data-recycler-dismiss aria-label="关闭">×</button></header>
+      ${content}
+    </section>`;
+    document.body.appendChild(overlay);
+    const dialog = overlay.querySelector('.gw-recycler-modal');
+    let dismissed = false;
+    const close = () => {
+      if (dismissed) return;
+      dismissed = true;
+      document.removeEventListener('keydown', onKeydown, true);
+      overlay.remove();
+      recyclerDirectoryModalReturnFocus?.focus?.();
+      recyclerDirectoryModalReturnFocus = null;
+      onDismiss?.();
+    };
+    const onKeydown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const items = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),[href],[tabindex]:not([tabindex="-1"])')];
+      if (!items.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    overlay.querySelectorAll('[data-recycler-dismiss]').forEach(button => button.addEventListener('click', close));
+    document.addEventListener('keydown', onKeydown, true);
+    requestAnimationFrame(() => (dialog?.querySelector('input,button') || dialog)?.focus());
+    return {overlay, dialog, close};
+  }
+
+  async function applyRecyclerDirectory(path) {
+    if (path) {
+      let roots = await storageJson('/api/storage-settings/roots');
+      try {
+        await storageJson('/api/storage-settings/roots', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path, expected_version: roots.revision})
+        });
+      } catch (error) {
+        if (error.code !== 'ALLOWED_ROOT_ALREADY_REGISTERED') throw error;
+        roots = await storageJson('/api/storage-settings/roots');
+        const exactMatch = (roots.roots || []).some(root => root.active && String(root.path || '').replace(/[\\/]+$/, '') === path.replace(/[\\/]+$/, ''));
+        if (!exactMatch) throw error;
+      }
+    }
+    const current = await storageJson('/api/storage-settings');
+    const dirs = {...(current.dirs || {}), trash: path};
+    const updated = await storageJson('/api/storage-settings', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dirs, expected_version: current.revision})
+    });
+    await loadGlobalTrashDirectoryTitle();
+    return updated;
+  }
+
+  async function changeRecyclerDirectory(options = {}) {
+    let current;
+    try {
+      current = await storageJson('/api/storage-settings');
+    } catch (error) {
+      showRecyclerMessage('无法读取回收站设置', error.message);
+      return null;
+    }
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        modal.close();
+        resolve(value);
+      };
+      const modal = createRecyclerModal('更改回收站目录', `<div class="gw-recycler-modal-body">
+        <label for="gwRecyclerPath">服务器上的绝对目录</label>
+        <div class="gw-recycler-path-row"><input id="gwRecyclerPath" type="text" autocomplete="off" value="${String(current.dirs?.trash || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" placeholder="例如 /mnt/media/Trash 或 D:\\Media\\Trash"><button type="button" class="hw-btn" data-recycler-native>服务器文件夹选择器</button></div>
+        <p class="gw-recycler-modal-help">确认后系统会先将目录登记到允许根，再保存“god-recycler”回收位置。远程会话或无图形环境可直接填写服务器目录。</p>
+        <p class="gw-recycler-modal-error" role="alert" data-recycler-error hidden></p>
+        <footer><button type="button" class="hw-btn" data-recycler-cancel>取消</button><button type="button" class="hw-btn hw-btn-gold" data-recycler-apply>确认更改</button></footer>
+      </div>`, () => { if (!settled) { settled = true; resolve(null); } });
+      const errorNode = modal.overlay.querySelector('[data-recycler-error]');
+      modal.overlay.querySelector('[data-recycler-cancel]')?.addEventListener('click', () => finish(null));
+      modal.overlay.querySelector('[data-recycler-native]')?.addEventListener('click', async event => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const result = await storageJson('/api/settings/directories/pick-native', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title: '选择回收站目录', initial_dir: modal.overlay.querySelector('#gwRecyclerPath')?.value || null})
+          });
+          if (result.status === 'selected' && result.path) modal.overlay.querySelector('#gwRecyclerPath').value = result.path;
+          if (result.status === 'unavailable') {
+            errorNode.textContent = `服务器选择器不可用（${result.reason || '未知原因'}），请直接填写服务器绝对目录。`;
+            errorNode.hidden = false;
+          }
+        } catch (error) {
+          errorNode.textContent = `${error.message}；请直接填写服务器绝对目录。`;
+          errorNode.hidden = false;
+        } finally { button.disabled = false; }
+      });
+      modal.overlay.querySelector('[data-recycler-apply]')?.addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const path = String(modal.overlay.querySelector('#gwRecyclerPath')?.value || '').trim();
+        if (!path || !(/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(path))) {
+          errorNode.textContent = '请输入有效的服务器绝对目录。';
+          errorNode.hidden = false;
+          return;
+        }
+        button.disabled = true;
+        errorNode.hidden = true;
+        try {
+          await applyRecyclerDirectory(path);
+          finish({saved: true, path});
+          if (!options.quiet) showRecyclerMessage('回收站目录已更新', `${path} 下的 god-recycler 将接收新软删除素材。`);
+        } catch (error) {
+          errorNode.textContent = `保存失败：${error.message}`;
+          errorNode.hidden = false;
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  function showRecyclerMessage(title, message, confirmAction = null) {
+    let settled = false;
+    const modal = createRecyclerModal(title, `<div class="gw-recycler-modal-body"><p>${String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><footer><button type="button" class="hw-btn hw-btn-gold" data-recycler-message-ok>${confirmAction ? '确认恢复默认' : '知道了'}</button></footer></div>`, () => {
+      if (!settled) { settled = true; confirmAction?.(false); }
+    });
+    modal.overlay.querySelector('[data-recycler-message-ok]')?.addEventListener('click', async () => {
+      if (settled) return;
+      if (confirmAction) {
+        const button = modal.overlay.querySelector('[data-recycler-message-ok]');
+        button.disabled = true;
+        try {
+          await confirmAction(true);
+          settled = true;
+          modal.close();
+        } catch (error) {
+          const body = modal.overlay.querySelector('.gw-recycler-modal-body');
+          const messageNode = body.querySelector('p');
+          messageNode.textContent = `恢复失败：${error.message}`;
+          button.disabled = false;
+        }
+      } else {
+        settled = true;
+        modal.close();
+      }
+    });
+  }
+
+  function confirmRecyclerDefault() {
+    showRecyclerMessage('恢复默认回收站路径', '确认恢复默认回收站路径？将恢复为跟随素材源盘符。', async confirmed => {
+      if (confirmed) {
+        await applyRecyclerDirectory('');
+        localStorage.setItem('gw_recycler_mode', 'source');
+        localStorage.setItem('gw_recycler_setup_done', 'true');
+        await loadGlobalTrashDirectoryTitle();
+      }
+    });
+  }
+
+  function bindGlobalTrash() {
+    document.addEventListener('click', event => {
+      const target = event.target;
+      const button = target.closest?.('#topbarUnifiedTrashBtn');
+      if (button) {
+        event.preventDefault();
+        event.stopPropagation();
+        void openGlobalTrashDrawer();
+        return;
+      }
+      const refreshButton = target.closest?.('[data-gw-recycler-refresh]');
+      if (refreshButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const refresh = window.WorkbenchProjects?.refreshGlobalTrash;
+        if (typeof refresh !== 'function') {
+          showRecyclerMessage('回收站暂不可用', '请重新打开回收站后重试。');
+          return;
+        }
+        Promise.resolve(refresh.call(window.WorkbenchProjects)).catch(error => {
+          showRecyclerMessage('回收站刷新失败', error?.message || '请稍后重试。');
+        });
+        return;
+      }
+      const clearButton = target.closest?.('[data-gw-recycler-clear]');
+      if (clearButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        showRecyclerMessage('清空回收站', '清空功能尚未开放。当前条目仍可安全恢复。');
+        return;
+      }
+      const directoryButton = target.closest?.('[data-gw-recycler-change]');
+      if (!directoryButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.detail >= 2) {
+        clearTimeout(recyclerDirectoryClickTimer);
+        recyclerDirectoryClickTimer = 0;
+        confirmRecyclerDefault();
+      } else {
+        clearTimeout(recyclerDirectoryClickTimer);
+        recyclerDirectoryClickTimer = window.setTimeout(() => {
+          recyclerDirectoryClickTimer = 0;
+          void changeRecyclerDirectory();
+        }, 250);
+      }
+    }, true);
+  }
+
+  window.GWWorkbenchShell = Object.freeze({
+    openGlobalTrashDrawer,
+    changeRecyclerDirectory,
+    showMessage: showRecyclerMessage,
+    refreshRecyclerDirectoryTitle: loadGlobalTrashDirectoryTitle
+  });
   function routeScriptKey(script, baseURI = document.baseURI) {
     const type = (script.getAttribute('type') || '').trim().toLowerCase();
     const src = script.getAttribute('src');
@@ -101,7 +443,7 @@
     const right = deck.querySelector(':scope > .gw-shell-right') || document.createElement('div');
     const needsMarkup = !right.classList.contains('gw-shell-right');
     right.className = 'gw-shell-right';
-    right.innerHTML = '<div class="gw-shell-fader"><span>FLUX</span><div class="hw-fader-track-horizontal gw-shell-fader-track"><div class="hw-fader-glow-bar" data-gw-gpu-util-fill style="width:0%"></div><div class="hw-fader-thumb-3d" data-gw-gpu-util-thumb style="left:0%"></div></div><span class="text-amber-300" data-gw-gpu-util title="真实数据源：GET /api/observability/health 的 gpu_telemetry（读取中）">读取中…</span></div><div class="gw-shell-fader"><span>VRAM</span><div class="hw-fader-track-horizontal gw-shell-fader-track"><div class="hw-fader-glow-bar" data-gw-gpu-vram-fill style="width:0%;background:linear-gradient(90deg,#38bdf8,#2dd4bf)"></div><div class="hw-fader-thumb-3d" data-gw-gpu-vram-thumb style="left:0%"></div></div><span class="text-amber-300" data-gw-gpu-vram title="真实数据源：GET /api/observability/health 的 gpu_telemetry（读取中）">读取中…</span></div><span class="h-4 w-px bg-white/10"></span><span class="gw-type-body-md font-mono text-[#dfc384]">CF</span><button type="button" class="hw-slide-toggle" data-gw-comfy-toggle aria-pressed="false" aria-label="切换 CF 后台控制"><div class="hw-slide-peg"></div></button><span class="h-4 w-px bg-white/10"></span><a id="topbarUnifiedTrashBtn" class="gw-shell-trash btn-hw-round" href="projects.html?openTrash=1" onclick="if(window.WorkbenchProjects?.openGlobalTrashDrawer){event.preventDefault();window.WorkbenchProjects.openGlobalTrashDrawer();}" title="统一回收站" aria-label="打开统一回收站"><span class="btn-hw-round-inner"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></span><span id="topbarTrashBadge" class="gw-shell-trash-badge" hidden>0</span></a><div class="h-4 w-px bg-white/10"></div><div class="hw-avatar-keycap btn-hw-round" title="认证状态未接入：点击打开认证中心查看真实登录状态" role="button" tabindex="0" aria-label="打开认证中心" data-gw-identity="unverified"><div class="hw-avatar-keycap-inner btn-hw-round-inner"><i data-lucide="shield-check" class="w-4 h-4 text-[#eddab3]"></i></div><span class="hw-avatar-keycap-status"></span></div>';
+    right.innerHTML = '<div class="gw-shell-fader"><span>FLUX</span><div class="hw-fader-track-horizontal gw-shell-fader-track"><div class="hw-fader-glow-bar" data-gw-gpu-util-fill style="width:0%"></div><div class="hw-fader-thumb-3d" data-gw-gpu-util-thumb style="left:0%"></div></div><span class="text-amber-300" data-gw-gpu-util title="真实数据源：GET /api/observability/health 的 gpu_telemetry（读取中）">读取中…</span></div><div class="gw-shell-fader"><span>VRAM</span><div class="hw-fader-track-horizontal gw-shell-fader-track"><div class="hw-fader-glow-bar" data-gw-gpu-vram-fill style="width:0%;background:linear-gradient(90deg,#38bdf8,#2dd4bf)"></div><div class="hw-fader-thumb-3d" data-gw-gpu-vram-thumb style="left:0%"></div></div><span class="text-amber-300" data-gw-gpu-vram title="真实数据源：GET /api/observability/health 的 gpu_telemetry（读取中）">读取中…</span></div><span class="h-4 w-px bg-white/10"></span><span class="gw-type-body-md font-mono text-[#dfc384]">CF</span><button type="button" class="hw-slide-toggle" data-gw-comfy-toggle aria-pressed="false" aria-label="切换 CF 后台控制"><div class="hw-slide-peg"></div></button><span class="h-4 w-px bg-white/10"></span><button type="button" id="topbarUnifiedTrashBtn" class="gw-shell-trash btn-hw-round" title="统一回收站" aria-label="打开统一回收站"><span class="btn-hw-round-inner"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></span><span id="topbarTrashBadge" class="gw-shell-trash-badge" hidden>0</span></button><div class="h-4 w-px bg-white/10"></div><div class="hw-avatar-keycap btn-hw-round" title="认证状态未接入：点击打开认证中心查看真实登录状态" role="button" tabindex="0" aria-label="打开认证中心" data-gw-identity="unverified"><div class="hw-avatar-keycap-inner btn-hw-round-inner"><i data-lucide="shield-check" class="w-4 h-4 text-[#eddab3]"></i></div><span class="hw-avatar-keycap-status"></span></div>';
     if (needsMarkup) {
       [...deck.children].forEach(child => {
         if (child !== nav && child !== right) child.remove();
@@ -126,9 +468,10 @@
     if (!deck || deck.querySelector('.gw-shell-trash') || document.querySelector('#topbarUnifiedTrashBtn')) return;
     const right = deck.lastElementChild;
     if (!right) return;
-    const button = document.createElement('a');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'topbarUnifiedTrashBtn';
     button.className = 'gw-shell-trash btn-hw-round';
-    button.href = 'projects.html?openTrash=1';
     button.title = '统一回收站';
     button.setAttribute('aria-label', '打开统一回收站');
     button.innerHTML = '<span class="btn-hw-round-inner"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></span><span class="gw-shell-trash-badge" hidden>0</span>';
@@ -482,6 +825,9 @@
       syncRouteDeck(doc);
       disposeRouteController(mountedRouteHref, url.href);
       mountedRouteHref = url.href;
+      if (document.querySelector('[data-gw-global-trash-shared="1"]')) {
+        nextWorkspace.querySelectorAll('#unifiedGlobalTrashDrawer, #unifiedGlobalTrashDrawer-backdrop').forEach(node => node.remove());
+      }
       currentWorkspace.replaceWith(document.importNode(nextWorkspace, true));
       if (push) history.pushState({}, '', url.href);
       if (doc.title) document.title = doc.title;
@@ -562,6 +908,7 @@
     if (!redirected) rememberLastVisitedPage();
     bindNavigation();
     bindSelection();
+    bindGlobalTrash();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

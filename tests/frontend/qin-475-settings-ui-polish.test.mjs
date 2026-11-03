@@ -11,12 +11,13 @@ const apiCss = read('web/css/pages/api-settings.css');
 const apiModule = read('web/js/modules/api-settings.js');
 const assetManager = read('web/js/modules/asset-manager.js');
 
-// 1. 目录设置六卡分两列独立堆叠；每列卡间固定 12px，窄屏折为一列。
+// 1. 目录设置五卡分两列独立堆叠；每列卡间固定 12px，窄屏折为一列。
 assert.match(directoryCss, /\.directory-cards-grid\s*\{[\s\S]*?display:\s*grid[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
 assert.match(directoryCss, /\.directory-cards-column\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*gap:\s*12px/s);
 assert.match(directoryCss, /\.directory-cards-column\s*>\s*\.asset-pref-section\s*\{[^}]*margin:\s*0[^}]*min-width:\s*0/s);
 assert.match(directoryCss, /@media\s*\(max-width:\s*700px\)[\s\S]*?\.directory-cards-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-assert.match(assetManager, /class="directory-cards-column directory-cards-column--left"[\s\S]*data-board-directories-settings[\s\S]*<span>上传与生成<\/span>[\s\S]*renderAssetThumbnailCacheDirectoryBody\(\)[\s\S]*class="directory-cards-column directory-cards-column--right"[\s\S]*renderAllowedRootsSettings\(\)[\s\S]*renderProjectWorkspaceSettingsBody\(\)[\s\S]*<span>回收站目录<\/span>/);
+assert.match(assetManager, /class="directory-cards-column directory-cards-column--left"[\s\S]*data-board-directories-settings[\s\S]*<span>上传与生成<\/span>[\s\S]*renderAssetThumbnailCacheDirectoryBody\(\)[\s\S]*class="directory-cards-column directory-cards-column--right"[\s\S]*renderAllowedRootsSettings\(\)[\s\S]*renderProjectWorkspaceSettingsBody\(\)/);
+assert.doesNotMatch(assetManager, /<span>回收站目录<\/span>/);
 
 // 2. 仅设置页嵌入态改用设置卡片黑底，并隐藏重复的 iframe 详情头。
 assert.match(apiCss, /\.workspace-embedded\.settings-host\s+\.api-settings-page\s+\.sidebar\s*\{[^}]*background:\s*var\(--gw-settings-card-background\)/s);

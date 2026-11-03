@@ -137,6 +137,8 @@ const ASSET_DETAIL_MEDIA_MINIMAP_VISIBLE_KEY = 'asset_detail_media_minimap_visib
 const ASSET_LIBRARY_FOLDER_COLLAPSED_KEY = 'asset_library_folder_collapsed_v1';
 const ASSET_LIBRARY_FOLDER_HIDDEN_KEY = 'asset_library_folder_hidden_v1';
 const ASSET_REGISTRY_RECYCLE_CONFIRM_KEY = 'asset_registry_recycle_skip_confirm_v1';
+const ASSET_REGISTRY_RECYCLE_SETUP_KEY = 'gw_recycler_setup_done';
+const ASSET_REGISTRY_RECYCLE_MODE_KEY = 'gw_recycler_mode';
 const PROMPT_SOURCE_SETTINGS_KEY = 'prompt_source_settings_v1';
 function readPromptSourceSettings(){
     try {
@@ -428,6 +430,7 @@ let registryArchiveBusy = false;
 let registryPdfBusy = false;
 let registryFeatureBusyId = '';
 let registryRecycleState = {open:false, assetId:'', busy:false, dontAsk:false, error:''};
+let registryRecyclerSetupAssetId = '';
 let registryRecycleBinState = {open:false, loading:false, restoringId:'', items:[], error:''};
 const registryAssetsQueryCache = new Map();
 const REGISTRY_PAGE_SIZE = 100;
@@ -3490,7 +3493,6 @@ function renderGlobalDirectorySettings(){
         <div class="directory-cards-column directory-cards-column--right">
         ${renderAllowedRootsSettings()}
         ${renderProjectWorkspaceSettingsBody()}
-        <section class="asset-pref-section bay-inset p-4 rounded-xl gw-settings-card"><div class="asset-pref-title"><i data-lucide="trash-2"></i><span>回收站目录</span></div><div class="storage-dir-grid">${input('trash','统一回收根目录（留空跟随素材源）',dirs.trash)}</div><p class="board-settings-hint">新回收素材保存在此目录的 god-recycler 子目录中；更改目录不会移动已有回收文件，历史记录仍可恢复。项目与画布继续使用原有逻辑回收记录。</p></section>
         </div>
         </fieldset>${directorySettingsPage ? renderServerDirectoryBrowser() : ''}<footer class="directory-footer"><div id="assetStatus" class="directory-status" role="status" aria-live="polite">${escapeHtml(currentStatusText)}</div></footer>`}`;
     host.querySelector('.project-workspace-settings [data-storage-save]')?.remove();
@@ -8079,9 +8081,64 @@ async function deleteRegistryRemoteAsset(id){
     setStatus('公网 URL 资产已删除');
 }
 function registryRecyclerPath(item={}){
-    const rootPath = String(item.storage_root_path || '').replace(/[\\/]+$/, '');
-    if(!rootPath) return '当前素材库根目录 / god-recycler';
-    return `${rootPath}${rootPath.includes('\\') ? '\\' : '/'}god-recycler`;
+    const configured = String(storageSettingsState.dirs?.trash || '').trim().replace(/[\\/]+$/, '');
+    if(configured) return `${configured}${configured.includes('\\') ? '\\' : '/'}god-recycler`;
+    if(localStorage.getItem(ASSET_REGISTRY_RECYCLE_MODE_KEY) === 'source'){
+        const sourceRoot = String(item.storage_root_path || '').replace(/[\\/]+$/, '');
+        if(sourceRoot) return `${sourceRoot}${sourceRoot.includes('\\') ? '\\' : '/'}god-recycler`;
+        return '跟随当前素材来源盘符 / god-recycler';
+    }
+    return 'registry_uploads/god-recycler（数据根目录下的系统默认目录）';
+}
+function closeRegistryRecyclerSetupDialog(){
+    registryRecyclerSetupAssetId = '';
+    document.getElementById('registryRecyclerSetupOverlay')?.remove();
+}
+function renderRegistryRecyclerSetupDialog(){
+    const assetId = registryRecyclerSetupAssetId;
+    const item = registryAssets.find(value => value.id === assetId) || (registryDetail?.id === assetId ? registryDetail : null);
+    if(!assetId || !item) { closeRegistryRecyclerSetupDialog(); return; }
+    let overlay = document.getElementById('registryRecyclerSetupOverlay');
+    if(!overlay){
+        overlay = document.createElement('div');
+        overlay.id = 'registryRecyclerSetupOverlay';
+        overlay.className = 'storage-settings-overlay registry-recycler-setup-overlay';
+        document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `<section class="registry-recycle-dialog registry-recycler-setup-dialog" data-floating-content role="dialog" aria-modal="true" aria-labelledby="registryRecyclerSetupTitle" tabindex="-1">
+        <header><span><i data-lucide="folder-cog"></i></span><div><strong id="registryRecyclerSetupTitle">首次设置回收站</strong><small>${escapeHtml(item.name || '当前素材')}</small></div><button type="button" data-registry-recycler-setup-close aria-label="关闭"><i data-lucide="x"></i></button></header>
+        <div class="registry-recycle-body"><p>选择软删除文件的回收位置。默认跟随素材盘。确认后会记住此设置；取消不会删除素材。</p>
+            <div class="registry-recycler-setup-options">
+                <button type="button" class="hw-btn hw-btn-gold" data-registry-recycler-setup-default><strong>默认跟随素材盘（推荐）</strong><small>回收文件放在素材来源盘的 god-recycler 目录</small></button>
+                <button type="button" class="hw-btn" data-registry-recycler-setup-custom><strong>自定义目录</strong><small>选择服务器上的绝对目录</small></button>
+            </div>
+            <div class="registry-recycle-error" data-registry-recycler-setup-error hidden></div>
+        </div>
+        <footer><button class="hw-btn" type="button" data-registry-recycler-setup-close>取消</button></footer>
+    </section>`;
+    markAssetFloatingSurface(overlay, {surface:'asset-recycler-setup', content:'.registry-recycler-setup-dialog', close:closeRegistryRecyclerSetupDialog});
+    refreshIcons();
+    requestAnimationFrame(() => overlay.querySelector('[data-registry-recycler-setup-default]')?.focus());
+}
+async function chooseRegistryRecyclerSetup(mode){
+    const assetId = registryRecyclerSetupAssetId;
+    const errorNode = document.querySelector('[data-registry-recycler-setup-error]');
+    try {
+        if(mode === 'custom'){
+            const result = await window.GWWorkbenchShell?.changeRecyclerDirectory?.({quiet:true});
+            if(!result?.saved) return;
+            const settings = await apiJsonResponse(assetManagerApi.getStorageSettings());
+            applyStorageSettingsData(settings || {});
+            localStorage.setItem(ASSET_REGISTRY_RECYCLE_MODE_KEY, 'custom');
+        } else {
+            localStorage.setItem(ASSET_REGISTRY_RECYCLE_MODE_KEY, 'source');
+        }
+        localStorage.setItem(ASSET_REGISTRY_RECYCLE_SETUP_KEY, 'true');
+        closeRegistryRecyclerSetupDialog();
+        await openRegistryRecycleDialog(assetId);
+    } catch(error){
+        if(errorNode){ errorNode.textContent = error.message || '回收目录设置失败'; errorNode.hidden = false; }
+    }
 }
 function closeRegistryRecycleDialog(force=false){
     if(registryRecycleState.busy && !force) return;
@@ -8111,6 +8168,17 @@ function renderRegistryRecycleDialog(){
 async function openRegistryRecycleDialog(assetId){
     const item = registryAssets.find(value => value.id === assetId) || (registryDetail?.id === assetId ? registryDetail : null);
     if(!item || item.is_remote || !registryCanRecycle(item)) return;
+    try {
+        applyStorageSettingsData(await apiJsonResponse(assetManagerApi.getStorageSettings()));
+    } catch(error){
+        setStatus(`无法读取回收站目录设置：${error.message || '请求失败'}`);
+        return;
+    }
+    if(!readStoredBoolean(ASSET_REGISTRY_RECYCLE_SETUP_KEY, false)){
+        registryRecyclerSetupAssetId = assetId;
+        renderRegistryRecyclerSetupDialog();
+        return;
+    }
     if(readStoredBoolean(ASSET_REGISTRY_RECYCLE_CONFIRM_KEY, false)){
         await recycleRegistryAsset(assetId, true);
         return;
@@ -8123,7 +8191,12 @@ async function recycleRegistryAsset(assetId, silent=false){
     registryRecycleState = {...registryRecycleState, open:!silent, assetId, busy:true, error:''};
     if(!silent) renderRegistryRecycleDialog();
     try {
-        const data = await apiJsonResponse(assetManagerApi.deleteRegistryAsset(assetId, requireExpectedVersion(registryStatus.revision, '资产注册表')));
+        const recyclerMode = localStorage.getItem(ASSET_REGISTRY_RECYCLE_MODE_KEY) === 'source' ? 'source' : 'managed';
+        const data = await apiJsonResponse(assetManagerApi.deleteRegistryAsset(
+            assetId,
+            requireExpectedVersion(registryStatus.revision, '资产注册表'),
+            {headers:{'X-GW-Recycle-Mode':recyclerMode}}
+        ));
         if(detailViewerState.open && detailViewerState.source === 'registry' && detailViewerState.id === assetId) closeDetailPreview(true);
         registrySelectedIds.delete(assetId);
         if(selectedRegistryAssetId === assetId){ selectedRegistryAssetId=''; registryDetail=null; }
@@ -20310,6 +20383,9 @@ document.addEventListener('click', event => {
     if(detailViewerState.mediaCanvasContextMenu && !event.target.closest?.('[data-detail-media-context-menu]')) closeDetailMediaCanvasContextMenu();
     if(event.target.closest?.('[data-registry-recycle-bin-close]')){ closeRegistryRecycleBin(); return; }
     if(event.target.closest?.('[data-registry-recycle-bin-reload]')){ loadRegistryRecycleBin(); return; }
+    if(event.target.closest?.('[data-registry-recycler-setup-close]')){ closeRegistryRecyclerSetupDialog(); return; }
+    if(event.target.closest?.('[data-registry-recycler-setup-default]')){ chooseRegistryRecyclerSetup('default').catch(err => setStatus(err.message || '回收目录设置失败')); return; }
+    if(event.target.closest?.('[data-registry-recycler-setup-custom]')){ chooseRegistryRecyclerSetup('custom').catch(err => setStatus(err.message || '回收目录设置失败')); return; }
     const recycleRestore = event.target.closest?.('[data-registry-recycle-restore]');
     if(recycleRestore){ restoreRegistryRecycleEntry(recycleRestore.dataset.registryRecycleRestore || ''); return; }
     if(event.target.closest?.('[data-registry-recycle-close]')){ closeRegistryRecycleDialog(); return; }

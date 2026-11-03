@@ -1217,6 +1217,11 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .registry-recycle-note { margin-top:12px; padding:10px; background:rgba(230,170,34,.1); color:var(--text); display:flex; align-items:flex-start; gap:8px; font-size: var(--gw-type-label-md); line-height:1.5; font-weight:750; }
 .registry-recycle-note svg { width:14px; height:14px; margin-top:1px; color:#9a6a00; flex:0 0 auto; }
 .registry-recycle-error { margin-top:10px; padding:9px 10px; border:1px solid var(--danger); color:var(--danger); font-size: var(--gw-type-label-md); font-weight:850; }
+.registry-recycler-setup-overlay { z-index:94; }
+.registry-recycler-setup-options { display:grid; gap:8px; margin-top:14px; }
+.registry-recycler-setup-options > button { min-height:58px; display:grid; justify-items:start; gap:3px; padding:10px 12px; text-align:left; }
+.registry-recycler-setup-options > button strong { font-size:var(--gw-type-label-md); font-weight:950; }
+.registry-recycler-setup-options > button small { color:inherit; opacity:.72; font-size:var(--gw-type-label-sm); font-weight:700; }
 .registry-recycle-skip { min-height:58px; padding:10px 18px; border-top:1px solid var(--line); display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:11px; cursor:pointer; }
 .registry-recycle-skip > input { position:absolute; opacity:0; pointer-events:none; }
 .registry-recycle-skip > input:focus-visible + .registry-feature-switch { outline:2px solid #f05a32; outline-offset:2px; }
