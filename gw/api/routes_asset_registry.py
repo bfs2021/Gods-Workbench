@@ -1116,6 +1116,7 @@ def delete_registry_asset(
     payload: Optional[Dict[str, Any]] = Body(None),
     authorization: Optional[str] = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
+    x_gw_recycler_mode: Optional[str] = Header(None, alias="X-GW-Recycle-Mode"),
 ):
     context = _read_auth(authorization, x_user_role)
     raw_asset = repo.get_asset(asset_id)
@@ -1132,7 +1133,7 @@ def delete_registry_asset(
                 raise CleanroomException(404, "ASSET_NOT_FOUND", f"素材 {asset_id} 不存在")
             raise
     request_payload = _payload(payload)
-    recycler_mode = str(request_payload.get("recycler_mode") or "managed")
+    recycler_mode = str(request_payload.get("recycler_mode") or x_gw_recycler_mode or "managed")
     if recycler_mode not in {"source", "managed"}:
         raise CleanroomException(400, "INVALID_REQUEST", "回收目录模式不合法")
     result = repo.delete_asset(asset_id, _version(request_payload, required=True), context)

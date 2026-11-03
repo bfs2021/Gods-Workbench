@@ -7984,15 +7984,11 @@ async function recycleRegistryAsset(assetId, silent=false){
     if(!silent) renderRegistryRecycleDialog();
     try {
         const recyclerMode = localStorage.getItem(ASSET_REGISTRY_RECYCLE_MODE_KEY) === 'source' ? 'source' : 'managed';
-        const data = await apiJsonResponse(assetManagerHttp.request(`/api/asset-registry/assets/${encodeURIComponent(assetId)}`, {
-            method:'DELETE',
-            credentials:'same-origin',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                expected_version:requireExpectedVersion(registryStatus.revision, '资产注册表'),
-                recycler_mode:recyclerMode
-            })
-        }));
+        const data = await apiJsonResponse(assetManagerApi.deleteRegistryAsset(
+            assetId,
+            requireExpectedVersion(registryStatus.revision, '资产注册表'),
+            {headers:{'X-GW-Recycle-Mode':recyclerMode}}
+        ));
         if(detailViewerState.open && detailViewerState.source === 'registry' && detailViewerState.id === assetId) closeDetailPreview(true);
         registrySelectedIds.delete(assetId);
         if(selectedRegistryAssetId === assetId){ selectedRegistryAssetId=''; registryDetail=null; }

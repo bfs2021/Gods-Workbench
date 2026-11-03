@@ -63,14 +63,24 @@ def _registry_revision(client: TestClient) -> int:
     return int(client.get(f"{BASE}/status", headers=AUTH).json()["revision"])
 
 
-def _delete_asset(client: TestClient, asset_id: str, recycler_mode: str | None = None):
+def _delete_asset(
+    client: TestClient,
+    asset_id: str,
+    recycler_mode: str | None = None,
+    *,
+    mode_header: bool = False,
+):
     payload = {"expected_version": _registry_revision(client)}
+    headers = dict(AUTH)
     if recycler_mode is not None:
-        payload["recycler_mode"] = recycler_mode
+        if mode_header:
+            headers["X-GW-Recycle-Mode"] = recycler_mode
+        else:
+            payload["recycler_mode"] = recycler_mode
     return client.request(
         "DELETE",
         f"{BASE}/assets/{asset_id}",
-        headers=AUTH,
+        headers=headers,
         json=payload,
     )
 
@@ -121,7 +131,7 @@ def test_custom_recycler_directory_round_trips_original_and_derived_files(
         assert derived.status_code == 200, derived.text
         _patch_trash_directory(client, trash)
 
-        deleted = _delete_asset(client, asset_id, recycler_mode="source")
+        deleted = _delete_asset(client, asset_id, recycler_mode="source", mode_header=True)
         assert deleted.status_code == 200, deleted.text
         body = deleted.json()
         entry_id = body["recycle_entry_id"]

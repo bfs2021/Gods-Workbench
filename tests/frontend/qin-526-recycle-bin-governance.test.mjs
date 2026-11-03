@@ -59,7 +59,7 @@ test('首次软删除先走默认或自定义设置引导，并用独立标记�
   assert.match(assetManager, /data-registry-recycler-setup-custom/);
   assert.match(assetManager, /changeRecyclerDirectory\?\.\(\{quiet:true\}\)/);
   assert.match(assetManager, /gw_recycler_mode/);
-  assert.match(assetManager, /recycler_mode:recyclerMode/);
-  assert.match(recycleRoute, /request_payload\.get\("recycler_mode"\) or "managed"/);
+  assert.match(assetManager, /assetManagerApi\.deleteRegistryAsset\(\s*assetId,[\s\S]*?['"]X-GW-Recycle-Mode['"]:\s*recyclerMode/);
+  assert.match(recycleRoute, /request_payload\.get\("recycler_mode"\) or x_gw_recycler_mode or "managed"/);
   assert.match(recycleRoute, /recycler_mode=recycler_mode/);
 });
