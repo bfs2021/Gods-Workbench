@@ -215,11 +215,10 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segment
     color: var(--vault-text) !important;
 }
 /* QIN-531 验收：材质对调后工具栏按钮的常驻激活态需显式补回——「方格」(aria-pressed) /「简洁」(.is-active)
-   以金边 + 金底 + 金色文字常驻高亮，且优先级高于上面的 hover 规则，避免悬浮时被抢回普通底色。 */
+   只把**描边与文字/图标**转金，按钮底色保持普通按键的扁平底板（不整块高亮）；规则排在 hover 之后，
+   悬浮已激活按钮时不会被抢回普通描边。 */
 body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item):is(.is-active,.engaged,[aria-pressed="true"]) {
     border-color: var(--vault-accent) !important;
-    background: linear-gradient(180deg,color-mix(in srgb,var(--vault-accent) 26%,var(--vault-top)),color-mix(in srgb,var(--vault-accent) 14%,var(--vault-bottom))) !important;
-    box-shadow: inset 0 1px rgb(255 255 255 / .14), 0 1px 3px rgb(0 0 0 / .5), 0 0 9px rgb(223 195 132 / .26) !important;
     color: var(--vault-gold) !important;
 }
 body.gw-signal.gw-page--asset-manager .registry-toolbar svg { width: 13px; height: 13px; }
@@ -1055,11 +1054,9 @@ html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-ca
     box-shadow: inset 0 1px 0 #fff, 0 4px 10px rgb(31 41 55 / .16), 0 0 10px rgb(223 195 132 / .34) !important;
 }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item) { color: #465366 !important; }
-/* QIN-531 验收（浅色主题）：工具栏按钮常驻激活态——金色描边 + 白到淡金渐变 + 深金字，与深色主题一致。 */
+/* QIN-531 验收（浅色主题）：工具栏按钮常驻激活态——只转金色描边与深金文字/图标，底色与普通按键一致。 */
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item):is(.is-active,.engaged,[aria-pressed="true"]) {
     border-color: var(--vault-gold) !important;
-    background: linear-gradient(180deg,#fff,rgb(223 195 132 / .26)) !important;
-    box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(31 41 55 / .16), 0 0 8px rgb(223 195 132 / .3) !important;
     color: var(--vault-gold) !important;
 }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-layout-switch {

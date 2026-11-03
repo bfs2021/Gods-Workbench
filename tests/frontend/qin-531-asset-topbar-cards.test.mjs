@@ -201,20 +201,25 @@ assert.match(
 );
 
 // AC10：材质对调不得吃掉工具栏按钮的常驻激活态（「方格」用 aria-pressed、「简洁」用 .is-active）。
-assert.match(
-  vaultCss,
-  /\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{[\s\S]*?border-color: var\(--vault-accent\) !important;[\s\S]*?color: var\(--vault-gold\) !important;/,
-  '工具栏按钮激活态必须常驻金边金字'
+// 只高亮描边与文字/图标，按钮底色保持普通按键的扁平底板——整块变金底属于过度高亮。
+const toolbarActive = vaultCss.match(
+  /body\.gw-signal\.gw-page--asset-manager \.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{([\s\S]*?)\n\}/
 );
-assert.match(
-  vaultCss,
-  /html\[data-theme="light"\][^{]*\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{[\s\S]*?color: var\(--vault-gold\) !important;/,
-  '浅色主题下工具栏按钮激活态同样金边金字'
+assert.ok(toolbarActive, 'asset-vault.css 必须定义工具栏按钮的常驻激活态');
+assert.match(toolbarActive[1], /border-color: var\(--vault-accent\) !important;/, '激活态应把描边转金');
+assert.match(toolbarActive[1], /color: var\(--vault-gold\) !important;/, '激活态应把文字与图标转金');
+assert.doesNotMatch(toolbarActive[1], /background/, '激活态只高亮描边与文字图标，不得整块改底色');
+const lightToolbarActive = vaultCss.match(
+  /html\[data-theme="light"\][^{]*\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{([\s\S]*?)\n\}/
 );
+assert.ok(lightToolbarActive, '浅色主题下工具栏按钮也必须有常驻激活态');
+assert.match(lightToolbarActive[1], /border-color: var\(--vault-gold\) !important;/, '浅色主题激活态应把描边转金');
+assert.match(lightToolbarActive[1], /color: var\(--vault-gold\) !important;/, '浅色主题激活态应把文字与图标转金');
+assert.doesNotMatch(lightToolbarActive[1], /background/, '浅色主题激活态同样不得整块改底色');
 assert.ok(
   vaultCss.indexOf('.hw-btn:not(.btn-segmented-item):is(.is-active') >
     vaultCss.indexOf('.hw-btn:not(.btn-segmented-item):is(:hover,:focus-visible)'),
-  '激活态规则必须排在 hover 规则之后，悬浮激活按钮时才不会被抢回普通底色'
+  '激活态规则必须排在 hover 规则之后，悬浮激活按钮时才不会被抢回普通文字色'
 );
 
 console.log('QIN-531 asset topbar/toolbar contracts passed');
