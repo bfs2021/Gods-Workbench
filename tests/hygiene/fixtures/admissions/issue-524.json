@@ -1,0 +1,22 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 524,
+  "authorization_basis": "GitHub Issue #563 (QIN-524), 2026-11-02",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "tests/frontend/qin-524-asset-nav-redesign.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-524.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-524-asset-nav-redesign.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #563 (QIN-524), 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-524：统一资产库中栏重构为双模紧凑机架（物理目录树 / 紧凑智能筛选分体切换、240px 收窄与 44px 折叠图标条）；只改中栏前端结构与样式，不动资产选择与业务关联逻辑，不新增路由与依赖。分片按票号 524 命名。"
+}
