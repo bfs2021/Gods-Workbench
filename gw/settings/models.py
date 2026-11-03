@@ -66,6 +66,7 @@ class StorageSettingsSnapshot(BaseModel):
     extra_local_entries: list[dict[str, Any]] = Field(default_factory=list, description="附加本地来源条目")
     local_library_names: dict[str, str] = Field(default_factory=dict, description="本地素材库显示名")
     local_library_order: list[str] = Field(default_factory=list, description="本地素材库排序")
+    local_library_read_only: dict[str, bool] = Field(default_factory=dict, description="来源内容只读策略")
     local_libraries: list[dict[str, Any]] = Field(default_factory=list, description="本地素材库投影")
     data_status: str = Field(DATA_STATUS_NOT_CONFIGURED, description="ok 或 not_configured")
     data_gaps: list[str] = Field(default_factory=list, description="未接入 / 未配置原因")
@@ -80,6 +81,7 @@ class StorageSettingsPatchRequest(BaseModel):
     extra_local_entries: list[dict[str, Any]] | None = None
     local_library_names: dict[str, str] | None = None
     local_library_order: list[str] | None = None
+    local_library_read_only: dict[str, bool] | None = None
     expected_version: int | None = Field(None, ge=1, description="保存目录设置必须携带的 CAS 期望版本")
 
 

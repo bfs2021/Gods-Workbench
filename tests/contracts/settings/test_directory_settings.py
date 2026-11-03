@@ -123,3 +123,18 @@ def test_storage_and_structure_writes_require_expected_version(api_client: TestC
         assert response.status_code == 400, response.text
         assert response.json()["detail"]["code"] == "EXPECTED_VERSION_REQUIRED"
 
+
+
+def test_source_read_only_settings_persist_and_use_cas(api_client: TestClient, monkeypatch):
+    saved = api_client.patch("/api/storage-settings", headers=EDITOR, json={
+        "local_library_read_only": {"source_a": True}, "expected_version": 1,
+    })
+    assert saved.status_code == 200
+    assert saved.json()["local_library_read_only"] == {"source_a": True}
+    conflict = api_client.patch("/api/storage-settings", headers=EDITOR, json={
+        "local_library_read_only": {"source_a": False}, "expected_version": 1,
+    })
+    assert conflict.status_code == 409
+    monkeypatch.setattr(routes, "default_storage_settings_service", StorageSettingsService())
+    restored = api_client.get("/api/storage-settings", headers=EDITOR).json()
+    assert restored["local_library_read_only"] == {"source_a": True}

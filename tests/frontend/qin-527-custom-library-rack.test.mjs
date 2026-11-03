@@ -113,7 +113,7 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
     );
 });
 
-test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯前端收敛右网格', () => {
+test('AC2: 看板目录以素材来源与真实物理子目录为准，点击后按目录分页读取右网格', () => {
     const roots = functionSource('assetRackBoardRoots');
     assert.match(roots, /board\.sources/, '看板来源必须取自看板自身绑定来源');
     assert.match(roots, /item\.storage_root_id/, '来源计数必须来自看板素材池');
@@ -127,14 +127,13 @@ test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯
 
     const tree = functionSource('assetRackFolderTree');
     assert.match(tree, /registryRootFolders\.get\(root\)/, '看板子目录必须读该来源已加载的真实目录');
-    assert.match(tree, /customBoardFolderTree\(items, directories\)/, '子目录层级必须复用既有物理路径聚类');
+    assert.match(tree, /customBoardFolderTree\(items, directories, summary/, '子目录层级必须复用既有物理路径聚类');
     assert.match(functionSource('assetRackRootOnlyCount'), /registryAssetFolderPath\(item\)/, '根目录节点必须只统计无子目录素材');
 
     const select = functionSource('selectAssetRackFolder');
     assert.match(select, /boardSourceSelection\[board\.id\]/, '点击来源必须写回看板既有来源选择');
     assert.match(select, /boardFolderSelection\[board\.id\]/, '点击目录必须写回看板既有目录选择');
-    assert.match(select, /render\(\);/, '点击后必须即时重渲染网格');
-    assert.doesNotMatch(select, /refreshRegistryAssets|apiJsonResponse/, '目录过滤不得触发网络重载');
+    assert.match(select, /refreshRegistryAssets\(\)/, '点击后按所选目录重新读取素材');
     assert.match(
         functionSource('registryNavFolderMatches'),
         /if\(assetRackBoard\(\)\) return true;/,
@@ -213,13 +212,11 @@ test('AC2 补充: 自动归档同样下钻真实子目录，目录索引补齐�
         '自动归档下的根目录素材也必须能单独点开'
     );
 
-    // 首屏 100 条常常全在根目录，目录树必须自行补齐分页，否则只看已加载窗口等于没有层级
+    // 目录摘要由后端聚合，不再为建树自动拉取素材分页。
     const index = functionSource('ensureAssetRackDirectoryIndex');
-    assert.match(index, /registryHasMoreAssets\(\)/, '目录索引必须在仍有分页时继续补齐');
-    assert.match(index, /pages < 20/, '目录索引必须有页数上限，避免超大库拖死');
-    assert.match(index, /registryAssets\.length < 5000/, '目录索引必须有条数上限');
-    assert.match(index, /if\(assetRackDirectoryIndexPromise\) return/, '目录索引必须幂等，避免并发重复拉取');
-    assert.match(index, /render\(\);/, '补齐后必须重绘一次以呈现完整层级');
+    assert.match(index, /loadAssetRackRegisteredFolders\(\)/);
+    assert.doesNotMatch(index, /loadMoreRegistryAssets\(/);
+    assert.match(tree, /registryIndexedFolders/);
 
     // 死循环回归：看板渲染入口不得调用收尾会无条件 render() 的目录加载
     const library = functionSource('renderCustomAssetLibrary');

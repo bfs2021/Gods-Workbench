@@ -514,7 +514,7 @@ test('QIN-504 AC3: 快速分页后同步资产库计数与续载状态', () => {
     const loadStart = manager.indexOf('async function loadMoreRegistryAssets(){');
     const loadEnd = manager.indexOf('// 【浏览预加载】契约', loadStart);
     assert.ok(loadStart >= 0 && loadEnd > loadStart);
-    assert.match(footer, /已加载 \$\{registryAssets\.length\} 项/);
+    assert.match(footer, /已加载\$\{registryPageHasMore/);
     assert.match(footer, /registryPageHasMore \? '下滑加载更多'/);
     assert.match(manager.slice(loadStart, loadEnd), /syncRegistryVaultFooter\(\);/);
 });
@@ -653,7 +653,22 @@ test('QIN-504 AC7: 只在向下滚动时预加载视口外下一批20张预览',
     // QIN-518 AC2：预览预取改为带 200px 视口提前量，消除快速滚动白块。
     assert.equal(manager.match(/const REGISTRY_PREVIEW_ROOT_MARGIN = '([^']+)'/)?.[1], '200px 0px');
 
-    assert.match(manager, /const REGISTRY_PAGE_SIZE = 100/);
+    assert.match(manager, /const REGISTRY_PAGE_SIZE = 1500/);
     assert.match(functionSource('loadMoreRegistryAssets'), /registryQueryString\(\{offset,cursor\}\)/);
     assert.match(functionSource('prefetchRegistryNextPage'), /registryQueryString\(\{offset,cursor\}\)/);
+});
+
+test('QIN-532: Shift+滚轮可缩至 96px 并提示边界', () => {
+    let save;
+    let status = '';
+    const content = {style:{setProperty(){}}};
+    const root = {querySelectorAll:() => [content], querySelector:() => null};
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=108; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+    )(root, {min:96,max:360}, () => {}, callback => {save = callback;}, () => {}, value => {status = value;}, () => 1, () => {}, () => {}, () => {});
+    handle.handle({shiftKey:true, deltaY:1, target:{closest:() => true}, preventDefault(){}});
+    save();
+    assert.equal(handle.size(), 96);
+    assert.equal(status, '预览大小 96px（已到最小）');
 });
