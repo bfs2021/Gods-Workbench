@@ -165,13 +165,18 @@ test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯
     );
 });
 
-test('AC3: 左栏底部重复的智能筛选入口已移除，其余动作顺序不变', () => {
+test('AC3/AC14: 左栏不再渲染底部操作组，保留未归属状态代理', () => {
     assert.doesNotMatch(SHELL_HTML, /id="assetSidebarSmartFilter"/, '左栏底部不得再有重复的智能筛选按钮');
     assert.doesNotMatch(SHELL_HTML, /WorkbenchAssets\.toggleSmartFilter\(\)/, '左栏不得再转发智能筛选动作');
+    assert.doesNotMatch(
+        SHELL_HTML,
+        /asset-shell-sidebar-actions|onclick="WorkbenchAssets\.uploadAsset\(\)"[^>]*title="导入外部资产文件"/,
+        '左栏不再渲染底部操作组或导入外部资产文件按钮'
+    );
     assert.match(
         SHELL_HTML,
-        /class="asset-shell-sidebar-actions[^]*?id="btnUnassignedInbox"[^]*?WorkbenchAssets\.uploadAsset\(\)[^]*?id="assetSidebarSettings"/,
-        '底部必须保持「未归属 → 导入外部资产文件 → 资产设置」的整洁顺序'
+        /<div id="assetSidebarActionState" hidden aria-hidden="true">[\s\S]*id="btnUnassignedInbox"/,
+        '未归属状态代理继续留给看板工具栏同步'
     );
     // 中栏拨片承担唯一筛选入口，不得回退成按钮
     assert.match(functionSource('renderAssetRackSegmented'), /智能筛选/);
