@@ -830,6 +830,8 @@ const SYSTEM_ASSET_BOARDS = [
     {id:'local', name:'上传资源', icon:'cloud-upload', system:true},
     {id:'governance', name:'治理建议', icon:'list-checks', system:true},
 ];
+// 【QIN-527】接入机架外壳的系统看板（治理建议保留治理专用面板，不在此列）
+const SYSTEM_BOARD_RACK_TABS = ['scripts','projects','assets','workflows','prompts','canvas-assets','local'];
 const SCRIPT_ASSET_STORAGE_KEY = 'gwb_script_assets_v1';
 let scriptArchiveItems = [];
 function readScriptWorkspaceAssets(){
@@ -911,7 +913,7 @@ function renderScriptAssetsManager(){
         </article>`;
     }).join('');
 
-    root.innerHTML = `${renderAssetSmartFilterPanel('剧本资产')}<section class="asset-workspace-panel script-assets-panel">
+    root.innerHTML = `${renderSystemBoardRack('', renderAssetSmartFilterContents('剧本资产'))}<section class="asset-workspace-panel script-assets-panel">
         <header class="asset-workspace-panel-head">
             <div>
                 <span class="asset-panel-kicker">WRITING ARCHIVE</span>
@@ -8558,8 +8560,9 @@ function render(){
         .map((el, index) => ({index, top:el.scrollTop, left:el.scrollLeft}));
     renderBoardNavigation();
     const customLibraryActive = assetBoardById(activeTab)?.system === false;
+    const systemRackActive = systemBoardRackActive();
     const pageClass = String(activeTab || 'assets').replace(/[^a-z0-9_-]/gi, '-');
-    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${(activeTab === 'registry' || customLibraryActive) && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}`;
+    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${(activeTab === 'registry' || customLibraryActive || systemRackActive) && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}${systemRackActive ? ' asset-manager-root-rack' : ''}`;
     syncRegistryDetailGridWidth();
     if(activeTab === 'registry') renderRegistryManager();
     else if(activeTab === 'scripts') renderScriptAssetsManager();
@@ -8679,16 +8682,11 @@ function renderCanvasAssetsManager(){
     const total = uniqueCanvasAssets(canvasAssetsData.items || []).length;
     const detail = selectedCanvasAsset();
     root.innerHTML = `
-        <aside class="asset-panel asset-nav asset-context-nav">
-            <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div><span class="library-board-mark"><i data-lucide="filter"></i></span></div>
-            <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-                ${renderAssetSmartFilterContents('画布资产')}
+        ${renderSystemBoardRack('', `${renderAssetSmartFilterContents('画布资产')}
                 <section class="asset-context-tree"><div class="nav-section-title">画布分类</div><div class="nav-tree canvas-asset-tree">
                     ${canvasAssetCategories().map(cat => renderCanvasAssetTreeBranch(cat)).join('')}
                 </div></section>
-                <div class="nav-hint">共 ${canvasAssetsData.canvases?.length || 0} 个画布，${total} 个可下载资产。</div>
-            </div>
-        </aside>
+                <div class="nav-hint">共 ${canvasAssetsData.canvases?.length || 0} 个画布，${total} 个可下载资产。</div>`)}
         <section class="asset-panel asset-content ${canvasAssetManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -8985,16 +8983,8 @@ function renderLocalManager(){
     const imageCount = selectedLocalUploadImageItems().length;
     const folderTitle = localUploadFolderTitle();
     root.innerHTML = `
-        <aside class="asset-panel asset-nav asset-context-nav">
-            <div class="panel-head">
-                <div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div>
-                <div class="panel-actions compact-actions">
-                    <button class="hw-btn hw-btn-icon" type="button" data-localup-folder-new title="新建文件夹"><i data-lucide="folder-plus"></i></button>
-                    <button class="hw-btn hw-btn-icon" type="button" data-localup-folder-rename title="重命名文件夹" ${activeLocalUploadFolder ? '' : 'disabled'}><i data-lucide="pencil"></i></button>
-                </div>
-            </div>
-            <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-                ${renderAssetSmartFilterContents('上传资源')}
+        ${renderSystemBoardRack(`<button class="hw-btn hw-btn-icon" type="button" data-localup-folder-new title="新建文件夹"><i data-lucide="folder-plus"></i></button>
+                    <button class="hw-btn hw-btn-icon" type="button" data-localup-folder-rename title="重命名文件夹" ${activeLocalUploadFolder ? '' : 'disabled'}><i data-lucide="pencil"></i></button>`, `${renderAssetSmartFilterContents('上传资源')}
                 <section class="asset-context-tree"><div class="nav-section-title">${escapeHtml(activeLocalLibraryName())}</div><div class="asset-context-path">${escapeHtml(activeLocalLibraryPath() || 'assets/uploads')}</div>
                 ${renderLocalLibrarySources()}
                 <section class="registry-ai-overview local-ai-overview"><span><i data-lucide="sparkles"></i></span><div><strong>AI 分类与标签</strong><small>支持批量识别、智能标签与筛选</small></div><button type="button" data-local-ai-start>开始</button></section>
@@ -9002,9 +8992,7 @@ function renderLocalManager(){
                     ${renderLocalUploadFolderBranch(localUploadTree || {path:'', name:'全部上传', count:total, children:[]})}
                     ${renderLocalUploadSmartClassTree()}
                 </div>
-                <div class="nav-hint" style="padding:10px 12px;font-size:var(--gw-type-body-sm);opacity:.7;">选择图片/视频/音频文件即可上传，文件保存在项目 assets/uploads 目录。</div></section>
-            </div>
-        </aside>
+                <div class="nav-hint" style="padding:10px 12px;font-size:var(--gw-type-body-sm);opacity:.7;">选择图片/视频/音频文件即可上传，文件保存在项目 assets/uploads 目录。</div></section>`)}
         <section class="asset-panel asset-content ${localUploadManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -10819,6 +10807,35 @@ function renderAssetRack(extraAttrs='', extraClass=''){
         <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : (assetRackMode === 'folders' ? renderAssetRackFolders() : renderAssetRackFilters())}</div>
     </aside>`;
 }
+/* ---------------------------------------------------------------------------
+ * QIN-527 补充：系统看板（剧本/制片/托管/工作流/提示词/画布/上传）全域接入机架外壳。
+ * 「目录层级」页保留各看板的领域树（画布分类、项目层级、资产层级等，功能零破坏），
+ * 「智能筛选」页复用机架紧凑胶囊，操作统一写回 registry 全局筛选并跳转资产总览应用，
+ * 避免在没有素材网格的看板里做假按钮。
+ * ------------------------------------------------------------------------- */
+function systemBoardRackActive(){
+    return SYSTEM_BOARD_RACK_TABS.includes(String(activeTab || ''));
+}
+async function refreshRegistryAssetsFromRack(){
+    if(systemBoardRackActive()){
+        activeTab = 'registry';
+        renderBoardNavigation();
+    }
+    await refreshRegistryAssets();
+}
+function renderSystemBoardRack(tools='', body=''){
+    const collapsed = assetRackCollapsed;
+    return `<aside class="asset-panel asset-nav asset-rack system-board-rack ${collapsed ? 'is-collapsed' : ''}">
+        <header class="asset-rack-head">
+            ${renderAssetRackSegmented()}
+            <button class="asset-rack-collapse" type="button" data-asset-rack-collapse title="收起中栏为图标条" aria-label="收起中栏为图标条"><i data-lucide="chevrons-left"></i></button>
+        </header>
+        ${renderAssetRackRail()}
+        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : (assetRackMode === 'folders'
+            ? `${tools ? `<div class="system-rack-tools" role="toolbar">${tools}</div>` : ''}${body}`
+            : renderAssetRackFilters())}</div>
+    </aside>`;
+}
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
@@ -10882,11 +10899,7 @@ function renderProjectManager(){
     const gates = projectBoard?.gates || [];
     const templateTypes = project?.template?.entity_types || AssetRegistryDefaultEntityTypes;
     const selectedEntity = entities.find(item => item.id === selectedProjectEntityId) || null;
-    root.innerHTML = `<aside class="asset-panel asset-nav asset-context-nav">
-        <div class="panel-head"><div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div><div class="panel-actions"><button class="hw-btn hw-btn-icon" type="button" data-project-create title="新建项目"><i data-lucide="plus"></i></button></div></div>
-        <div class="nav-scroll registry-facets asset-smart-filter-scroll">${renderAssetSmartFilterContents('项目制片')}<section class="asset-context-tree"><div class="nav-section-title">项目层级</div><div class="nav-tree">${projects.map(item => `<button class="tree-row tree-parent ${item.id===activeProjectId?'active':''}" type="button" data-project="${escapeAttr(item.id)}"><span class="tree-row-icon"><i data-lucide="clapperboard"></i></span><span class="tree-row-name">${escapeHtml(item.name)}</span><span class="tree-row-count">${Number(item.asset_count || 0)}</span></button>`).join('') || '<div class="tree-empty">新建项目后开始制片管理</div>'}</div></section></div>
-    </aside>
-    <section class="asset-panel asset-content project-board">
+    root.innerHTML = renderSystemBoardRack('<button class="hw-btn hw-btn-icon" type="button" data-project-create title="新建项目"><i data-lucide="plus"></i></button>', `${renderAssetSmartFilterContents('项目制片')}<section class="asset-context-tree"><div class="nav-section-title">项目层级</div><div class="nav-tree">${projects.map(item => `<button class="tree-row tree-parent ${item.id===activeProjectId?'active':''}" type="button" data-project="${escapeAttr(item.id)}"><span class="tree-row-icon"><i data-lucide="clapperboard"></i></span><span class="tree-row-name">${escapeHtml(item.name)}</span><span class="tree-row-count">${Number(item.asset_count || 0)}</span></button>`).join('') || '<div class="tree-empty">新建项目后开始制片管理</div>'}</div></section>`) + `<section class="asset-panel asset-content project-board">
         <div class="content-toolbar"><div class="content-heading"><strong>${escapeHtml(project?.name || '项目制片')}</strong><span>${entities.length} 个条目 · ${Number(project?.asset_count || projectBoard?.assets?.length || 0)} 个素材</span></div><div class="asset-tools"><button class="hw-btn" type="button" data-project-proxy-settings ${project?'':'disabled'}><i data-lucide="film"></i><span>代理设置</span></button><button class="hw-btn" type="button" data-project-template ${project?'':'disabled'}><i data-lucide="settings-2"></i><span>模板设置</span></button><button class="hw-btn" type="button" data-project-add-entity ${project?'':'disabled'}><i data-lucide="plus"></i><span>新增条目</span></button></div></div>
         <div class="project-gates">${gates.filter(gate => !gate.entity_id).map(gate => `<button type="button" class="project-gate ${escapeAttr(gate.status)}" data-project-gate="${escapeAttr(gate.id)}" data-status="${escapeAttr(gate.status)}"><span>${escapeHtml(gate.code)}</span><strong>${escapeHtml(gate.name)}</strong><em>${escapeHtml(projectStatusLabel(gate.status))}</em></button>`).join('')}</div>
         <div class="content-scroll"><div class="project-entity-groups">${templateTypes.map(type => {
@@ -10910,21 +10923,11 @@ function renderAssetManager(){
     const detail = selectedAsset();
     const imageCount = selectedAssetImageItems().length;
     root.innerHTML = `
-        <aside class="asset-panel asset-nav asset-context-nav">
-            <div class="panel-head">
-                <div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div>
-                <div class="panel-actions compact-actions">
-                    ${assetTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-asset-lib-new title="新建资产库"><i data-lucide="plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(assetTreeEdit, 'assetTreeEditInput', 'data-asset-tree-edit-save', 'data-asset-tree-edit-cancel')}
-                </div>
-            </div>
-            <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-                ${renderAssetSmartFilterContents('托管资产')}
+        ${renderSystemBoardRack(`${assetTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-asset-lib-new title="新建资产库"><i data-lucide="plus"></i></button>'}
+                    ${renderHeadTreeInlineEdit(assetTreeEdit, 'assetTreeEditInput', 'data-asset-tree-edit-save', 'data-asset-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('托管资产')}
                 <section class="asset-context-tree"><div class="nav-section-title">资产层级</div><div class="nav-tree">
                     ${libs.map(item => renderAssetTreeBranch(item)).join('')}
-                </div></section>
-            </div>
-        </aside>
+                </div></section>`)}
         <section class="asset-panel asset-content ${assetManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -10977,16 +10980,8 @@ function renderWorkflowManager(){
     const items = currentWorkflowItems();
     const detail = selectedWorkflow();
     root.innerHTML = `
-        <aside class="asset-panel asset-nav asset-context-nav">
-            <div class="panel-head">
-                <div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div>
-                <div class="panel-actions compact-actions">
-                    ${workflowTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-workflow-cat-new title="新建工作流分组"><i data-lucide="folder-plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(workflowTreeEdit, 'workflowTreeEditInput', 'data-workflow-tree-edit-save', 'data-workflow-tree-edit-cancel')}
-                </div>
-            </div>
-            <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-                ${renderAssetSmartFilterContents('工作流')}
+        ${renderSystemBoardRack(`${workflowTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-workflow-cat-new title="新建工作流分组"><i data-lucide="folder-plus"></i></button>'}
+                    ${renderHeadTreeInlineEdit(workflowTreeEdit, 'workflowTreeEditInput', 'data-workflow-tree-edit-save', 'data-workflow-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('工作流')}
                 <section class="asset-context-tree"><div class="nav-section-title">工作流层级</div><div class="nav-tree">
                     <div class="tree-branch expanded">
                         <button class="tree-row tree-parent contains-active" type="button" data-workflow-root>
@@ -11006,9 +11001,7 @@ function renderWorkflowManager(){
                             }).join('') : '<div class="tree-empty">暂无工作流分组</div>'}
                         </div>
                     </div>
-                </div></section>
-            </div>
-        </aside>
+                </div></section>`)}
         <section class="asset-panel asset-content ${workflowManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -11351,21 +11344,11 @@ function renderPromptManager(){
         ? '当前条件下没有提示词。可以切换分类或清空搜索条件。'
         : `${lib?.name || '当前提示词库'} 暂无提示词${readonly ? '。' : '，点击「新增」添加。'}`;
     root.innerHTML = `
-        <aside class="asset-panel asset-nav asset-context-nav">
-            <div class="panel-head">
-                <div class="panel-title"><strong>智能筛选</strong><span>点击包含，减号排除</span></div>
-                <div class="panel-actions compact-actions">
-                    ${promptTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-prompt-lib-new title="新建提示词库"><i data-lucide="plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(promptTreeEdit, 'promptTreeEditInput', 'data-prompt-tree-edit-save', 'data-prompt-tree-edit-cancel')}
-                </div>
-            </div>
-            <div class="nav-scroll registry-facets asset-smart-filter-scroll">
-                ${renderAssetSmartFilterContents('提示词')}
+        ${renderSystemBoardRack(`${promptTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-prompt-lib-new title="新建提示词库"><i data-lucide="plus"></i></button>'}
+                    ${renderHeadTreeInlineEdit(promptTreeEdit, 'promptTreeEditInput', 'data-prompt-tree-edit-save', 'data-prompt-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('提示词')}
                 <section class="asset-context-tree"><div class="nav-section-title">提示词库</div><div class="nav-tree">
                     ${libs.map(item => renderPromptTreeBranch(item)).join('')}
-                </div></section>
-            </div>
-        </aside>
+                </div></section>`)}
         <section class="asset-panel asset-content ${promptManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -12749,7 +12732,7 @@ async function handleClick(event){
     const registryRecycle = target.closest?.('[data-registry-recycle]');
     if(registryRecycle){ event.stopPropagation(); await openRegistryRecycleDialog(registryRecycle.dataset.registryRecycle || ''); return; }
     const registryRecent = target.closest?.('[data-registry-recent]');
-    if(registryRecent){ const value=Number(registryRecent.dataset.registryRecent||0); registryRecentDays=registryRecentDays===value?0:value; await refreshRegistryAssets(); return; }
+    if(registryRecent){ const value=Number(registryRecent.dataset.registryRecent||0); registryRecentDays=registryRecentDays===value?0:value; await refreshRegistryAssetsFromRack(); return; }
     const registryProjectToggle = target.closest?.('[data-registry-project-toggle]');
     if(registryProjectToggle){
         registryProjectFacetExpanded = !registryProjectFacetExpanded;
@@ -12764,7 +12747,7 @@ async function handleClick(event){
         const pid = registryProjectFilter.dataset.registryProjectFilter || '';
         registryProjectFilterId = registryProjectFilterId === pid ? '' : pid;
         if(registryProjectFilterId) activeProjectId = registryProjectFilterId;
-        await refreshRegistryAssets();
+        await refreshRegistryAssetsFromRack();
         return;
     }
     // 【QIN-524】中栏双模机架：模式切换、折叠成图标条、目录树展开与目录过滤
@@ -12787,22 +12770,22 @@ async function handleClick(event){
         return;
     }
     const registryKindBtn = target.closest?.('[data-registry-kind]');
-    if(registryKindBtn){ const value=registryKindBtn.dataset.registryKind||''; registryKind=registryKind===value?'':value; await refreshRegistryAssets(); return; }
+    if(registryKindBtn){ const value=registryKindBtn.dataset.registryKind||''; registryKind=registryKind===value?'':value; await refreshRegistryAssetsFromRack(); return; }
     const registryRootBtn = target.closest?.('[data-registry-root]');
-    if(registryRootBtn){ const value=registryRootBtn.dataset.registryRoot||''; registryRootId=registryRootId===value?'':value; await refreshRegistryAssets(); return; }
+    if(registryRootBtn){ const value=registryRootBtn.dataset.registryRoot||''; registryRootId=registryRootId===value?'':value; await refreshRegistryAssetsFromRack(); return; }
     const registryCollectionBtn = target.closest?.('[data-registry-collection]');
-    if(registryCollectionBtn){ const value=registryCollectionBtn.dataset.registryCollection||''; registryCollectionId=registryCollectionId===value?'':value; await refreshRegistryAssets(); return; }
+    if(registryCollectionBtn){ const value=registryCollectionBtn.dataset.registryCollection||''; registryCollectionId=registryCollectionId===value?'':value; await refreshRegistryAssetsFromRack(); return; }
     const registryTagBtn = target.closest?.('[data-registry-tag]');
-    if(registryTagBtn){ const id=registryTagBtn.dataset.registryTag||''; if(registryIncludeTags.has(id)) registryIncludeTags.delete(id); else {registryIncludeTags.add(id);registryExcludeTags.delete(id);} await refreshRegistryAssets(); return; }
+    if(registryTagBtn){ const id=registryTagBtn.dataset.registryTag||''; if(registryIncludeTags.has(id)) registryIncludeTags.delete(id); else {registryIncludeTags.add(id);registryExcludeTags.delete(id);} await refreshRegistryAssetsFromRack(); return; }
     const registryTagExclude = target.closest?.('[data-registry-tag-exclude]');
-    if(registryTagExclude){ const id=registryTagExclude.dataset.registryTagExclude||''; if(registryExcludeTags.has(id)) registryExcludeTags.delete(id); else {registryExcludeTags.add(id);registryIncludeTags.delete(id);} await refreshRegistryAssets(); return; }
+    if(registryTagExclude){ const id=registryTagExclude.dataset.registryTagExclude||''; if(registryExcludeTags.has(id)) registryExcludeTags.delete(id); else {registryExcludeTags.add(id);registryIncludeTags.delete(id);} await refreshRegistryAssetsFromRack(); return; }
     const registryRemoveTag = target.closest?.('[data-registry-remove-tag]');
-    if(registryRemoveTag){ const id=registryRemoveTag.dataset.registryRemoveTag||''; registryIncludeTags.delete(id); registryExcludeTags.delete(id); await refreshRegistryAssets(); return; }
+    if(registryRemoveTag){ const id=registryRemoveTag.dataset.registryRemoveTag||''; registryIncludeTags.delete(id); registryExcludeTags.delete(id); await refreshRegistryAssetsFromRack(); return; }
     const registryClear = target.closest?.('[data-registry-clear]');
-    if(registryClear){ const key=registryClear.dataset.registryClear||''; if(key==='all'){ applyRegistryFilterDefinition({groupSimilar:registryGroupSimilar}); registryProjectFilterId=''; const board = assetRackBoard(); if(board){ boardSourceSelection[board.id]=''; boardFolderSelection[board.id]=''; boardGroupSelection[board.id]=''; boardReferenceCanvasSelection[board.id]=''; } } else if(key==='project'){ registryProjectFilterId=''; } else if(key==='recent') registryRecentDays=0; else if(key==='kind') registryKind=''; else if(key==='category') registryStatCategory=''; else if(key==='collection') registryCollectionId=''; else if(key==='root') registryRootId=''; await refreshRegistryAssets(); return; }
+    if(registryClear){ const key=registryClear.dataset.registryClear||''; if(key==='all'){ applyRegistryFilterDefinition({groupSimilar:registryGroupSimilar}); registryProjectFilterId=''; const board = assetRackBoard(); if(board){ boardSourceSelection[board.id]=''; boardFolderSelection[board.id]=''; boardGroupSelection[board.id]=''; boardReferenceCanvasSelection[board.id]=''; } } else if(key==='project'){ registryProjectFilterId=''; } else if(key==='recent') registryRecentDays=0; else if(key==='kind') registryKind=''; else if(key==='category') registryStatCategory=''; else if(key==='collection') registryCollectionId=''; else if(key==='root') registryRootId=''; await refreshRegistryAssetsFromRack(); return; }
     if(target.closest?.('[data-registry-preset-save]')){ await saveRegistryPreset(); return; }
     const registryPreset = target.closest?.('[data-registry-preset]');
-    if(registryPreset){ const item=registryPresets.find(value=>value.id===(registryPreset.dataset.registryPreset||'')); if(item){applyRegistryFilterDefinition(item.definition||{});await refreshRegistryAssets();} return; }
+    if(registryPreset){ const item=registryPresets.find(value=>value.id===(registryPreset.dataset.registryPreset||'')); if(item){applyRegistryFilterDefinition(item.definition||{});await refreshRegistryAssetsFromRack();} return; }
     const registryPresetDelete = target.closest?.('[data-registry-preset-delete]');
     if(registryPresetDelete){ await deleteRegistryPreset(registryPresetDelete.dataset.registryPresetDelete||''); return; }
     const registryAspectToggle = target.closest?.('[data-registry-aspect-toggle]');

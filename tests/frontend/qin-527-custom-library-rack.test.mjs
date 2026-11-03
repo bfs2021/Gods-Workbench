@@ -93,8 +93,23 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
     );
     assert.match(
         MANAGER,
-        /\(activeTab === 'registry' \|\| customLibraryActive\) && assetRackCollapsed \? ' asset-rack-collapsed' : ''/,
-        '看板页折叠态必须写回根容器类名'
+        /\(activeTab === 'registry' \|\| customLibraryActive \|\| systemRackActive\) && assetRackCollapsed \? ' asset-rack-collapsed' : ''/,
+        '看板页（含系统看板）折叠态必须写回根容器类名'
+    );
+    assert.match(
+        MANAGER,
+        /const SYSTEM_BOARD_RACK_TABS = \['scripts','projects','assets','workflows','prompts','canvas-assets','local'\];/,
+        '系统看板必须登记进机架外壳覆盖清单'
+    );
+    for(const render of ['renderScriptAssetsManager','renderProjectManager','renderAssetManager','renderWorkflowManager','renderPromptManager','renderCanvasAssetsManager','renderLocalManager']){
+        const source = functionSource(render);
+        assert.match(source, /renderSystemBoardRack\(/, `${render} 中栏必须接入机架外壳`);
+        assert.ok(!source.includes('asset-smart-filter-scroll'), `${render} 不得再输出旧版智能筛选滚动容器`);
+    }
+    assert.match(
+        functionSource('refreshRegistryAssetsFromRack'),
+        /activeTab = 'registry'/,
+        '系统看板态的机架筛选必须跳转资产总览应用，不得做无落点的假按钮'
     );
 });
 
