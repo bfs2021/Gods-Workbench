@@ -193,7 +193,10 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   assert.match(html, /\.asset-shell-nav-sublist\s*\{[^}]*gap:\s*12px; margin:\s*12px[^;]*; padding:\s*2px 0 0 12px/);
   assert.match(html, /\.asset-shell-overview-card\s*\{[^}]*min-height:\s*48px;[^}]*border-radius:\s*12px/);
   assert.match(html, /\.asset-shell-overview-card\.is-active\s*\{[^}]*border-color:/);
-  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button::before\s*\{[^}]*content:\s*"" !important;[^}]*width:\s*14px/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button::before\s*\{[^}]*content:\s*"" !important;[^}]*left:\s*-14px;[^}]*width:\s*6px/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button-sub::before\s*\{[^}]*left:\s*-21px;[^}]*width:\s*6px/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button \.card-connector-pin\s*\{[^}]*background:\s*#403a2f;[^}]*box-shadow:\s*none;[^}]*opacity:\s*\.55/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button\.is-active \.card-connector-pin\s*\{[^}]*background:\s*#dfc384;[^}]*box-shadow:\s*0 0 4px 1px[^}]*opacity:\s*1/);
   assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button\s*\{[^}]*overflow:\s*visible !important/);
   assert.match(managerCss, /\.registry-toolbar-shell-actions\s*\{[^}]*display:\s*flex/);
   assert.match(html, /\.asset-shell-nav-empty\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\)/);

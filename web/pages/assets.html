@@ -51,8 +51,10 @@
     .asset-shell-nav-button-sub { min-height: 35px; padding: 8px 12px; border-color: rgb(255 255 255 / .1); background: linear-gradient(180deg,#131620 0%,#0d0f15 100%); color: #e5e7eb; }
     .asset-shell-nav-button-sub::before { content: "" !important; left: -13px; width: 12px; height: 1px; background: rgb(223 195 132 / .4); }
     #assetVaultSidebar .asset-shell-nav-button { overflow: visible !important; }
-    #assetVaultSidebar .asset-shell-nav-button::before { content: "" !important; position: absolute; left: -14px; top: 50%; width: 14px; height: 1.5px; background: rgb(223 195 132 / .6); z-index: 2; pointer-events: none; }
-    #assetVaultSidebar .asset-shell-nav-button .card-connector-pin { left: -3px; z-index: 3; }
+    #assetVaultSidebar .asset-shell-nav-button::before { content: "" !important; position: absolute; left: -14px; top: 50%; width: 6px; height: 1.5px; background: rgb(223 195 132 / .6); z-index: 2; pointer-events: none; }
+    #assetVaultSidebar .asset-shell-nav-button-sub::before { left: -21px; width: 6px; }
+    #assetVaultSidebar .asset-shell-nav-button .card-connector-pin { left: -3px; z-index: 3; background: #403a2f; border-color: rgb(223 195 132 / .3); box-shadow: none; opacity: .55; }
+    #assetVaultSidebar .asset-shell-nav-button.is-active .card-connector-pin { background: #dfc384; border-color: #f3dfb6; box-shadow: 0 0 4px 1px rgb(223 195 132 / .6); opacity: 1; }
     .asset-shell-nav-button-sub .card-connector-pin { width: 4px; height: 4px; left: -3px; }
     .asset-shell-nav-button .card-connector-pin { left: -3px; }
     .asset-shell-nav-empty { display: block; padding: 5px 7px; color: #727b88; font-size: var(--gw-type-body-sm); line-height: var(--gw-leading-body-sm); }
