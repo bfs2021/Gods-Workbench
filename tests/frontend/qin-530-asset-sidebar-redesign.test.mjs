@@ -183,6 +183,8 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   assert.match(html, /#assetCategories::before\s*\{[^}]*top:\s*8px; bottom:\s*16px; left:\s*14px; width:\s*1\.5px/);
   assert.match(html, /\.asset-shell-nav-group::before\s*\{\s*content:\s*none;/);
   assert.match(html, /\.asset-shell-nav-sublist\[hidden\]\s*\{\s*display:\s*none !important;/);
+  assert.match(html, /\.asset-shell-nav-collapse\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px/);
+  assert.match(html, /\.asset-shell-nav-collapse\[aria-expanded="false"\]\s+svg\s*\{[^}]*rotate\(-90deg\)/);
   assert.match(html, /\.asset-shell-nav-group-heading\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\);[^}]*font-weight:\s*var\(--gw-weight-medium\);[^}]*line-height:\s*var\(--gw-leading-body-sm\)/);
   assert.match(html, /\.asset-shell-nav-button\s*\{[^}]*min-height:\s*42px;[^}]*font-weight:\s*400/);
   assert.match(html, /\.asset-shell-nav-group-items\s*\{[^}]*gap:\s*16px/);
@@ -197,7 +199,7 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => button.children.some(child => child.className === 'card-connector-pin')));
 
   const projects = walk(groups[0]).find(node => node.dataset.assetBoard === 'projects');
-  const projectChildren = projects.parentElement.children.find(node => node.className === 'asset-shell-nav-sublist');
+  const projectChildren = walk(groups[0]).find(node => node.className === 'asset-shell-nav-sublist');
   assert.equal(projects.getAttribute('aria-expanded'), 'true');
   assert.equal(projectChildren.hidden, false);
   projects.listeners.dblclick();
@@ -254,4 +256,42 @@ test('AC6/AC7 总览和分类按钮点击时即时同步整卡及按钮选中态
   assert.equal(projects.classList.contains('is-active'), true, '分类首击时同步选中样式');
   assert.equal(ui.overviewCard.classList.contains('is-active'), false, '离开总览后整卡取消选中态');
   await change;
+});
+
+test('AC12/AC13 折叠状态跨分类重渲染保持，右侧小按钮独立切换子项', async () => {
+  const ui = loadSidebar([
+    ['registry', '资产总览', false, 'library-big'],
+    ['projects', '项目制片', true, 'clapperboard'],
+    ['scripts', '剧本资产', false, 'file-text'],
+    ['assets', '托管资产', false, 'image'],
+    ['workflows', '工作流', false, 'workflow'],
+  ]);
+  const lookup = () => ({
+    parent: walk(ui.categories).find(node => node.dataset.assetBoard === 'projects'),
+    children: walk(ui.categories).find(node => node.className === 'asset-shell-nav-sublist' && node.getAttribute('aria-label') === '项目制片子项'),
+    toggle: walk(ui.categories).find(node => node.dataset.navigationCollapse === 'projects'),
+  });
+  let {parent, children, toggle} = lookup();
+  assert.equal(toggle.getAttribute('aria-controls'), children.id);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  let stoppedPropagation = 0;
+  toggle.listeners.click({stopPropagation() { stoppedPropagation += 1; }});
+  assert.equal(stoppedPropagation, 1, '右侧控制按钮不能触发父项点击');
+  assert.equal(children.hidden, true);
+  assert.equal(parent.getAttribute('aria-expanded'), 'false');
+  assert.equal(ui.frameTabs.find(tab => tab.dataset.tab === 'projects').clickCount, 0);
+
+  await lookup().parent.listeners.click();
+  ({parent, children, toggle} = lookup());
+  assert.equal(children.hidden, true, '切换其他看板并重渲染后仍保持收起');
+  assert.equal(parent.getAttribute('aria-expanded'), 'false');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(toggle.getAttribute('aria-label'), '展开项目制片子项');
+
+  toggle.listeners.click({stopPropagation() { stoppedPropagation += 1; }});
+  assert.equal(children.hidden, false);
+  assert.equal(parent.getAttribute('aria-expanded'), 'true');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(toggle.getAttribute('aria-label'), '折叠项目制片子项');
+  assert.equal(ui.frameTabs.find(tab => tab.dataset.tab === 'projects').clickCount, 0);
 });

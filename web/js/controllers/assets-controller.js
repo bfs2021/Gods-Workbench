@@ -264,6 +264,7 @@ window.WorkbenchAssets = (() => {
   let createButton = null;
   let createButtonClickHandler = null;
   let requestedBoardId = '';
+  const collapsedNavigationIds = new Set();
   let boundFrame = null;
   let frameLoadHandler = null;
   let observer;
@@ -345,6 +346,18 @@ window.WorkbenchAssets = (() => {
     if (overviewActive) overview?.setAttribute('aria-current', 'page');
     else overview?.removeAttribute('aria-current');
     overview?.closest('.asset-shell-overview-card')?.classList.toggle('is-active', overviewActive);
+  }
+
+  function toggleNavigationGroup(id, name, children, primaryButton, collapseButton) {
+    const collapsed = !collapsedNavigationIds.has(id);
+    if (collapsed) collapsedNavigationIds.add(id);
+    else collapsedNavigationIds.delete(id);
+    children.hidden = collapsed;
+    const expanded = String(!collapsed);
+    primaryButton.setAttribute('aria-expanded', expanded);
+    collapseButton.setAttribute('aria-expanded', expanded);
+    collapseButton.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'}${name}子项`);
+    collapseButton.title = collapsed ? `展开${name}子项` : `折叠${name}子项`;
   }
 
   async function activateBoard(id) {
@@ -436,21 +449,42 @@ window.WorkbenchAssets = (() => {
           const node = document.createElement('div');
           node.className = 'asset-shell-nav-node';
           const primaryButton = createButton(entry.row);
-          node.append(primaryButton);
           if (entry.children.length) {
+            const parentRow = document.createElement('div');
+            parentRow.className = 'asset-shell-nav-parent-row';
+            const collapseButton = document.createElement('button');
+            const collapsed = collapsedNavigationIds.has(entry.row.id);
+            const expanded = String(!collapsed);
+            collapseButton.type = 'button';
+            collapseButton.className = 'asset-shell-nav-collapse';
+            collapseButton.dataset.navigationCollapse = entry.row.id;
+            collapseButton.setAttribute('aria-expanded', expanded);
+            collapseButton.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'}${entry.row.name}子项`);
+            collapseButton.title = collapsed ? `展开${entry.row.name}子项` : `折叠${entry.row.name}子项`;
+            const collapseIcon = document.createElement('i');
+            collapseIcon.setAttribute('data-lucide', 'chevron-down');
+            collapseIcon.setAttribute('aria-hidden', 'true');
+            collapseButton.append(collapseIcon);
             const children = document.createElement('div');
             children.className = 'asset-shell-nav-sublist';
             children.id = `asset-shell-nav-sublist-${entry.row.id}`;
+            children.hidden = collapsed;
             children.setAttribute('role', 'group');
             children.setAttribute('aria-label', `${entry.row.name}子项`);
-            primaryButton.setAttribute('aria-expanded', 'true');
+            primaryButton.className += ' asset-shell-nav-parent';
+            primaryButton.setAttribute('aria-expanded', expanded);
             primaryButton.setAttribute('aria-controls', children.id);
-            primaryButton.addEventListener('dblclick', () => {
-              children.hidden = !children.hidden;
-              primaryButton.setAttribute('aria-expanded', String(!children.hidden));
+            collapseButton.setAttribute('aria-controls', children.id);
+            primaryButton.addEventListener('dblclick', () => toggleNavigationGroup(entry.row.id, entry.row.name, children, primaryButton, collapseButton));
+            collapseButton.addEventListener('click', event => {
+              event.stopPropagation();
+              toggleNavigationGroup(entry.row.id, entry.row.name, children, primaryButton, collapseButton);
             });
             for (const child of entry.children) children.append(createButton(child, true));
-            node.append(children);
+            parentRow.append(primaryButton, collapseButton);
+            node.append(parentRow, children);
+          } else {
+            node.append(primaryButton);
           }
           items.append(node);
         }
