@@ -173,4 +173,31 @@ const dblClickOpen = js.slice(js.indexOf("root.addEventListener('dblclick'"), js
 assert.match(dblClickOpen, /\[data-registry-stat="reference-canvas"\]/, '双击监听应识别画布卡片');
 assert.match(dblClickOpen, /activeTab = 'canvas-assets'/, '双击画布卡片应跳转到画布资产库');
 
+// AC8：整排概览卡宽度压到 2/3，卡间距（gap）保持 8px 不变，整排向左对齐、右侧留白。
+// 宽度公式「扣掉 gap 再乘 2/3、最后把 gap 加回」保证每张卡恰为原宽度的三分之二，而 gap 一像素不动。
+const statsBlock = vaultCss.match(/body\.gw-signal\.gw-page--asset-manager \.registry-overview-stats \{([\s\S]*?)\n\}/);
+assert.ok(statsBlock, 'asset-vault.css 必须定义概览统计网格');
+assert.match(statsBlock[1], /--registry-stat-gap: 8px;/, '卡间距令牌应固定为 8px');
+assert.match(statsBlock[1], /gap: var\(--registry-stat-gap\);/, '卡间距必须沿用 8px，不得随宽度一起缩放');
+assert.match(
+  statsBlock[1],
+  /width: calc\(\(100% - var\(--registry-stat-gap\) \* var\(--registry-stat-gap-count\)\) \* 2 \/ 3 \+ var\(--registry-stat-gap\) \* var\(--registry-stat-gap-count\)\);/,
+  '整排宽度应压到原来的三分之二（gap 不参与缩放）'
+);
+assert.match(statsBlock[1], /margin-inline: 0 auto;/, '整排必须向左对齐');
+assert.match(vaultCss, /--registry-stat-gap-count: 3;/, '1200px 断点下 4 列应对应 3 个间距');
+assert.match(vaultCss, /--registry-stat-gap-count: 1;/, '480px 断点下 2 列应对应 1 个间距');
+
+// AC9：卡片被选中时，除边框高亮外名称 / 数量 / 占比文字也转金色。
+assert.match(
+  vaultCss,
+  /\.registry-stat-card\.active :is\(small,strong,em\) \{ color: var\(--vault-gold\) !important; \}/,
+  '选中卡片的名称、数量、占比文字应统一转金色'
+);
+assert.match(
+  vaultCss,
+  /html\[data-theme="light"\] body\.gw-signal\.gw-page--asset-manager \.registry-stat-card\.active \{\n\s*border-color: var\(--vault-gold\) !important;/,
+  '浅色主题下选中卡片应同样有金色描边'
+);
+
 console.log('QIN-531 asset topbar/toolbar contracts passed');

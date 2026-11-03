@@ -117,9 +117,15 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #registryFacetPo
 html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #registryFacetPopover[popover]:popover-open { display: flex !important; }
 body.gw-signal.gw-page--asset-manager .registry-overview-shell { padding: 9px 10px; background: var(--vault-deck) !important; border-bottom: 1px solid var(--vault-line); }
 body.gw-signal.gw-page--asset-manager .registry-overview-stats {
+    /* QIN-531 验收：整排卡片宽度压到原来的 2/3，卡间距（gap）保持 8px 不变，整排向左对齐、右侧留白。 */
+    --registry-stat-gap: 8px;
+    --registry-stat-gap-count: 8;
     display: grid;
     grid-template-columns: 2fr 2fr repeat(5,1fr) .95fr .95fr;
-    gap: 8px;
+    gap: var(--registry-stat-gap);
+    /* 先扣掉 gap 再乘 2/3、最后把 gap 加回：列宽比例不变，每张卡恰为原宽度的三分之二。 */
+    width: calc((100% - var(--registry-stat-gap) * var(--registry-stat-gap-count)) * 2 / 3 + var(--registry-stat-gap) * var(--registry-stat-gap-count));
+    margin-inline: 0 auto;
     overflow: visible;
     padding: 0;
     border: 0 !important;
@@ -129,11 +135,12 @@ body.gw-signal.gw-page--asset-manager .registry-overview-stats {
 html body.gw-signal.gw-page--asset-manager .registry-stat-card {
     --vault-meter: var(--vault-accent);
     display: grid;
-    grid-template-columns: 16px minmax(0,auto) minmax(24px,1fr);
+    /* 第二行：图标 16px + 数量（自适应）+ 进度条（可变宽）。卡片整体压到 2/3 宽后，列间距与进度条最小宽度同步收紧，避免数量被进度条压住。 */
+    grid-template-columns: 16px minmax(0,auto) minmax(12px,1fr);
     grid-template-rows: auto auto;
     align-content: center;
     align-items: center;
-    column-gap: 6px;
+    column-gap: 5px;
     row-gap: 3px;
     padding: 5px 9px;
     min-height: 44px !important;
@@ -154,6 +161,8 @@ html body.gw-signal.gw-page--asset-manager .registry-stat-card.active {
     border-color: var(--vault-accent) !important;
     box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 4px 10px rgb(0 0 0 / .8), 0 0 12px rgb(223 195 132 / .3) !important;
 }
+/* QIN-531 验收：卡片选中后除边框高亮外，名称 / 数量 / 占比文字一并转为金色，与边框高亮呼应。 */
+html body.gw-signal.gw-page--asset-manager .registry-stat-card.active :is(small,strong,em) { color: var(--vault-gold) !important; }
 body.gw-signal.gw-page--asset-manager .registry-stat-copy { display: contents; }
 body.gw-signal.gw-page--asset-manager .registry-stat-card small { grid-area: 1 / 1 / 2 / 3; display: block; min-width: 0; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vault-muted); font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:14px; font-weight:var(--gw-weight-regular); letter-spacing:0;}
 body.gw-signal.gw-page--asset-manager .registry-stat-card strong { grid-area: 2 / 2 / 3 / 3; align-self: center; color: var(--vault-text); font: 700 var(--gw-type-body-md)/16px var(--gw-font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0; margin: 0; }
@@ -239,7 +248,7 @@ body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex: 0 0 auto; m
 body.gw-signal.gw-page--asset-manager .registry-vault-footer strong { color: var(--vault-accent); }
 body.gw-signal.gw-page--asset-manager :is(#assetBoardTabs,.registry-content) :is(button,input,select):focus-visible { outline: 2px solid var(--vault-accent) !important; outline-offset: 2px !important; }
 @media (max-width: 1200px) {
-    body.gw-signal.gw-page--asset-manager .registry-overview-stats { grid-template-columns: repeat(4,minmax(0,1fr)) !important; }
+    body.gw-signal.gw-page--asset-manager .registry-overview-stats { --registry-stat-gap-count: 3; grid-template-columns: repeat(4,minmax(0,1fr)) !important; }
     body.gw-signal.gw-page--asset-manager .registry-stat-card.primary { grid-column: auto; }
 }
 @media (max-width: 900px) {
@@ -258,7 +267,7 @@ body.gw-signal.gw-page--asset-manager :is(#assetBoardTabs,.registry-content) :is
 }
 @media (max-width: 480px) {
     body.gw-signal.gw-page--asset-manager .registry-grid { gap: 8px; }
-    body.gw-signal.gw-page--asset-manager .registry-overview-stats { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+    body.gw-signal.gw-page--asset-manager .registry-overview-stats { --registry-stat-gap-count: 1; grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
     body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex-wrap: wrap;   font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
     body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { min-width: 96px; }
 }
@@ -1031,6 +1040,11 @@ html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-ca
     border-color: var(--vault-accent) !important;
     background: linear-gradient(180deg,#fff,#f6f8fb) !important;
     box-shadow: inset 0 1px 0 #fff, 0 4px 10px rgb(31 41 55 / .16) !important;
+}
+/* QIN-531 验收（浅色主题）：选中态改为四边金色描边 + 淡金外发光，与深色主题的选中高亮对齐。 */
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-card.active {
+    border-color: var(--vault-gold) !important;
+    box-shadow: inset 0 1px 0 #fff, 0 4px 10px rgb(31 41 55 / .16), 0 0 10px rgb(223 195 132 / .34) !important;
 }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item) { color: #465366 !important; }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-layout-switch {
