@@ -401,7 +401,12 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     assert.equal(layout.cols, 9);
     assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.top), Array(9).fill(0));
     assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.column), [0,1,2,3,4,5,6,7,8]);
-    assert.ok(layout.itemLayouts.slice(9, 27).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
+    for(let column=0; column<layout.cols; column++){
+        const positions = layout.itemLayouts.filter(position => position.column === column);
+        for(let i=1; i<positions.length; i++){
+            assert.equal(positions[i].top - (positions[i-1].top + positions[i-1].height), 10, '同列卡片间距固定且不重叠');
+        }
+    }
     assert.ok(layout.rowTops.every((top,index,tops) => index === 0 || top >= tops[index - 1]), '按素材顺序的 top 位置保持单调，供二分窗口定位');
     assert.deepEqual(
         layout.itemLayouts.slice(0,100).map(({left,top,span}) => [left,top,span]),
@@ -671,4 +676,21 @@ test('QIN-532: Shift+滚轮可缩至 96px 并提示边界', () => {
     save();
     assert.equal(handle.size(), 96);
     assert.equal(status, '预览大小 96px（已到最小）');
+});
+
+test('QIN-532: 图片异步改变高度后合并重测并修正虚拟布局', () => {
+    let frame;
+    let updates = 0;
+    const cards = [{dataset:{registryCard:'a'}, getBoundingClientRect:() => ({height:300})}];
+    const grid = {querySelectorAll:() => cards};
+    const schedule = new Function('root','requestAnimationFrame','registryVirtualItemsForActiveBoard','registryVirtualState','updateRegistryVirtualWindow',
+        `let registryVirtualRemeasureFrame=0; ${functionSource('scheduleRegistryVirtualRemeasure')}\nreturn scheduleRegistryVirtualRemeasure;`)(
+        {querySelector:() => grid}, callback => {frame=callback; return 1;},
+        () => ({items:[{id:'a'}]}), {itemLayouts:[{height:120}]},
+        force => {assert.equal(force,true); updates++;},
+    );
+    schedule();
+    schedule();
+    frame();
+    assert.equal(updates,1);
 });

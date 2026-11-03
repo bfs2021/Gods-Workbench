@@ -228,7 +228,7 @@ body.gw-signal.gw-page--asset-manager .registry-layout-switch { padding: 0; }
 
 
 body.gw-signal.gw-page--asset-manager .registry-content .registry-assets-scroll { padding: 12px; gap: 12px; background: var(--vault-bg); }
-body.gw-signal.gw-page--asset-manager .registry-grid { background: transparent !important; grid-template-columns: repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),min(100%,var(--registry-card-size,176px)))); align-content: start; justify-content: start; gap: 10px; }
+body.gw-signal.gw-page--asset-manager .registry-grid { background: transparent !important; grid-template-columns: repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),min(100%,var(--registry-card-size,176px)))); align-content: start; justify-content: start; column-gap:10px; row-gap:0; --registry-masonry-gap:10px; }
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card {
     padding: 6px;
     border-radius: 8px !important;
@@ -273,7 +273,7 @@ body.gw-signal.gw-page--asset-manager :is(#assetBoardTabs,.registry-content) :is
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-registry { grid-template-rows: auto minmax(500px,1fr) !important; }
 }
 @media (max-width: 480px) {
-    body.gw-signal.gw-page--asset-manager .registry-grid { gap: 8px; }
+    body.gw-signal.gw-page--asset-manager .registry-grid { column-gap:8px; row-gap:0; --registry-masonry-gap:8px; }
     body.gw-signal.gw-page--asset-manager .registry-overview-stats { --registry-stat-gap-count: 1; grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
     body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex-wrap: wrap;   font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:var(--gw-leading-body-sm); font-weight:var(--gw-weight-medium); letter-spacing:0;}
     body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { min-width: 96px; }
@@ -1283,3 +1283,5 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
         grid-template-rows: auto auto auto minmax(390px,1fr) !important;
     }
 }
+
+body.gw-signal.gw-page--asset-manager .registry-grid.registry-masonry-fallback { row-gap:var(--registry-masonry-gap,10px); }

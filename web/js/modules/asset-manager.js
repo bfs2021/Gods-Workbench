@@ -458,6 +458,7 @@ let registryPreviewObserver = null;
 let registryPreviewFallbackCleanup = null;
 let registryVirtualScrollCleanup = null;
 let registryVirtualScrollFrame = 0;
+let registryVirtualRemeasureFrame = 0;
 let registryVirtualState = {key:'', start:0, end:0, cols:1, totalHeight:0, rowTops:[], rowHeights:[], itemLayouts:[]};
 const registryVirtualHeightCache = new Map();
 let registryVirtualHeightCacheMode = '';
@@ -6517,7 +6518,7 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
     const contentWidth = Math.max(320, Number(width) || grid?.clientWidth || root.querySelector('.registry-content')?.clientWidth || window.innerWidth || 1024);
     const gridStyle = grid ? getComputedStyle(grid) : {};
     const columnGap = Math.max(0, Number.parseFloat(gridStyle.columnGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
-    const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
+    const rowGap = Math.max(0, Number.parseFloat(gridStyle.getPropertyValue?.('--registry-masonry-gap')) || Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
     const rowHeight = Math.max(1, Number.parseFloat(gridStyle.gridAutoRows) || 8);
     const preferred = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, Number(registryCardSize) || REGISTRY_CARD_SIZE.fallback));
     const cols = Math.max(1, Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
@@ -6547,53 +6548,18 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
         if(id && height > 0) registryVirtualHeightCache.set(registryVirtualHeightCacheKey(entry.item,entry.index,cacheMode), height);
     });
     if(measureMissing) registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
-    const occupiedRows = [];
+    // 每次放入当前最短列，避免行优先占位留下大块空隙。
+    const columnBottoms = Array(cols).fill(0);
     const itemLayouts = [];
-    let cursorRow = 0;
-    let cursorColumn = 0;
-    let totalRows = 0;
     items.forEach((item,index) => {
         const cachedHeight = registryVirtualHeightCache.get(registryVirtualHeightCacheKey(item,index,cacheMode));
         const height = Math.max(1, Number(cachedHeight || registryVirtualCardHeight(item, cardWidth)) || 1);
+        const column = columnBottoms.indexOf(Math.min(...columnBottoms));
+        const top = columnBottoms[column];
         const span = Math.max(1, Math.ceil((height + rowGap) / pitch));
-        let row = cursorRow;
-        let column = cursorColumn;
-        while(true){
-            if(column >= cols){
-                row += 1;
-                column = 0;
-                continue;
-            }
-            let fits = true;
-            for(let occupiedRow = row; occupiedRow < row + span; occupiedRow += 1){
-                if(occupiedRows[occupiedRow]?.has(column)){
-                    fits = false;
-                    break;
-                }
-            }
-            if(fits) break;
-            column += 1;
-        }
-        for(let occupiedRow = row; occupiedRow < row + span; occupiedRow += 1){
-            if(!occupiedRows[occupiedRow]) occupiedRows[occupiedRow] = new Set();
-            occupiedRows[occupiedRow].add(column);
-        }
-        itemLayouts.push({
-            left:column * (cardWidth + columnGap),
-            top:row * pitch,
-            width:cardWidth,
-            height,
-            column,
-            row,
-            span,
-        });
-        totalRows = Math.max(totalRows, row + span);
-        cursorRow = row;
-        cursorColumn = column + 1;
-        if(cursorColumn >= cols){
-            cursorRow += 1;
-            cursorColumn = 0;
-        }
+        itemLayouts.push({left:column * (cardWidth + columnGap), top, width:cardWidth,
+            height, column, row:Math.floor(top / pitch), span});
+        columnBottoms[column] = top + height + rowGap;
     });
     if(!items.length){
         registryVirtualHeightCache.clear();
@@ -6606,7 +6572,7 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
         maxBottom = Math.max(maxBottom, position.top + position.height);
         itemMaxBottoms.push(maxBottom);
     });
-    const totalHeight = Math.max(0, totalRows * rowHeight + Math.max(0, totalRows - 1) * rowGap);
+    const totalHeight = Math.max(0, ...columnBottoms) - (items.length ? rowGap : 0);
     return {cols, cardWidth, width:contentWidth, rowHeight, rowGap, rowHeights, rowTops, itemMaxBottoms, totalHeight, itemLayouts};
 }
 function registryVirtualRowAt(layout, target, fallback=0){
@@ -8473,9 +8439,10 @@ function updateRegistryMasonryCards(cards=[], grid){
         && (!card.style.getPropertyValue('--registry-masonry-span') || card.dataset.registryMasonryDirty === 'true'));
     if(!candidates.length) return;
     const gridStyle = getComputedStyle(grid);
-    const rowHeight = Math.max(1, parseFloat(gridStyle.gridAutoRows) || 8);
-    const rowGap = Math.max(0, parseFloat(gridStyle.rowGap) || 10);
-    // 【修复 masonry 测量塌陷】测量态（grid-row:auto + 固定 8px 行轨道）会让整块网格瞬时塌陷，
+    const rowHeight = Math.max(1, parseFloat(gridStyle.gridAutoRows) || 1);
+    const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap) || 0);
+    const requiredGap = Math.max(0, Number.parseFloat(gridStyle.getPropertyValue('--registry-masonry-gap')) || 10);
+    // 【修复 masonry 测量塌陷】测量态（grid-row:auto + 固定行轨道）会让整块网格瞬时塌陷，
     // getBoundingClientRect 强制回流时浏览器可能把 scrollTop 钳回顶部——浏览中“跳回顶部”的元凶之一。
     // 测量前记录滚动容器位置，跨度回填完成后立即恢复。
     const measureScrollRoot = grid.closest('.registry-assets-scroll');
@@ -8492,7 +8459,7 @@ function updateRegistryMasonryCards(cards=[], grid){
         delete card.dataset.registryMasonryDirty;
     });
     measurements.forEach(({card, height}) => {
-        const span = Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
+        const span = Math.max(1, Math.ceil((height + requiredGap) / (rowHeight + rowGap)));
         if(card.style.getPropertyValue('--registry-masonry-span') !== String(span)){
             card.style.setProperty('--registry-masonry-span', String(span));
         }
@@ -8545,6 +8512,21 @@ function scheduleRegistryMasonryLayout(){
         });
     });
 }
+function scheduleRegistryVirtualRemeasure(){
+    if(registryVirtualRemeasureFrame) return;
+    registryVirtualRemeasureFrame = requestAnimationFrame(() => {
+        registryVirtualRemeasureFrame = 0;
+        const grid = root.querySelector('[data-registry-virtual-grid]');
+        if(!grid) return;
+        const {items} = registryVirtualItemsForActiveBoard();
+        const positions = new Map(items.map((item, index) => [String(item.id || ''), registryVirtualState.itemLayouts?.[index]]));
+        const changed = [...grid.querySelectorAll(':scope > .registry-card[data-registry-card]')].some(card => {
+            const position = positions.get(String(card.dataset.registryCard || ''));
+            return position && Math.abs(card.getBoundingClientRect().height - position.height) > 1;
+        });
+        if(changed) updateRegistryVirtualWindow(true);
+    });
+}
 function pumpRegistryPreviewQueue(){
     while(registryPreviewActive < REGISTRY_PREVIEW_CONCURRENCY && registryPreviewQueue.length){
         const image = registryPreviewQueue.shift();
@@ -8561,6 +8543,7 @@ function pumpRegistryPreviewQueue(){
             if(settled) return;
             settled = true;
             registryPreviewActive = Math.max(0, registryPreviewActive - 1);
+            scheduleRegistryVirtualRemeasure();
             pumpRegistryPreviewQueue();
         };
         image.addEventListener('load', finish, {once:true});
@@ -21520,6 +21503,9 @@ Object.defineProperties(window, {
     openRegistryAssetFromGlobalSearch:{configurable:true, value:openRegistryAssetFromGlobalSearch},
 });
 const REGISTRY_SESSION_KEY = 'gw.registry.browse.session';
+let registryBrowseInteracted = false;
+document.addEventListener('pointerdown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
+document.addEventListener('keydown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 function saveRegistryBrowseSession(){
     if(activeTab !== 'registry' && assetBoardById(activeTab)?.system !== false) return;
     try {
@@ -21534,7 +21520,8 @@ async function restoreRegistryBrowseSession(){
         const navigation = performance.getEntriesByType?.('navigation')?.[0];
         const saved = JSON.parse(sessionStorage.getItem(REGISTRY_SESSION_KEY) || 'null');
         sessionStorage.removeItem(REGISTRY_SESSION_KEY);
-        if(!saved || navigation?.type === 'reload') return;
+        const parentNavigation = window.parent !== window ? window.parent.performance.getEntriesByType?.('navigation')?.[0] : navigation;
+        if(!saved || navigation?.type === 'reload' || parentNavigation?.type === 'reload' || registryBrowseInteracted) return;
         registryNavFolder = saved.folder || {rootId:'', path:''};
         boardSourceSelection = saved.sources || {};
         boardFolderSelection = saved.folders || {};

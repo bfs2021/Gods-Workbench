@@ -1682,7 +1682,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 /* Row-first compact masonry. CSS columns fill top-to-bottom, which groups
    different media types into separate sides; fixed rows plus measured spans
    keep insertion order left-to-right while retaining variable card heights. */
-.registry-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),min(100%,var(--registry-card-size,176px)))); grid-auto-rows:8px; grid-auto-flow:row; align-items:start; align-content:start; justify-content:start; gap:10px; }
+.registry-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,var(--registry-card-size,176px)),min(100%,var(--registry-card-size,176px)))); grid-auto-rows:1px; grid-auto-flow:row dense; align-items:start; align-content:start; justify-content:start; column-gap:10px; row-gap:0; --registry-masonry-gap:10px; }
 .registry-grid .registry-card { display:flex; flex-direction:column; width:auto; height:max-content; margin:0; align-self:start; grid-row:span var(--registry-masonry-span,1); }
 .registry-grid-virtualized {
   position:relative;
@@ -1709,7 +1709,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
   pointer-events:none;
 }
 .registry-grid .registry-card[data-registry-masonry-measuring="true"] { grid-row:auto !important; }
-.registry-grid.registry-masonry-fallback { grid-auto-rows:max-content; }
+.registry-grid.registry-masonry-fallback { grid-auto-rows:max-content; row-gap:10px; }
 .registry-grid.registry-masonry-fallback .registry-card { grid-row:auto; }
 .registry-grid-group-header { grid-column:1 / -1; min-height:28px; margin:0 0 8px; display:flex; align-items:center; justify-content:space-between; gap:10px; break-inside:avoid; }
 .registry-grid-group-header span { min-width:0; display:flex; align-items:center; gap:7px; }
