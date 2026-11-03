@@ -102,8 +102,8 @@ assert.match(js, /toggleRegistrySelectMenu\(/, '点击胶囊应由自绘菜单�
 assert.doesNotMatch(js, /showPicker/, '不得再调起原生选择菜单');
 assert.match(
   managerCss,
-  /\.registry-toolbar-select \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.22\) !important;[\s\S]*?border-radius: 7px !important;[\s\S]*?background: linear-gradient\(180deg,#1a1d25,#0f1115\) !important;/,
-  '胶囊外框应自带微边框与黑金渐变底'
+  /\.registry-toolbar-select \{[\s\S]*?border: 1px solid var\(--vault-line\) !important;[\s\S]*?border-radius: 7px !important;[\s\S]*?background: linear-gradient\(180deg,var\(--vault-top\),var\(--vault-bottom\)\) !important;/,
+  '胶囊应与工具栏其它按钮同用扁平底板（与概览卡材质对调）'
 );
 assert.match(
   managerCss,
@@ -126,6 +126,40 @@ assert.match(
   '触发器与选项不得出现焦点方框'
 );
 assert.doesNotMatch(managerCss, /registry-select-caret/, '三角箭头样式必须移除');
+
+// AC7：概览卡与工具栏按钮互换材质——卡片接管键帽（上亮下暗 + 顶部高光 + 落影），
+// 工具栏按钮与下拉胶囊接管卡片原本的扁平底板（细边框 + 单像素内高光 + 极轻落影）。
+assert.match(statBlock[1], /border-top-color: rgb\(255 255 255 \/ \.18\) !important;/, '概览卡应带键帽顶部高光边');
+assert.match(
+  statBlock[1],
+  /background: linear-gradient\(180deg,#1e222d 0%,#11131a 100%\) !important;/,
+  '概览卡应使用键帽上亮下暗渐变'
+);
+assert.match(
+  statBlock[1],
+  /box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\), 0 4px 8px rgb\(0 0 0 \/ \.75\)/,
+  '概览卡应带键帽内高光与落影'
+);
+assert.doesNotMatch(
+  statBlock[1],
+  /background: linear-gradient\(180deg,var\(--vault-top\),var\(--vault-bottom\)\)/,
+  '概览卡不得再使用扁平底板（已与工具栏按钮对调）'
+);
+const toolbarButtonBlock = vaultCss.match(/\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\) \{([\s\S]*?)\n\}/);
+assert.ok(toolbarButtonBlock, 'asset-vault.css 必须定义工具栏按钮的扁平底板');
+assert.match(toolbarButtonBlock[1], /border: 1px solid var\(--vault-line\) !important;/, '工具栏按钮应用细边框');
+assert.match(
+  toolbarButtonBlock[1],
+  /background: linear-gradient\(180deg,var\(--vault-top\),var\(--vault-bottom\)\) !important;/,
+  '工具栏按钮应使用概览卡原本的扁平渐变底'
+);
+assert.match(toolbarButtonBlock[1], /box-shadow: inset 0 1px rgb\(255 255 255 \/ \.045\), 0 1px 2px/, '工具栏按钮应保留单像素内高光与轻落影');
+assert.doesNotMatch(toolbarButtonBlock[1], /#1e222d/, '工具栏按钮不得再使用键帽渐变（已与概览卡对调）');
+assert.match(
+  vaultCss,
+  /html\[data-theme="light"\] body\.gw-signal\.gw-page--asset-manager \.registry-stat-card \{\n\s*border: 1px solid rgb\(31 41 55 \/ \.26\) !important;/,
+  '浅色主题下概览卡应同样换成有边界的立体卡面'
+);
 
 // AC6：「画布」卡片改为双击跳转，单击只做选中反馈。
 const statClickBlock = js.slice(

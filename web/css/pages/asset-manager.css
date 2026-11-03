@@ -2102,21 +2102,21 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   height: 32px !important;
   min-height: 32px !important;
   padding: 0 8px !important;
-  border: 1px solid rgb(223 195 132 / .22) !important;
+  border: 1px solid var(--vault-line) !important;
   border-radius: 7px !important;
-  background: linear-gradient(180deg,#1a1d25,#0f1115) !important;
-  box-shadow: inset 0 1px rgb(255 255 255 / .05), 0 1px 2px rgb(0 0 0 / .45) !important;
+  background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
+  box-shadow: inset 0 1px rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .38) !important;
   transform: none !important;
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
-  color: #d1d5db !important;
+  color: var(--vault-text) !important;
   cursor: pointer;
   user-select: none;
 }
-/* 悬浮 / 展开时高亮整颗圆角按钮，而不是给内部控件套焦点方框。 */
+/* 悬浮 / 展开时高亮整颗圆角按钮的描边（底板与工具栏其它按钮同一材质，不再额外浮起）。 */
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) {
-  border-color: rgb(223 195 132 / .62) !important;
-  background: linear-gradient(180deg,#232833,#12151b) !important;
-  box-shadow: 0 0 0 1px rgb(223 195 132 / .16), 0 6px 18px rgb(0 0 0 / .42), inset 0 1px rgb(255 255 255 / .06) !important;
+  border-color: var(--vault-accent) !important;
+  background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
+  box-shadow: inset 0 1px rgb(255 255 255 / .06), 0 1px 3px rgb(0 0 0 / .42) !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > span {
   display: flex !important;
@@ -2125,15 +2125,15 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   min-height: 0 !important;
   padding: 0 !important;
   line-height: 1 !important;
-  color: #8d95a3 !important;
+  color: var(--vault-muted) !important;
   white-space: nowrap;
 }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) > span { color: #c9cfda !important; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) > span { color: var(--vault-text) !important; }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > svg {
   width: 12px !important;
   height: 12px !important;
   flex: 0 0 auto;
-  color: #8d95a3 !important;
+  color: var(--vault-muted) !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) > svg { color: #dfc384 !important; }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-trigger {
@@ -2152,7 +2152,7 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   background: transparent !important;
   box-shadow: none !important;
   transform: none !important;
-  color: #e7e9ee !important;
+  color: var(--vault-text) !important;
   font-family: var(--gw-font-body) !important;
   font-size: var(--gw-type-button-sm) !important;
   font-weight: var(--gw-weight-bold) !important;
@@ -2160,7 +2160,7 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   white-space: nowrap;
   cursor: pointer;
 }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) .registry-select-trigger { color: #f6ead0 !important; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) .registry-select-trigger { color: var(--vault-text) !important; }
 /* 去掉系统焦点方框：键盘焦点由整颗胶囊的金色描边表达。 */
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select :is(.registry-select-trigger,.registry-select-option):is(:focus,:focus-visible) {
   outline: none !important;

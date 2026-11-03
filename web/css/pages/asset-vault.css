@@ -137,12 +137,23 @@ html body.gw-signal.gw-page--asset-manager .registry-stat-card {
     row-gap: 3px;
     padding: 5px 9px;
     min-height: 44px !important;
-    border: 1px solid var(--vault-line) !important;
-    border-radius: 7px !important;
-    background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
-    box-shadow: inset 0 1px rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .38) !important;
+    /* QIN-531 验收：与下方工具栏按钮互换材质——概览卡接管键帽质感（上亮下暗渐变 + 顶部 1px 高光 + 落影），轮廓更清晰。 */
+    border: 1px solid rgb(223 195 132 / .2) !important;
+    border-top-color: rgb(255 255 255 / .18) !important;
+    border-radius: 9px !important;
+    background: linear-gradient(180deg,#1e222d 0%,#11131a 100%) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), 0 4px 8px rgb(0 0 0 / .75), 0 1px 0 rgb(0 0 0 / .9) !important;
+    transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
 }
-html body.gw-signal.gw-page--asset-manager .registry-stat-card:is(.active,:hover) { border-color: var(--vault-accent) !important; }
+html body.gw-signal.gw-page--asset-manager .registry-stat-card:hover {
+    border-color: rgb(223 195 132 / .45) !important;
+    background: linear-gradient(180deg,#252a36 0%,#151822 100%) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .24), 0 4px 12px rgb(0 0 0 / .85), 0 0 10px rgb(223 195 132 / .2) !important;
+}
+html body.gw-signal.gw-page--asset-manager .registry-stat-card.active {
+    border-color: var(--vault-accent) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 4px 10px rgb(0 0 0 / .8), 0 0 12px rgb(223 195 132 / .3) !important;
+}
 body.gw-signal.gw-page--asset-manager .registry-stat-copy { display: contents; }
 body.gw-signal.gw-page--asset-manager .registry-stat-card small { grid-area: 1 / 1 / 2 / 3; display: block; min-width: 0; align-self: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vault-muted); font-family:var(--gw-font-body); font-size:var(--gw-type-body-sm); line-height:14px; font-weight:var(--gw-weight-regular); letter-spacing:0;}
 body.gw-signal.gw-page--asset-manager .registry-stat-card strong { grid-area: 2 / 2 / 3 / 3; align-self: center; color: var(--vault-text); font: 700 var(--gw-type-body-md)/16px var(--gw-font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0; margin: 0; }
@@ -177,6 +188,23 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-refresh { orde
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-search-wrap { order: -1; flex: 0 1 calc(25% - 44px); max-width: calc(25% - 44px); min-width: 100px; height: 40px !important; padding: 0 8px; box-shadow: none; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar :is(input, select,.registry-toolbar-select) {      font-family:var(--gw-font-body) !important; font-size:var(--gw-type-body-md) !important; line-height:var(--gw-leading-body-md) !important; font-weight:var(--gw-weight-regular) !important; letter-spacing:0 !important; min-height:40px !important; height:auto !important; max-height:none !important;}
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-btn { padding: 0 7px; gap: 4px; }
+/* QIN-531 验收：与概览卡互换材质——工具栏按钮改用概览卡原本的扁平底板（细边框 + 单像素内高光 + 极轻落影），
+   与 registry-toolbar 的凹槽底色同一层，不再浮起。分段控件（方格/列表）保留自身凹槽底座，不参与。 */
+body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item) {
+    border: 1px solid var(--vault-line) !important;
+    border-top-color: var(--vault-line) !important;
+    border-radius: 7px !important;
+    background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
+    box-shadow: inset 0 1px rgb(255 255 255 / .045), 0 1px 2px rgb(0 0 0 / .38) !important;
+    color: var(--vault-text) !important;
+    transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item):is(:hover,:focus-visible) {
+    border-color: var(--vault-accent) !important;
+    background: linear-gradient(180deg,var(--vault-top),var(--vault-bottom)) !important;
+    box-shadow: inset 0 1px rgb(255 255 255 / .06), 0 1px 3px rgb(0 0 0 / .42) !important;
+    color: var(--vault-text) !important;
+}
 body.gw-signal.gw-page--asset-manager .registry-toolbar svg { width: 13px; height: 13px; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar-select > span { padding: 0 5px;   font-family:var(--gw-font-body); font-size:var(--gw-type-body-md); line-height:var(--gw-leading-body-md); font-weight:var(--gw-weight-regular); letter-spacing:0; min-height:40px; height:auto; max-height:none;}
 body.gw-signal.gw-page--asset-manager .registry-layout-switch { padding: 0; }
@@ -991,7 +1019,41 @@ html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) :is(.panel-head,.content-toolbar) { background: linear-gradient(180deg,var(--vault-card),var(--vault-card-deep)) !important; }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) :is(.asset-card,.prompt-card,.project-entity-card,.project-gate,.workflow-card,.canvas-asset-card,.upload-grid-card) { background: linear-gradient(165deg,var(--vault-card),var(--vault-card-deep)) !important; box-shadow: inset 0 1px #fff, 0 8px 18px rgba(31,41,55,.09) !important; }
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) :is(.asset-search-wrap,.asset-search,.manage-select,.manage-select select,.canvas-sort-select) { background: #fff !important; color: #1d2633 !important; }
-html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-card { background: #fff !important; }
+/* QIN-531 验收（浅色主题）：同样的材质对调——概览卡改为立体卡面（上白下灰 + 顶部 1px 高光 + 落影），
+   工具栏按钮与下拉胶囊改为扁平浅底深字，分段控件底座同步转浅，下落菜单跟随变浅。 */
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-card {
+    border: 1px solid rgb(31 41 55 / .26) !important;
+    border-top-color: #fff !important;
+    background: linear-gradient(180deg,#fff,#eef1f6) !important;
+    box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgb(31 41 55 / .12), 0 1px 0 rgb(31 41 55 / .06) !important;
+}
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-stat-card:hover {
+    border-color: var(--vault-accent) !important;
+    background: linear-gradient(180deg,#fff,#f6f8fb) !important;
+    box-shadow: inset 0 1px 0 #fff, 0 4px 10px rgb(31 41 55 / .16) !important;
+}
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager .registry-toolbar .hw-btn:not(.btn-segmented-item) { color: #465366 !important; }
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-layout-switch {
+    border-color: rgb(31 41 55 / .12) !important;
+    background: var(--vault-well) !important;
+    box-shadow: inset 0 1px rgb(255 255 255 / .7), 0 1px 2px rgb(31 41 55 / .08) !important;
+}
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .btn-segmented-item { color: #6b7788 !important; }
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .btn-segmented-item:hover { color: var(--vault-gold) !important; }
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .btn-segmented-item:is(.active,.is-active,[aria-pressed="true"]) {
+    border-color: rgb(223 195 132 / .6) !important;
+    background: linear-gradient(180deg,#fff,#e9ecf2) !important;
+    color: var(--vault-gold) !important;
+    box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(31 41 55 / .14), 0 0 6px rgb(223 195 132 / .22) !important;
+}
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-menu {
+    border-color: rgb(31 41 55 / .12);
+    background: linear-gradient(180deg,#fff,#f4f6fa);
+    box-shadow: 0 18px 38px rgb(31 41 55 / .18), inset 0 1px #fff;
+}
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option { color: #465366 !important; }
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option:is(:hover,:focus-visible) { background: rgb(223 195 132 / .24) !important; color: #7a5c14 !important; }
+html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option.is-selected { background: rgb(223 195 132 / .2) !important; color: #7a5c14 !important; }
 
 /* These light-theme rules intentionally follow the shared dark chassis above. */
 html[data-theme="light"] body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) {
