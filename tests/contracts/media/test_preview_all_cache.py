@@ -523,8 +523,10 @@ def test_preview_all_rejects_invalid_workers(media_runtime: dict[str, Path]) -> 
 
 
 def test_preview_all_default_workers_is_bounded() -> None:
-    """默认并发度落在 1..12，显式值夹在 1..16。"""
+    """默认并发度不超过 16（低配机按 CPU 收敛），显式值夹在 1..32。"""
     default = media_repo._preview_all_workers({})
-    assert 1 <= default <= 12
-    assert media_repo._preview_all_workers({"workers": 99}) == 16
+    assert 1 <= default <= media_repo.PREVIEW_ALL_DEFAULT_WORKERS
+    assert media_repo._preview_all_workers({"workers": 99}) == (
+        media_repo.PREVIEW_ALL_MAX_WORKERS
+    )
     assert media_repo._preview_all_workers({"workers": 0}) == 1

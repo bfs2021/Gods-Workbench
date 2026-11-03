@@ -40,7 +40,7 @@ import subprocess
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
@@ -970,7 +970,11 @@ def _thumbnail_bytes(
             keep_alpha = image.mode in ("RGBA", "LA", "PA") or (
                 image.mode == "P" and "transparency" in image.info
             )
-            image = image.convert("RGBA" if keep_alpha else "RGB")
+            # 已经是目标通道数就别再复制一份：convert("RGB") 对 RGB 源也是一次
+            # 全图拷贝（3MB 图约 3ms），全库预热里乘 300 多项就是一整秒核时。
+            target_mode = "RGBA" if keep_alpha else "RGB"
+            if image.mode != target_mode:
+                image = image.convert(target_mode)
             ratio = max(1, int(width)) / float(image.width or 1)
             height = max(1, int(round(image.height * ratio)))
             resized = image.resize((max(1, int(width)), height))
@@ -1307,14 +1311,20 @@ def _image_pixel_width(target: Path) -> int | None:
 
 
 def _canonical_generated_hit(
-    settings: dict[str, Any], source: Path, key: str, width: int
+    settings: dict[str, Any],
+    source: Path,
+    key: str,
+    width: int,
+    *,
+    directory: Path | None = None,
 ) -> Path | None:
     """预生成缩略图（QIN-508 命名）是否可直接供预览复用。
 
     ``asset_id`` 命名的产物不含宽度，必须核对真实像素宽度，避免把其它宽度的图
     当成本次请求的宽度返回；``media-`` 命名的产物已带宽度，直接以新鲜度判定。
     """
-    _, directory = resolve_cache_directory(settings, source)
+    if directory is None:
+        _, directory = resolve_cache_directory(settings, source)
     name = _thumbnail_filename(
         key,
         width=width if key.startswith("media-") else None,
@@ -1389,7 +1399,13 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
         )
         image_format = _thumbnail_format(settings)
         media_type = MIME_BY_SUFFIX["." + image_format]
-        _, directory = resolve_cache_directory(settings, path)
+        # 批量预热会把同一分桶的目录解析结果传进来：目录解析带进程内锁（Windows
+        # 并发建目录会撞车），逐项解析等于把整批并发压成串行。
+        prepared_dir = (payload or {}).get("_cache_dir")
+        if isinstance(prepared_dir, Path):
+            directory = prepared_dir
+        else:
+            _, directory = resolve_cache_directory(settings, path)
         target = directory / _preview_cache_name(
             key, width, identity, video=video, image_format=image_format
         )
@@ -1419,7 +1435,9 @@ def preview_bytes(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not video:
         try:
-            canonical = _canonical_generated_hit(settings, path, key, width)
+            canonical = _canonical_generated_hit(
+                settings, path, key, width, directory=directory
+            )
         except (CleanroomException, OSError):
             canonical = None
         if canonical is not None:
@@ -1835,11 +1853,12 @@ PREVIEW_ALL_WIDTH = 256
 PREVIEW_ALL_MODES = ("fill", "rebuild")
 # 限速：每批之间让出 20ms，避免全库预热打满创作者 PC 或 NAS 的 CPU。
 PREVIEW_ALL_THROTTLE_SECONDS = 0.02
-# 并发度：解码/重采样/编码都是 C 层调用且会释放 GIL，ffmpeg 走子进程，
-# 串行跑等于把 CPU 空出来。实测 354 项：4 路 13.0s / 8 路 9.6s / 12 路 8.5s /
-# 16 路 8.3s，超过 12 路边际收益很低，默认取 12 兼顾低配机占用。
-PREVIEW_ALL_DEFAULT_WORKERS = 12
-PREVIEW_ALL_MAX_WORKERS = 16
+# 并发度：Pillow 的解码/重采样/编码都在 C 层并释放 GIL，ffmpeg 走子进程，串行跑
+# 等于把 CPU 空出来。实测同一批 354 项（24 核）：纯解码 16 路 8.3x / 24 路 9.2x
+# 加速，加进程池并无额外收益（spawn 开销吃掉了 GIL 之外的那点提升），所以只用
+# 线程池，上限放宽到 32 便于在高核机器上显式压满。
+PREVIEW_ALL_DEFAULT_WORKERS = 16
+PREVIEW_ALL_MAX_WORKERS = 32
 _PREVIEW_ALL_FLUSH_EVERY = 10
 # 状态写入的瞬时冲突重试次数（Windows 上并发读 + os.replace 会短暂 PermissionError）。
 _PREVIEW_ALL_WRITE_ATTEMPTS = 5
@@ -1864,17 +1883,26 @@ def _preview_all_asset_ids() -> list[str]:
 
 
 def _preview_cache_hit(
-    asset_id: str, path: Path, width: int, settings: dict[str, Any]
+    asset_id: str,
+    path: Path,
+    width: int,
+    settings: dict[str, Any],
+    *,
+    directory: Path | None = None,
 ) -> bool:
     """与 ``preview_bytes`` 同一口径探测缓存是否新鲜（只 stat，不解码不读字节）。
 
     探测本身失败（目录不可解析、源文件 stat 失败等）一律按「未命中」处理：
     命中判定只是省一次生成，不能因为它把可生成的项记成失败。
+
+    ``directory`` 由批量预热传入：缓存目录按源目录分桶，同一分桶在一次预热里
+    解析一次即可，逐项解析会把进程内的目录锁压成串行瓶颈。
     """
     try:
         image_format = _thumbnail_format(settings)
         identity = _preview_source_identity(path)
-        _, directory = resolve_cache_directory(settings, path)
+        if directory is None:
+            _, directory = resolve_cache_directory(settings, path)
         key = _thumbnail_key(asset_id, path)
         video = path.suffix.lower() in _VIDEO_SUFFIXES
         target = directory / _preview_cache_name(
@@ -1993,7 +2021,9 @@ def _preview_all_workers(payload: dict[str, Any] | None) -> int:
             requested = int(raw)
         except (TypeError, ValueError):
             raise CleanroomException(
-                400, "INVALID_PREVIEW_WORKERS", "workers 必须是 1 到 16 的整数"
+                400,
+                "INVALID_PREVIEW_WORKERS",
+                "workers 必须是 1 到 %d 的整数" % PREVIEW_ALL_MAX_WORKERS,
             ) from None
         return max(1, min(PREVIEW_ALL_MAX_WORKERS, requested))
     cpu = os.cpu_count() or 4
@@ -2008,11 +2038,18 @@ def _run_preview_all(
     *,
     mode: str = "fill",
     workers: int = 1,
+    resolved_paths: dict[str, Path] | None = None,
 ) -> None:
     """预热线程入口：兜住任何逃逸异常，保证任务不会永久停在 ``running``。"""
     try:
         _drive_preview_all(
-            job_id, asset_ids, width, throttle, mode=mode, workers=workers
+            job_id,
+            asset_ids,
+            width,
+            throttle,
+            mode=mode,
+            workers=workers,
+            resolved_paths=resolved_paths,
         )
     except BaseException as exc:  # noqa: BLE001 - 线程死亡必须收敛为可见失败
         _fail_preview_all_job(job_id, "PREVIEW_ALL_CRASHED", exc)
@@ -2043,6 +2080,7 @@ def _drive_preview_all(
     *,
     mode: str = "fill",
     workers: int = 1,
+    resolved_paths: dict[str, Path] | None = None,
 ) -> None:
     """守护线程主体：按批并发预热，已有新鲜缓存直接跳过（幂等），单项失败不中断整批。
 
@@ -2086,27 +2124,65 @@ def _drive_preview_all(
             )
             return
 
-    # 源文件路径一次批量解析：逐项回查会把整份注册表反复解析，成为并发出图的
-    # 串行瓶颈；解析不到的项在 worker 内回落单条查询，失败语义保持不变。
-    resolved_paths: dict[str, Path] = {}
-    if asset_ids:
+    # 源文件路径由启动方一次读完（枚举 + 解析合并成一次注册表读取）；为空时按
+    # 既有口径回落：逐项解析会慢，但只在注册表合并读取不可用时发生。
+    resolved: dict[str, Path] = {
+        str(k): v for k, v in (resolved_paths or {}).items() if isinstance(v, Path)
+    }
+    if not resolved and asset_ids:
         try:
             from gw.asset_registry import repository as asset_repo
 
-            resolved_paths = asset_repo.media_files(asset_ids)
+            resolved = asset_repo.media_files(asset_ids)
         except Exception:  # noqa: BLE001 - 批量预解析失败不改变逐项失败语义
-            resolved_paths = {}
+            resolved = {}
+    # 缓存目录按「源目录分桶」，一次预热里同一分桶只解析一次：解析入口带进程内
+    # 锁（Windows 并发建目录会撞车），逐项解析会把整批并发压回串行（实测每项
+    # 4.5ms × 每项两次 × 354 项 ≈ 3.2 秒纯排队）。
+    cache_dirs: dict[Path, Path] = {}
+    cache_dir_lock = threading.Lock()
+    # 先串行把这一批涉及的分桶解析好：让 12/16 路线程开局同时抢同一把目录锁会
+    # 在开头排出一段纯等待（实测每项 4.5ms、并发下中位排队到 50ms）。
+    bucket_samples: dict[Path, Path] = {}
+    for _path in resolved.values():
+        bucket_samples.setdefault(_path.parent, _path)
+    for _sample in bucket_samples.values():
+        try:
+            _, _directory = resolve_cache_directory(settings, _sample)
+        except (CleanroomException, OSError):
+            # 该分桶解析不了：留给 worker 现场解析并按既有降级语义处理。
+            continue
+        cache_dirs[_sample.parent] = _directory
+
+    def cache_directory_for(path: Path) -> Path:
+        bucket = path.parent
+        with cache_dir_lock:
+            cached = cache_dirs.get(bucket)
+        if cached is not None:
+            return cached
+        _, directory = resolve_cache_directory(settings, path)
+        with cache_dir_lock:
+            cache_dirs[bucket] = directory
+        return directory
 
     def warm_one(asset_id: str) -> str:
         """单项预热结果；任何异常都折算成该项失败，绝不冒泡打断整批。"""
         try:
-            path = resolved_paths.get(asset_id)
+            path = resolved.get(asset_id)
             if path is None:
                 path = _registry_path(asset_id)
+            # 目录只解析一次：命中判定和落盘用同一份，避免每项两次抢同一把锁。
+            directory = cache_directory_for(path)
             if (
                 mode != "rebuild"
                 and settings is not None
-                and _preview_cache_hit(asset_id, path, width, settings)
+                and _preview_cache_hit(
+                    asset_id,
+                    path,
+                    width,
+                    settings,
+                    directory=directory,
+                )
             ):
                 return "skipped"
             # 生成与落盘完全复用浏览器预览同一条路径，不做第二套实现；把已解析
@@ -2117,6 +2193,7 @@ def _drive_preview_all(
                     "w": width,
                     "_resolved_path": path,
                     "_settings": settings,
+                    "_cache_dir": directory,
                     "_skip_prune": True,
                 }
             )
@@ -2148,8 +2225,24 @@ def _drive_preview_all(
         max_workers=max(1, workers), thread_name_prefix="preview-warm"
     )
     try:
-        chunk = max(1, workers * 2)
-        for start in range(0, total, chunk):
+        # 滑动窗口而不是「整批提交再等整批返回」：批内只要有一个大文件（本库
+        # 28MB PNG、mp4 抽帧）就会拖着其余线程空转，批越大尾部浪费越多。窗口
+        # 里始终保持在飞的项，谁先完成就补谁，把 straggler 的影响压到最小。
+        window = max(1, workers * 2)
+        pending: set[Any] = set()
+        iterator = iter(asset_ids)
+
+        def submit_next() -> bool:
+            for asset_id in iterator:
+                pending.add(pool.submit(warm_one, asset_id))
+                return True
+            return False
+
+        while len(pending) < window:
+            if not submit_next():
+                break
+        since_throttle = 0
+        while pending:
             if control.cancelled:
                 cancelled = True
                 break
@@ -2162,18 +2255,46 @@ def _drive_preview_all(
                     cancelled = True
                     break
                 _update_preview_all_job(job_id, status="running", state="running")
-            batch = asset_ids[start : start + chunk]
-            for outcome in pool.map(warm_one, batch):
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                outcome = future.result()
                 if outcome == "generated":
                     generated += 1
                 elif outcome == "skipped":
                     skipped += 1
                 else:
                     failed += 1
-            processed = min(total, start + len(batch))
-            flush(force=True)
-            if throttle > 0:
+                processed = min(total, processed + 1)
+                since_throttle += 1
+            while len(pending) < window:
+                if not submit_next():
+                    break
+            flush()
+            # 限速按窗口触发：最后一批也要让出一次，否则小任务（项数不足一个窗口）
+            # 会完全跳过限速，把「真异步」的节奏打乱。
+            if throttle > 0 and (since_throttle >= window or not pending):
+                since_throttle = 0
                 time.sleep(throttle)
+        if cancelled and pending:
+            # 取消后不再派发，但已提交的项必须收尾并如实计入：否则磁盘上有文件、
+            # 结果里没有，取消一次就丢一次统计（幂等缓存不会错，但结果会撒谎）。
+            done, pending = wait(pending)
+            for future in done:
+                try:
+                    outcome = future.result()
+                except Exception:  # noqa: BLE001 - 收尾阶段同样不冒泡
+                    outcome = "failed"
+                if outcome == "generated":
+                    generated += 1
+                elif outcome == "skipped":
+                    skipped += 1
+                else:
+                    failed += 1
+                processed = min(total, processed + 1)
+            flush(force=True)
+        # 收尾强制落一次进度：进度写盘有 0.5 秒节流，直接写 result 会让「已完成」
+        # 的任务带着落后的 progress（末尾几项看起来没做完）。
+        flush(force=True)
     finally:
         # 取消后不再派发新批次；飞行中的项跑完即返回，不在这里无限等待。
         pool.shutdown(wait=True, cancel_futures=True)
@@ -2250,7 +2371,16 @@ def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
             finished_at=storage.now_iso(),
         )
 
-    asset_ids = _preview_all_asset_ids()
+    # 枚举与路径一次读完：分两次读 800KB 注册表是预热启动的固定开销（各约
+    # 0.25s / 0.32s），合并后只剩一次；解析不到的项在 worker 内回落单条查询。
+    resolved_paths: dict[str, Path] = {}
+    try:
+        from gw.asset_registry import repository as asset_repo
+
+        resolved_paths = asset_repo.preview_asset_paths()
+    except Exception:  # noqa: BLE001 - 注册表不可读时按空范围失败关闭，不越权预热
+        resolved_paths = {}
+    asset_ids = sorted(resolved_paths)
     try:
         width = int((payload or {}).get("width") or PREVIEW_ALL_WIDTH)
     except (TypeError, ValueError):
@@ -2302,7 +2432,11 @@ def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
             threading.Thread(
                 target=_run_preview_all,
                 args=(job_id, asset_ids, width, throttle),
-                kwargs={"mode": mode, "workers": workers},
+                kwargs={
+                    "mode": mode,
+                    "workers": workers,
+                    "resolved_paths": resolved_paths,
+                },
                 name="preview-all-%s" % job_id,
                 daemon=True,
             ).start()

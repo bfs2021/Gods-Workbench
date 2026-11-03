@@ -3077,6 +3077,32 @@ def media_files(asset_ids: Iterable[str]) -> Dict[str, Path]:
     return resolved
 
 
+def preview_asset_paths() -> Dict[str, Path]:
+    """预热范围的素材文件：一次读注册表同时产出枚举与路径。
+
+    全库预热原先要读两遍 800KB 的 ``asset_registry.json``（先枚举 ``preview_asset_ids``
+    再批量解析 ``media_files``），合并后省掉一次完整解析；口径与 ``preview_asset_ids``
+    完全一致（可见、未归档、非 removed），不另设一套过滤。
+    """
+    raw = state().read()
+    from gw.core.asset_visibility import asset_visible
+
+    removed_ids = _removed_root_ids()
+    resolved: Dict[str, Path] = {}
+    for asset_id, record in sorted(raw["assets"].items()):
+        if record.get("archived"):
+            continue
+        if not asset_visible(record) or _is_removed_asset(record, removed_ids):
+            continue
+        try:
+            path = _media_file_in_state(raw, str(asset_id))
+        except CleanroomException:
+            continue
+        if path is not None:
+            resolved[str(asset_id)] = path
+    return resolved
+
+
 def stored_upload_path(asset_id: str, filename: str) -> Path:
     """导入素材在数据目录内的落盘位置（服务端自生成路径，不暴露给调用方）。"""
     safe = "".join(ch for ch in (filename or "upload") if ch.isalnum() or ch in "-_. ")
