@@ -7,8 +7,6 @@ name: Release Desktop and Full Regression
 #   2. 前端契约测试全量重跑；
 #   3. Windows NSIS 桌面安装包完整源码编译、打包与产物上传。
 # 触发方式：发布 Tag（v*）或手动 workflow_dispatch。
-# 注意：刻意不把本工作流命名为 "CI"，避免抢占 c5-review-merge-gate.yml 中
-# 以 workflow_run.name == 'CI' 判定日常门禁的事件。
 on:
   push:
     tags:
