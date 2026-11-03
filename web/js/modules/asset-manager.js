@@ -466,7 +466,7 @@ const videoStoryboardImageCache = new Map();
 let thumbnailGeneratorState = {open:false, loading:false, generating:false, deleting:false, deletingStoryboards:false, generatingStoryboards:false, submittingBackground:false, savingFormat:false, backgroundTaskId:'', mode:'source', directory:'', savedMode:'source', savedDirectory:'', cacheFolder:'god-cache', format:'jxl', revision:1, transcodeVideos:true, cacheStats:null, error:'', cacheBlocked:null, grantingRoot:false};
 // 【QIN-519 / QIN-525】全库预览缓存：需创作者显式确认后才启动；默认惰性读时写缓存不变。
 // confirming 为「全部缓存 / 重建缓存」两段式确认，deleteOpen 为分类删除面板。
-let assetPreviewAllState = {confirming:false, confirmMode:'fill', submitting:false, job:null, pollingJobId:'', error:'', notice:'', deleting:false, deleteOpen:false, deleteCategories:{image:true, video:true, storyboard:true, other:true}, deleteResult:null};
+let assetPreviewAllState = {confirming:false, confirmMode:'fill', submitting:false, controlling:false, job:null, pollingJobId:'', error:'', notice:'', deleting:false, deleteOpen:false, deleteCategories:{image:true, video:true, storyboard:true, other:true}, deleteResult:null};
 // 切换缓存目录的确认弹窗：迁移 / 删除 / 取消（取消不改设置，继续用原目录）。
 let thumbnailCacheSwitchState = {open:false, busy:false, action:'', error:'', fromMode:'source', fromDirectory:'', toMode:'source', toDirectory:''};
 let assetJxlTranscodeState = {loading:false, starting:false, cancelling:false, scan:null, job:null, pollingJobId:'', error:''};
@@ -1413,7 +1413,10 @@ function renderAssetPreviewSettingsBody(){
     const state = assetPreviewAllState;
     const stats = previewCacheStats();
     const job = state.job || null;
-    const running = Boolean(job && ['queued','running'].includes(job.status));
+    // 暂停中仍是「运行中」：轮询要继续，删除缓存等互斥操作也要保持禁用。
+    const running = Boolean(job && ['queued','running','paused'].includes(job.status));
+    const paused = job?.status === 'paused';
+    const controlling = Boolean(state.controlling);
     const result = job?.result || null;
     const progress = job?.progress || {};
     const total = Number(progress.total || 0);
@@ -1422,7 +1425,16 @@ function renderAssetPreviewSettingsBody(){
     const busy = running || state.submitting || state.deleting;
     // 按钮态看真实缓存覆盖，而不是上一次任务状态：新增素材后应回到【全部缓存】。
     const complete = !running && stats.totalAssets > 0 && stats.cachedAssets >= stats.totalAssets;
-    const primaryLabel = running ? (total ? `正在缓存 ${processed}/${total}…` : '正在缓存…') : complete ? '重建缓存' : '全部缓存';
+    const primaryLabel = complete ? '重建缓存' : '全部缓存';
+    const progressLabel = paused
+        ? (total ? `已暂停 ${processed}/${total}` : '已暂停')
+        : (total ? `正在缓存 ${processed}/${total}…` : '正在缓存…');
+    const terminalLabel = job?.status === 'succeeded'
+        ? (result?.mode === 'rebuild' ? '已重建' : '已完成')
+        : job?.status === 'cancelled' ? '已取消'
+        : job?.status === 'failed' ? '失败'
+        : job?.status === 'paused' ? '已暂停'
+        : '排队中';
     const confirmText = state.confirmMode === 'rebuild'
         ? `将先清空全部预览缓存，再重新生成 ${stats.totalAssets.toLocaleString('zh-CN')} 项素材的预览，会占用一定 CPU 与磁盘；确认重建？`
         : `将遍历全库 ${stats.totalAssets.toLocaleString('zh-CN')} 项素材生成预览缓存，已缓存项自动跳过；确认开始？`;
@@ -1432,16 +1444,19 @@ function renderAssetPreviewSettingsBody(){
         <div class="thumbnail-cache-summary board-thumbnail-summary"><span><i data-lucide="database"></i>全库 ${stats.totalAssets.toLocaleString('zh-CN')} 项 · 已缓存 ${stats.cachedAssets.toLocaleString('zh-CN')} 项 · 占用 ${escapeHtml(formatFileSize(stats.bytes))}</span><small>默认按 256px 宽度预热，与网格预览一致</small></div>
         ${renderThumbnailFormatOptions()}
         ${!stats.available ? `<div class="thumbnail-cache-error board-thumbnail-error" role="alert">缓存目录当前不可用，请先在下方重新选择缓存目录。</div>` : ''}
-        ${job ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status" aria-live="polite"><span>${escapeHtml(running ? (total ? `正在缓存 ${processed}/${total}…` : '正在缓存…') : job.status === 'succeeded' ? (result?.mode === 'rebuild' ? '已重建' : '已完成') : job.status === 'failed' ? '失败' : '排队中')}${result ? ` · 新增 ${Number(result.generated || 0)} 项 · 跳过 ${Number(result.skipped || 0)} 项 · 失败 ${Number(result.failed || 0)} 项 · 耗时 ${Number(result.elapsed_seconds || 0)} 秒` : ''}</span>${total && running ? `<progress class="board-preview-all-progress" max="${Math.max(1, total)}" value="${processed}" aria-label="预览缓存进度" title="${percent}%"></progress>` : ''}</div>` : ''}
+        ${job ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status" aria-live="polite"><span>${escapeHtml(running ? progressLabel : terminalLabel)}${result ? ` · 新增 ${Number(result.generated || 0)} 项 · 跳过 ${Number(result.skipped || 0)} 项 · 失败 ${Number(result.failed || 0)} 项 · 耗时 ${Number(result.elapsed_seconds || 0)} 秒` : ''}</span>${total && running ? `<progress class="board-preview-all-progress" max="${Math.max(1, total)}" value="${processed}" aria-label="预览缓存进度" title="${percent}%"></progress>` : ''}</div>` : ''}
         ${state.confirming ? `<p class="board-settings-hint">${escapeHtml(confirmText)}</p>` : ''}
         ${state.error ? `<div class="thumbnail-cache-error board-thumbnail-error" role="alert">${escapeHtml(state.error)}</div>` : ''}
         ${state.notice ? `<div class="thumbnail-cache-summary board-thumbnail-summary" role="status"><span><i data-lucide="check-circle"></i>${escapeHtml(state.notice)}</span></div>` : ''}
         ${state.deleteOpen ? renderPreviewCacheDeletePanel() : `<div class="board-thumbnail-actions">
             <button class="hw-btn hw-btn-danger" type="button" data-preview-cache-delete ${busy ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>${state.deleting ? '正在删除…' : '删除缓存'}</span></button>
-            ${state.confirming
+            ${running
+                ? `<button class="hw-btn" type="button" data-preview-all-pause ${controlling ? 'disabled' : ''}><i data-lucide="${paused ? 'play' : 'pause'}"></i><span>${paused ? '继续' : '暂停'}</span></button>
+                   <button class="hw-btn hw-btn-danger" type="button" data-preview-all-stop ${controlling ? 'disabled' : ''}><i data-lucide="ban"></i><span>取消</span></button>`
+                : state.confirming
                 ? `<button class="hw-btn" type="button" data-preview-all-cancel ${state.submitting ? 'disabled' : ''}>取消</button>
                    <button class="hw-btn hw-btn-gold" type="button" data-preview-all-confirm ${state.submitting ? 'disabled' : ''}><i data-lucide="${state.submitting ? 'loader-2' : 'check'}"></i><span>${state.submitting ? '正在提交…' : '确认'}</span></button>`
-                : `<button class="hw-btn hw-btn-gold" type="button" data-preview-all-start data-preview-all-mode="${complete ? 'rebuild' : 'fill'}" ${busy || !stats.totalAssets ? 'disabled' : ''}><i data-lucide="${running ? 'loader-2' : complete ? 'refresh-cw' : 'download-cloud'}"></i><span>${primaryLabel}</span></button>`}
+                : `<button class="hw-btn hw-btn-gold" type="button" data-preview-all-start data-preview-all-mode="${complete ? 'rebuild' : 'fill'}" ${busy || !stats.totalAssets ? 'disabled' : ''}><i data-lucide="${complete ? 'refresh-cw' : 'download-cloud'}"></i><span>${primaryLabel}</span></button>`}
         </div>`}
         <div class="board-settings-divider" aria-hidden="true"></div>
         ${renderJxlLosslessTranscodeSettingsBody()}
@@ -1674,9 +1689,15 @@ async function pollPreviewAllJob(jobId){
     try {
         const data = await apiJsonResponse(assetManagerHttp.request(`/api/asset-thumbnails/jobs/${encodeURIComponent(jobId)}`, {method:'GET', credentials:'same-origin'}));
         const task = data.task || {};
-        const running = ['queued','running'].includes(task.status);
-        assetPreviewAllState = {...assetPreviewAllState, job:{...task, result:task.result || null}, pollingJobId:running ? jobId : ''};
-        if(storageSettingsState.open) renderStorageSettingsModal();
+        const running = ['queued','running','paused'].includes(task.status);
+        const previous = assetPreviewAllState.job;
+        // 状态与进度都没变就别重建整个设置面板：整树替换会打断正在点的按钮。
+        const unchanged = Boolean(previous
+            && previous.status === task.status
+            && Number(previous.progress?.processed || 0) === Number(task.progress?.processed || 0)
+            && assetPreviewAllState.pollingJobId === (running ? jobId : ''));
+        assetPreviewAllState = {...assetPreviewAllState, job:{...task, result:task.result || null}, pollingJobId:running ? jobId : '', controlling:false};
+        if(storageSettingsState.open && !unchanged) renderStorageSettingsModal();
         if(running){ window.setTimeout(() => void pollPreviewAllJob(jobId), 800); return; }
         if(task.status === 'succeeded'){
             const result = task.result || {};
@@ -1686,6 +1707,12 @@ async function pollPreviewAllJob(jobId){
             assetPreviewAllState = {...assetPreviewAllState, notice, error:''};
             setStatus(notice);
             // 任务结束后缓存覆盖变了，重取统计让按钮在【全部缓存】/【重建缓存】之间切换。
+            void refreshThumbnailCacheStats();
+        } else if(task.status === 'cancelled'){
+            const result = task.result || {};
+            const notice = `已取消：完成 ${Number(result.processed || 0)}/${Number(result.total || 0)} 项，已生成 ${Number(result.generated || 0)} 项，失败 ${Number(result.failed || 0)} 项`;
+            assetPreviewAllState = {...assetPreviewAllState, notice, error:''};
+            setStatus(notice);
             void refreshThumbnailCacheStats();
         } else {
             const message = task.error || '全库缓存失败';
@@ -1700,6 +1727,42 @@ async function pollPreviewAllJob(jobId){
             return;
         }
         window.setTimeout(() => void pollPreviewAllJob(jobId), 1500);
+    }
+}
+async function controlPreviewAllJob(action){
+    const jobId = assetPreviewAllState.job?.job_id || assetPreviewAllState.pollingJobId;
+    if(!jobId || assetPreviewAllState.controlling) return;
+    assetPreviewAllState = {...assetPreviewAllState, controlling:true, error:''};
+    if(storageSettingsState.open) renderStorageSettingsModal();
+    try {
+        const data = await apiJsonResponse(assetManagerHttp.request(`/api/asset-thumbnails/jobs/${encodeURIComponent(jobId)}/control`, {
+            method:'POST',
+            credentials:'same-origin',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({action}),
+        }));
+        const task = data.task || {};
+        const active = ['queued','running','paused'].includes(task.status);
+        assetPreviewAllState = {
+            ...assetPreviewAllState,
+            controlling:false,
+            job:{...task, result:task.result || null},
+            pollingJobId:active ? jobId : '',
+            error:'',
+        };
+        if(action === 'cancel') setStatus('已请求取消，正在收尾当前批次…');
+        if(action === 'pause') setStatus('已暂停全库预览缓存');
+        if(action === 'resume') setStatus('已继续全库预览缓存');
+        if(storageSettingsState.open) renderStorageSettingsModal();
+        // 轮询链每 800ms 自我调度一次，且 paused 仍算活动态，这里不重复起链。
+        if(!active) void refreshThumbnailCacheStats();
+    } catch(error){
+        assetPreviewAllState = {
+            ...assetPreviewAllState,
+            controlling:false,
+            error:error.message || '任务操作失败',
+        };
+        if(storageSettingsState.open) renderStorageSettingsModal();
     }
 }
 function renderAssetVideoSettingsBody(){
@@ -12603,6 +12666,13 @@ async function handleClick(event){
     }
     if(target.closest?.('[data-preview-all-confirm]')){ await startPreviewAllCache(); return; }
     if(target.closest?.('[data-preview-all-cancel]')){ cancelPreviewAllConfirm(); return; }
+    // 运行中：暂停 / 继续 / 取消（取消只投递信号，收尾由后端在批次边界完成）。
+    const previewPause = target.closest?.('[data-preview-all-pause]');
+    if(previewPause){
+        await controlPreviewAllJob(assetPreviewAllState.job?.status === 'paused' ? 'resume' : 'pause');
+        return;
+    }
+    if(target.closest?.('[data-preview-all-stop]')){ await controlPreviewAllJob('cancel'); return; }
     if(target.closest?.('[data-preview-cache-delete]')){ openPreviewCacheDeletePanel(); return; }
     const previewDeleteToggle = target.closest?.('[data-preview-delete-toggle]');
     if(previewDeleteToggle){ togglePreviewDeleteCategory(previewDeleteToggle.dataset.previewDeleteToggle); return; }

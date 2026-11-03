@@ -3,16 +3,21 @@
   "issue": 525,
   "authorization_basis": "GitHub Issue #565, 2026-11-02",
   "files": [
-    "gw/media/repository.py",
+    "docs/contracts/MEDIA-INTERFACE-CATALOG.yaml",
+    "docs/fixtures/phase11-b5-media-boundary.json",
     "gw/api/routes_media.py",
     "gw/asset_registry/repository.py",
-    "web/js/modules/asset-manager.js",
-    "web/css/pages/directory-settings.css",
+    "gw/media/repository.py",
+    "tests/contracts/assets/test_phase11_b5_media.py",
     "tests/contracts/media/test_preview_all_cache.py",
-    "tests/frontend/qin-519-preview-all-button.test.mjs",
-    "tests/frontend/qin-525-preview-cache-merge.test.mjs",
+    "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
     "tests/frontend/node-files.txt",
-    "tests/hygiene/fixtures/admissions/issue-525.json"
+    "tests/frontend/qin-519-preview-all-button.test.mjs",
+    "tests/frontend/qin-525-preview-cache-control.test.mjs",
+    "tests/frontend/qin-525-preview-cache-merge.test.mjs",
+    "tests/hygiene/fixtures/admissions/issue-525.json",
+    "web/css/pages/directory-settings.css",
+    "web/js/modules/asset-manager.js"
   ],
   "admitted_files": [],
   "accepted_test_files": [
@@ -24,6 +29,12 @@
     },
     {
       "path": "tests/frontend/qin-519-preview-all-button.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #565, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-525-preview-cache-control.test.mjs",
       "classification": "curated_test_coverage",
       "authorization_basis": "GitHub Issue #565, 2026-11-02",
       "admission": "accepted"

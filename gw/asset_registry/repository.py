@@ -41,7 +41,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from pydantic import ValidationError
 
@@ -3003,9 +3003,8 @@ def _confirmed_alias_media_path(
     return resolved_target
 
 
-def media_file(asset_id: str, version_id: Optional[str] = None) -> Optional[Path]:
-    """返回素材/版本对应的真实本地文件；没有登记或文件缺失时返回 None。"""
-    raw = state().read()
+def _media_file_in_state(raw: dict, asset_id: str, version_id: Optional[str] = None) -> Optional[Path]:
+    """在已加载的注册表快照里解析素材文件路径（批量入口复用同一口径）。"""
     root_id = None
     asset_record = raw["assets"].get(asset_id, {})
     if version_id:
@@ -3049,6 +3048,33 @@ def media_file(asset_id: str, version_id: Optional[str] = None) -> Optional[Path
         str(root_id or ""),
         str(canonical_relpath or ""),
     )
+
+
+def media_file(asset_id: str, version_id: Optional[str] = None) -> Optional[Path]:
+    """返回素材/版本对应的真实本地文件；没有登记或文件缺失时返回 None。"""
+    return _media_file_in_state(state().read(), asset_id, version_id)
+
+
+def media_files(asset_ids: Iterable[str]) -> Dict[str, Path]:
+    """批量解析素材文件：只加载一次注册表快照。
+
+    全库预览预热是「几百上千项、每项都要源文件路径」的场景，逐项调
+    ``media_file`` 会把 800KB 的 asset_registry.json 反复解析，成为并发出图的
+    唯一串行瓶颈。解析口径完全复用 ``_media_file_in_state``，不另写一套。
+    """
+    raw = state().read()
+    resolved: Dict[str, Path] = {}
+    for asset_id in asset_ids:
+        key = str(asset_id or "").strip()
+        if not key:
+            continue
+        try:
+            path = _media_file_in_state(raw, key)
+        except CleanroomException:
+            continue
+        if path is not None:
+            resolved[key] = path
+    return resolved
 
 
 def stored_upload_path(asset_id: str, filename: str) -> Path:

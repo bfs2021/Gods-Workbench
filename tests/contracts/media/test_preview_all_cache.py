@@ -91,10 +91,20 @@ def _wait_job(job_id: str, timeout: float = 30.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         job = media_repo.get_job(job_id)["task"]
-        if job["status"] not in ("queued", "running"):
+        if job["status"] not in ("queued", "running", "paused"):
             return job
         time.sleep(0.05)
     raise AssertionError("预热任务超时未结束：%s" % job_id)
+
+
+def _wait_status(job_id: str, statuses: tuple[str, ...], timeout: float = 15.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = media_repo.get_job(job_id)["task"]
+        if job["status"] in statuses:
+            return job
+        time.sleep(0.03)
+    raise AssertionError("预热任务未进入状态 %s：%s" % (statuses, job_id))
 
 
 def _cache_files(runtime: dict[str, Path]) -> list[Path]:
@@ -398,3 +408,123 @@ def test_preview_all_worker_crash_marks_job_failed(
     assert task["error"] == "PREVIEW_ALL_CRASHED"
     assert task["finished_at"]
 
+
+
+def test_preview_all_runs_items_concurrently_without_losing_any(
+    media_runtime: dict[str, Path],
+) -> None:
+    """并发预热必须逐项落盘：并发不是「抽样」或「只跑第一批」。"""
+    count = 12
+    for index in range(count):
+        _register_asset(media_runtime, "parallel-%d.png" % index)
+
+    job_id, _, total = media_repo.start_preview_all_job(
+        {"throttle_ms": 0, "workers": 4}
+    )
+    assert total == count
+    job = _wait_job(job_id)
+    assert job["status"] == "succeeded", job
+    assert job["workers"] == 4
+    assert job["result"]["generated"] == count
+    assert job["result"]["failed"] == 0
+    assert len(_cache_files(media_runtime)) == count
+
+
+def test_preview_all_pause_freezes_progress_then_resume_finishes(
+    media_runtime: dict[str, Path],
+) -> None:
+    """暂停后进度不再推进；继续后把剩余项跑完。"""
+    count = 12
+    for index in range(count):
+        _register_asset(media_runtime, "pause-%d.png" % index)
+
+    job_id, _, total = media_repo.start_preview_all_job(
+        {"workers": 1, "throttle_ms": 500}
+    )
+    media_repo.control_preview_all_job(job_id, {"action": "pause"})
+    paused = _wait_status(job_id, ("paused",))
+    frozen = paused["progress"]["processed"]
+
+    # 暂停语义是「不再派发新批次」，正在飞行的那一批会跑完并如实计入进度。
+    time.sleep(0.8)
+    settled = media_repo.get_job(job_id)["task"]
+    assert settled["status"] == "paused", settled
+    settled_processed = settled["progress"]["processed"]
+    assert settled_processed - frozen <= 2, "暂停后最多收尾一批，不得继续推进"
+
+    time.sleep(1.0)
+    still = media_repo.get_job(job_id)["task"]
+    assert still["status"] == "paused", still
+    assert still["progress"]["processed"] == settled_processed, "暂停期间不得继续推进"
+
+    media_repo.control_preview_all_job(job_id, {"action": "resume"})
+    job = _wait_job(job_id)
+    assert job["status"] == "succeeded", job
+    assert job["result"]["generated"] == total
+    assert job["progress"]["processed"] == total
+
+
+def test_preview_all_cancel_stops_early_and_reports_partial_result(
+    media_runtime: dict[str, Path],
+) -> None:
+    """取消必须在跑完之前停：状态为 cancelled，并如实回报已完成项。"""
+    count = 12
+    for index in range(count):
+        _register_asset(media_runtime, "cancel-%d.png" % index)
+
+    job_id, _, total = media_repo.start_preview_all_job(
+        {"workers": 1, "throttle_ms": 500}
+    )
+    degraded_before = int(media_repo._PREVIEW_CACHE_STATS.get("degraded", 0))
+    time.sleep(0.1)
+    media_repo.control_preview_all_job(job_id, {"action": "cancel"})
+    job = _wait_job(job_id)
+
+    assert job["status"] == "cancelled", job
+    assert job["result"]["cancelled"] is True
+    assert job["result"]["processed"] < total
+    assert job["result"]["generated"] == job["result"]["processed"]
+    # 取消场景不应出现缓存降级：计数对得上却零文件，说明写盘被静默跳过了。
+    degraded_after = int(media_repo._PREVIEW_CACHE_STATS.get("degraded", 0))
+    assert degraded_after == degraded_before, "取消场景出现缓存降级"
+    # 数据根必须仍是本用例的临时目录：被前一个用例污染时产物会写到别处。
+    from gw.core import storage as _storage
+
+    assert _storage.data_root() == media_runtime["data"], _storage.data_root()
+    # 已生成的产物保留，取消不清空已落盘内容。
+    settings_now = media_repo.get_thumbnail_settings()
+    assert len(_cache_files(media_runtime)) == job["result"]["generated"], (
+        media_repo.cache_root_path(settings_now),
+        media_repo.cache_statistics(),
+        job["result"],
+    )
+
+
+def test_preview_all_control_rejects_unknown_action_and_finished_job(
+    media_runtime: dict[str, Path],
+) -> None:
+    _register_asset(media_runtime, "control.png")
+    job_id, _, _ = media_repo.start_preview_all_job({"throttle_ms": 0})
+    _wait_job(job_id)
+
+    with pytest.raises(CleanroomException) as illegal:
+        media_repo.control_preview_all_job(job_id, {"action": "explode"})
+    assert illegal.value.code == "INVALID_PREVIEW_ACTION"
+
+    with pytest.raises(CleanroomException) as finished:
+        media_repo.control_preview_all_job(job_id, {"action": "pause"})
+    assert finished.value.code == "PREVIEW_JOB_FINISHED"
+
+
+def test_preview_all_rejects_invalid_workers(media_runtime: dict[str, Path]) -> None:
+    with pytest.raises(CleanroomException) as excinfo:
+        media_repo.start_preview_all_job({"workers": "many"})
+    assert excinfo.value.code == "INVALID_PREVIEW_WORKERS"
+
+
+def test_preview_all_default_workers_is_bounded() -> None:
+    """默认并发度落在 1..12，显式值夹在 1..16。"""
+    default = media_repo._preview_all_workers({})
+    assert 1 <= default <= 12
+    assert media_repo._preview_all_workers({"workers": 99}) == 16
+    assert media_repo._preview_all_workers({"workers": 0}) == 1
