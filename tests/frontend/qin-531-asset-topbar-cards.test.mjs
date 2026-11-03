@@ -200,4 +200,21 @@ assert.match(
   '浅色主题下选中卡片应同样有金色描边'
 );
 
+// AC10：材质对调不得吃掉工具栏按钮的常驻激活态（「方格」用 aria-pressed、「简洁」用 .is-active）。
+assert.match(
+  vaultCss,
+  /\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{[\s\S]*?border-color: var\(--vault-accent\) !important;[\s\S]*?color: var\(--vault-gold\) !important;/,
+  '工具栏按钮激活态必须常驻金边金字'
+);
+assert.match(
+  vaultCss,
+  /html\[data-theme="light"\][^{]*\.registry-toolbar \.hw-btn:not\(\.btn-segmented-item\):is\(\.is-active,\.engaged,\[aria-pressed="true"\]\) \{[\s\S]*?color: var\(--vault-gold\) !important;/,
+  '浅色主题下工具栏按钮激活态同样金边金字'
+);
+assert.ok(
+  vaultCss.indexOf('.hw-btn:not(.btn-segmented-item):is(.is-active') >
+    vaultCss.indexOf('.hw-btn:not(.btn-segmented-item):is(:hover,:focus-visible)'),
+  '激活态规则必须排在 hover 规则之后，悬浮激活按钮时才不会被抢回普通底色'
+);
+
 console.log('QIN-531 asset topbar/toolbar contracts passed');
