@@ -4,8 +4,6 @@ name: CI
 # 分层原则：日常 PR 校验规范、哈希锁、二进制白名单、前端全量契约与后端核心契约，
 # 目标 3~5 分钟；全量回归、真实浏览器 E2E 与 Windows NSIS 安装包编译
 # 统一由 `.github/workflows/release-desktop.yml`（Tag v* 或手动触发）承接。
-# 注意：工作流名称 "CI" 被 c5-review-merge-gate.yml 的 workflow_run.name 判定引用，
-# 重命名会切断合并门禁，故必须保留。
 on:
   push:
     branches: [main, master]

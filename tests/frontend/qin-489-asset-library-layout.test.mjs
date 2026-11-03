@@ -47,11 +47,12 @@ test('AC2: 状态显示在固定顶栏并从嵌入资产管理器回写', () => 
     assert.match(manager, /embeddedVault \? '' : `<div id="assetStatus"/);
 });
 
-test('AC3: 智能筛选与资产设置入口固定在左栏底部并转发到现有动作', () => {
-    assert.match(html, /id="assetSidebarSmartFilter"[^>]*onclick="WorkbenchAssets\.toggleSmartFilter\(\)"/);
+test('AC3: 资产设置入口固定在左栏底部并转发到现有动作', () => {
+    // 【QIN-527】左栏底部重复的「智能筛选」按钮已移除，入口收敛到中栏双模机架拨片
+    assert.doesNotMatch(html, /id="assetSidebarSmartFilter"/);
+    assert.doesNotMatch(html, /WorkbenchAssets\.toggleSmartFilter\(\)/);
     assert.match(html, /id="assetSidebarSettings"[^>]*onclick="WorkbenchAssets\.openAssetSettings\(\)"/);
-    assert.match(html, /class="asset-shell-sidebar-actions[^]*?id="assetSidebarSmartFilter"[^]*?id="assetSidebarSettings"/);
-    assert.match(shell, /function toggleSmartFilter\(\)[\s\S]*?panel\.showPopover\(\)[\s\S]*?asset-registry-filters-collapsed/);
+    assert.match(html, /class="asset-shell-sidebar-actions[^]*?id="btnUnassignedInbox"[^]*?WorkbenchAssets\.uploadAsset\(\)[^]*?id="assetSidebarSettings"/);
     assert.match(shell, /async function openAssetSettings\(\)/);
     assert.match(shell, /#assetBoardTabs \[data-board-settings-open\]/);
     assert.match(vaultCss, /registry-toolbar \.vault-filters-toggle \{ display: none !important; }/);
