@@ -179,7 +179,6 @@ body.gw-signal.gw-page--asset-manager .registry-toolbar :is(input, select,.regis
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-btn { padding: 0 7px; gap: 4px; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar svg { width: 13px; height: 13px; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar-select > span { padding: 0 5px;   font-family:var(--gw-font-body); font-size:var(--gw-type-body-md); line-height:var(--gw-leading-body-md); font-weight:var(--gw-weight-regular); letter-spacing:0; min-height:40px; height:auto; max-height:none;}
-body.gw-signal.gw-page--asset-manager .registry-toolbar-select select { min-width: 65px; padding: 0 4px; }
 body.gw-signal.gw-page--asset-manager .registry-layout-switch { padding: 0; }
 
 
@@ -1106,12 +1105,9 @@ body.gw-signal.gw-page--asset-manager :is(.registry-stat-card,.registry-range bu
 
 /* 操作角色保持14/22/500；换行由工具行承担而非缩小字体。 */
 body.gw-signal.gw-page--asset-manager .registry-toolbar .asset-btn { font-weight:var(--gw-weight-medium) !important; white-space:nowrap; flex-shrink:0; }
-body.gw-signal.gw-page--asset-manager .registry-toolbar-select select { line-height:var(--gw-leading-body-md); }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) .asset-smart-filter-scroll .registry-facet-basic { font-size:var(--gw-type-body-md) !important; line-height:var(--gw-leading-body-md) !important; }
 
 body.gw-signal.gw-page--asset-manager .registry-toolbar-select { height:32px; min-height:32px; align-items:center; }
-
-body.gw-signal.gw-page--asset-manager .registry-toolbar .registry-toolbar-select .asset-sort-select { line-height:var(--gw-leading-body-md) !important; }
 
 /* QIN-489: keep the resource overview and shared toolbar in fixed grid rows across every left-nav view. */
 html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot {

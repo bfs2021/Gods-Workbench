@@ -1431,7 +1431,6 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 @media (max-width:860px){ .storage-dir-name-path { grid-template-columns:1fr; } .local-library-strip { align-items:stretch; } }
 
 /* 阶段 2：统一资产中心与项目制片 */
-.asset-sort-select { appearance:none; line-height:var(--gw-leading-body-md); height:40px; min-width:96px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); padding:0 24px 0 8px; font-size: var(--gw-type-label-md); font-weight:800; outline:none; }
 .registry-facets { gap:14px; }
 .registry-toolbar { align-items:center; }
 .registry-toolbar .content-heading { flex:0 0 150px; }
@@ -2093,7 +2092,8 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar :is(.r
   font-weight: var(--gw-weight-bold) !important;
   font-size: var(--gw-type-button-sm) !important;
 }
-/* QIN-531：排序 / 分组一体化下拉胶囊——前缀标签、当前值文本与 ∨ 箭头收口在同一个黑金边框卡片内。 */
+/* QIN-531：排序 / 分组一体化下拉胶囊——标签与当前值收口在同一黑金圆角卡片内。
+   原生 select 的系统下拉无法做圆角与悬浮配色，改为自绘 listbox（菜单见下方规则）。 */
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select {
   position: relative;
   display: inline-flex !important;
@@ -2107,14 +2107,16 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   background: linear-gradient(180deg,#1a1d25,#0f1115) !important;
   box-shadow: inset 0 1px rgb(255 255 255 / .05), 0 1px 2px rgb(0 0 0 / .45) !important;
   transform: none !important;
-  transition: border-color .15s ease, box-shadow .15s ease !important;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
   color: #d1d5db !important;
   cursor: pointer;
   user-select: none;
 }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within) {
-  border-color: rgb(223 195 132 / .5) !important;
-  background: linear-gradient(180deg,#1e222b,#11131a) !important;
+/* 悬浮 / 展开时高亮整颗圆角按钮，而不是给内部控件套焦点方框。 */
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) {
+  border-color: rgb(223 195 132 / .62) !important;
+  background: linear-gradient(180deg,#232833,#12151b) !important;
+  box-shadow: 0 0 0 1px rgb(223 195 132 / .16), 0 6px 18px rgb(0 0 0 / .42), inset 0 1px rgb(255 255 255 / .06) !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > span {
   display: flex !important;
@@ -2126,17 +2128,21 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   color: #8d95a3 !important;
   white-space: nowrap;
 }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) > span { color: #c9cfda !important; }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select > svg {
   width: 12px !important;
   height: 12px !important;
   flex: 0 0 auto;
   color: #8d95a3 !important;
 }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within) > svg { color: #dfc384 !important; }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .asset-sort-select {
-  min-width: 0 !important;
-  width: auto !important;
-  height: auto !important;
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) > svg { color: #dfc384 !important; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  /* 固定最小宽度：切换 2~4 字选项时胶囊不抖动（对齐原生 select 的等宽行为）。 */
+  min-width: 4em;
+  height: 22px;
   min-height: 0 !important;
   max-height: none !important;
   margin: 0 !important;
@@ -2144,21 +2150,74 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
   color: #e7e9ee !important;
   font-family: var(--gw-font-body) !important;
   font-size: var(--gw-type-button-sm) !important;
-  font-weight: 600 !important;
-  appearance: none;
-  -webkit-appearance: none;
-  outline: none;
+  font-weight: var(--gw-weight-bold) !important;
+  line-height: 1 !important;
+  white-space: nowrap;
   cursor: pointer;
 }
-.registry-toolbar-select .registry-select-caret { flex: 0 0 auto; width: 0; height: 0; margin-left: 1px; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4px solid #8d95a3; }
-.registry-toolbar-select:is(:hover,:focus-within) .registry-select-caret { border-top-color: #dfc384; }
-
-.registry-toolbar-select .asset-sort-select option { border-radius: 6px; background: #11131a; color: #d1d5db; }
-.registry-toolbar-select .asset-sort-select option:hover,
-.registry-toolbar-select .asset-sort-select option:checked { background: #dfc384; color: #101114; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select:is(:hover,:focus-within,.is-open) .registry-select-trigger { color: #f6ead0 !important; }
+/* 去掉系统焦点方框：键盘焦点由整颗胶囊的金色描边表达。 */
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select :is(.registry-select-trigger,.registry-select-option):is(:focus,:focus-visible) {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 90;
+  display: none;
+  width: max-content;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid rgb(223 195 132 / .26);
+  border-radius: 10px;
+  background: linear-gradient(180deg,#1b1f27,#0f1116);
+  box-shadow: 0 18px 38px rgb(0 0 0 / .62), inset 0 1px rgb(255 255 255 / .05);
+}
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select.is-open .registry-select-menu { display: block; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select[data-registry-select-capsule="group"] .registry-select-menu { left: auto; right: 0; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-menu[hidden] { display: none !important; }
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 30px;
+  margin: 0 !important;
+  padding: 6px 10px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+  color: #c6ccd8 !important;
+  font-family: var(--gw-font-body) !important;
+  font-size: var(--gw-type-button-sm) !important;
+  font-weight: var(--gw-weight-regular) !important;
+  line-height: 1.2 !important;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option + .registry-select-option { margin-top: 1px !important; }
+/* 悬浮用淡金底，不出现系统蓝。 */
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option:is(:hover,:focus-visible) {
+  background: rgb(223 195 132 / .14) !important;
+  color: #f6ead0 !important;
+}
+body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-toolbar-select .registry-select-option.is-selected {
+  background: rgb(223 195 132 / .1) !important;
+  color: #dfc384 !important;
+  font-weight: var(--gw-weight-bold) !important;
+}
 .registry-simple .registry-card .asset-card-body { display:none !important; }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .registry-layout-switch {
   height: auto !important;

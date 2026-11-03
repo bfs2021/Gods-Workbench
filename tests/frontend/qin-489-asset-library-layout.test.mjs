@@ -151,16 +151,19 @@ test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流
     const toolbarStart = manager.indexOf('function renderRegistryToolbar(');
     const toolbarEnd = manager.indexOf('\nfunction renderRegistryEditableTags(', toolbarStart);
     const toolbar = manager.slice(toolbarStart, toolbarEnd);
-    assert.match(toolbar, /label class="hw-btn registry-toolbar-select"/);
+    // QIN-531 修复：胶囊改由 renderRegistrySelectCapsule 产出（自绘 listbox）。
+    assert.match(toolbar, /renderRegistrySelectCapsule\(\{kind:'sort', icon:'arrow-down-wide-narrow', label:'排序'\}\)/);
+    assert.match(toolbar, /renderRegistrySelectCapsule\(\{kind:'group', icon:'layers', label:'分组'\}\)/);
     assert.match(toolbar, /\$\{coverflowControl\}\s*<button class="hw-btn registry-refresh"/);
     assert.match(toolbar, /options\.hideHeading \? '' :/);
     assert.match(manager, /renderRegistryToolbar\(null, registryCategoryLabel[\s\S]*?\{allowUrl:true,hideHeading:true\}/);
-    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select \{[^}]*border-radius:7px/);
+    // QIN-531 修复：原生 select 换成自绘 listbox，改为断言触发器与圆角菜单。
+    assert.match(managerCss, /\.registry-toolbar-select \.registry-select-menu \{[^}]*border-radius: 10px/);
     assert.match(managerCss, /registry-toolbar-select > span \{[\s\S]*?display: flex !important;[\s\S]*?align-items: center !important;[\s\S]*?height: 32px !important/);
     assert.match(managerCss, /\.registry-toolbar-select \{[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;[\s\S]*?box-shadow: none !important;[\s\S]*?transform: none !important;/);
     assert.match(vaultCss, /registry-toolbar-select \{ height:32px; min-height:32px; align-items:center; \}/);
     assert.match(vaultCss, /registry-coverflow-open \{ order: -3;[^}]*\}/);
-    assert.match(managerCss, /\.registry-toolbar-select \.asset-sort-select option:hover,[\s\S]*?background: #dfc384; color: #101114/);
+    assert.match(managerCss, /\.registry-select-option:is\(:hover,:focus-visible\) \{[\s\S]*?background: rgb\(223 195 132 \/ \.14\) !important/);
     assert.match(managerCss, /\.asset-search-wrap \{[^}]*border: 0 !important/);
     assert.match(managerCss, /\.asset-search \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.2\) !important/);
 });

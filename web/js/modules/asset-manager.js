@@ -10219,6 +10219,59 @@ function clearRegistrySelectionDom(){
     syncRegistrySelectionDom();
     return true;
 }
+// 【QIN-531 修复】原生 <select> 的系统下拉无法控制圆角、悬浮蓝底与焦点方框，
+// 排序/分组改为自绘 listbox：胶囊整体是触发器，菜单圆角、金色悬浮态、无三角箭头。
+const REGISTRY_SELECT_OPTIONS = {
+    sort:[{value:'newest', label:'最近新增'}, {value:'oldest', label:'最早新增'}, {value:'name', label:'名称'}, {value:'size_desc', label:'大小降序'}],
+    group:[{value:'none', label:'不分组'}, {value:'source', label:'素材来源'}, {value:'folder', label:'文件夹'}, {value:'custom', label:'自定义分组'}],
+};
+function registrySelectOptions(kind){
+    return REGISTRY_SELECT_OPTIONS[kind] || REGISTRY_SELECT_OPTIONS.sort;
+}
+function registrySelectCurrentValue(kind){
+    return kind === 'sort' ? (registrySort || 'newest') : (registryGroupMode || 'none');
+}
+function registrySelectCurrentLabel(kind){
+    const value = registrySelectCurrentValue(kind);
+    return (registrySelectOptions(kind).find(option => option.value === value) || registrySelectOptions(kind)[0]).label;
+}
+function renderRegistrySelectCapsule({kind, icon, label}){
+    const current = registrySelectCurrentValue(kind);
+    return `<label class="hw-btn registry-toolbar-select" data-registry-select-capsule="${kind}"><i data-lucide="${icon}"></i><span>${label}</span><button class="registry-select-trigger" id="${kind === 'sort' ? 'registrySort' : 'registryGroupMode'}" type="button" data-registry-select-trigger="${kind}" aria-haspopup="listbox" aria-expanded="false" aria-label="${escapeAttr(label)}：${escapeAttr(registrySelectCurrentLabel(kind))}">${escapeHtml(registrySelectCurrentLabel(kind))}</button><div class="registry-select-menu" role="listbox" aria-label="${escapeAttr(label)}" hidden>${registrySelectOptions(kind).map(option => `<button class="registry-select-option${option.value === current ? ' is-selected' : ''}" type="button" role="option" data-registry-select-kind="${kind}" data-registry-select-option="${escapeAttr(option.value)}" aria-selected="${option.value === current}">${escapeHtml(option.label)}</button>`).join('')}</div></label>`;
+}
+function closeRegistrySelectMenus(){
+    root.querySelectorAll('.registry-toolbar-select.is-open').forEach(node => {
+        node.classList.remove('is-open');
+        node.querySelector('[data-registry-select-trigger]')?.setAttribute('aria-expanded', 'false');
+        const menu = node.querySelector('.registry-select-menu');
+        if(menu) menu.hidden = true;
+    });
+}
+function toggleRegistrySelectMenu(kind){
+    const capsule = root.querySelector(`[data-registry-select-capsule="${CSS.escape(kind)}"]`);
+    if(!capsule) return;
+    const willOpen = !capsule.classList.contains('is-open');
+    closeRegistrySelectMenus();
+    if(!willOpen) return;
+    capsule.classList.add('is-open');
+    capsule.querySelector('[data-registry-select-trigger]')?.setAttribute('aria-expanded', 'true');
+    const menu = capsule.querySelector('.registry-select-menu');
+    if(menu) menu.hidden = false;
+}
+function applyRegistrySelectValue(kind, value){
+    closeRegistrySelectMenus();
+    if(kind === 'sort'){
+        const next = String(value || 'newest');
+        if(next === (registrySort || 'newest')) return;
+        registrySort = next;
+        refreshRegistryAssets().catch(err => setStatus(err.message || '排序失败'));
+        return;
+    }
+    if(!['none', 'source', 'folder', 'custom'].includes(value) || value === registryGroupMode) return;
+    registryGroupMode = value;
+    saveRegistryViewSettings();
+    render();
+}
 function renderRegistryToolbar(board, title, subtitle, options={}){
     const selectedIds = registryActiveSelectedIds(board);
     const selectedGroupIds = selectedRegistryCustomGroupIds(board);
@@ -10251,8 +10304,8 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"></i><span>排序</span><select class="asset-sort-select" id="registrySort" aria-label="资产排序"><option value="newest" ${registrySort==='newest'?'selected':''}>最近新增</option><option value="oldest" ${registrySort==='oldest'?'selected':''}>最早新增</option><option value="name" ${registrySort==='name'?'selected':''}>名称</option><option value="size_desc" ${registrySort==='size_desc'?'selected':''}>大小降序</option></select><b class="registry-select-caret" aria-hidden="true"></b></label>
-            <label class="hw-btn registry-toolbar-select"><i data-lucide="layers"></i><span>分组</span><select class="asset-sort-select" id="registryGroupMode" aria-label="资产分组"><option value="none" ${registryGroupMode==='none'?'selected':''}>不分组</option><option value="source" ${registryGroupMode==='source'?'selected':''}>素材来源</option><option value="folder" ${registryGroupMode==='folder'?'selected':''}>文件夹</option><option value="custom" ${registryGroupMode==='custom'?'selected':''}>自定义分组</option></select><b class="registry-select-caret" aria-hidden="true"></b></label>
+            ${renderRegistrySelectCapsule({kind:'sort', icon:'arrow-down-wide-narrow', label:'排序'})}
+            ${renderRegistrySelectCapsule({kind:'group', icon:'layers', label:'分组'})}
             <button class="hw-btn" type="button" data-registry-aspect-toggle aria-pressed="${registryAspect === 'square'}" title="${registryAspect === 'square' ? '当前方格显示，点击恢复原始比例' : '当前原始比例，点击切换方格显示'}"><i data-lucide="square"></i><span>方格</span></button>
             <button class="hw-btn registry-toggle ${registrySimple ? 'is-active' : ''}" type="button" data-registry-simple-toggle aria-pressed="${registrySimple}"><i data-lucide="image"></i><span>简洁</span></button>
             ${options.allowUrl ? '<button class="hw-btn" type="button" data-registry-add-url><i data-lucide="link"></i><span>添加 URL</span></button>' : ''}
@@ -12573,20 +12626,21 @@ async function linkSelectedRegistryAssets(){
 }
 async function handleClick(event){
     const target = event.target;
-    // 【QIN-531】排序/分组一体化胶囊：点击卡片任意区域都调起原生选择菜单，而不是只认 select 本体。
-    const selectCapsule = target.closest?.('.registry-toolbar-select');
-    if(selectCapsule && !target.closest?.('select')){
-        const select = selectCapsule.querySelector('select');
-        if(select){
-            event.preventDefault();
-            if(typeof select.showPicker === 'function'){
-                try { select.showPicker(); } catch(err) { select.focus(); }
-            } else {
-                select.focus();
-                select.click();
-            }
-            return;
-        }
+    // 【QIN-531 修复】排序/分组自绘下拉：点击胶囊（含图标与标签）经 label 转发到触发器，
+    // 菜单项单独处理，避免原生 select 的系统蓝底与焦点方框。
+    const registrySelectTrigger = target.closest?.('[data-registry-select-trigger]');
+    if(registrySelectTrigger){
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRegistrySelectMenu(registrySelectTrigger.dataset.registrySelectTrigger || '');
+        return;
+    }
+    const registrySelectOption = target.closest?.('[data-registry-select-option]');
+    if(registrySelectOption){
+        event.preventDefault();
+        event.stopPropagation();
+        applyRegistrySelectValue(registrySelectOption.dataset.registrySelectKind || '', registrySelectOption.dataset.registrySelectOption || '');
+        return;
     }
     if(target.closest?.('[data-governance-refresh]')){
         await refreshGovernanceSuggestions();
@@ -12938,13 +12992,15 @@ async function handleClick(event){
     if(registryStat){
         const category = registryStat.dataset.registryStat || '';
         if(category === 'reference-canvas'){
-            registryStatCategory = '';
-            activeTab = 'canvas-assets';
-            activeCanvasAssetCategory = 'reference';
-            activeCanvasAssetCanvasId = '';
-            selectedCanvasAssetId = '';
-            selectedCanvasAssetIds.clear();
-            render();
+            // 【QIN-531 修复】画布卡片改为双击才跳转，单击只做选中反馈，避免误触直接离开素材库。
+            document.querySelectorAll('.registry-stat-card.active').forEach(card => {
+                if(card === registryStat) return;
+                card.classList.remove('active');
+                card.setAttribute('aria-pressed', 'false');
+            });
+            registryStat.classList.add('active');
+            registryStat.setAttribute('aria-pressed', 'true');
+            setStatus('双击「画布」进入画布资产库');
             return;
         }
         applyRegistryFilterDefinition({category, groupSimilar:registryGroupSimilar});
@@ -20316,6 +20372,20 @@ root.addEventListener('click', event => {
     handleClick(event).catch(err => setStatus(err.message || '操作失败'));
 });
 root.addEventListener('dblclick', event => {
+    const canvasStatCard = event.target.closest?.('[data-registry-stat="reference-canvas"]');
+    if(canvasStatCard){
+        // 【QIN-531 修复】概览「画布」卡片：双击进入画布资产库（单击只切换选中态）。
+        event.preventDefault();
+        event.stopPropagation();
+        registryStatCategory = '';
+        activeTab = 'canvas-assets';
+        activeCanvasAssetCategory = 'reference';
+        activeCanvasAssetCanvasId = '';
+        selectedCanvasAssetId = '';
+        selectedCanvasAssetIds.clear();
+        render();
+        return;
+    }
     const groupCard = event.target.closest?.('[data-registry-structure-card][data-registry-structure-type="group"]');
     if(groupCard){
         // Action buttons own their double-click semantics. Do not let a
@@ -20356,6 +20426,7 @@ root.addEventListener('dblclick', event => {
     showDetailPreview(reference.source, reference.id);
 });
 document.addEventListener('click', event => {
+    if(!event.target.closest?.('.registry-toolbar-select')) closeRegistrySelectMenus();
     const structureCreate = event.target.closest?.('[data-registry-structure-create]');
     if(structureCreate){
         const type = structureCreate.dataset.registryStructureCreate || '';
@@ -21180,18 +21251,6 @@ root.addEventListener('input', event => {
     }
 });
 root.addEventListener('change', event => {
-    if(event.target?.id === 'registrySort'){
-        registrySort = event.target.value || 'newest';
-        refreshRegistryAssets().catch(err => setStatus(err.message || '排序失败'));
-        return;
-    }
-    if(event.target?.id === 'registryGroupMode'){
-        const value = event.target.value || 'none';
-        registryGroupMode = ['none','source','folder','custom'].includes(value) ? value : 'none';
-        saveRegistryViewSettings();
-        render();
-        return;
-    }
     const inlineLocalUploadName = event.target.closest?.('[data-localup-inline-name]');
     if(inlineLocalUploadName){
         saveLocalUploadInlineName(inlineLocalUploadName.dataset.localupInlineName || '', inlineLocalUploadName.value || '').catch(err => setStatus(err.message || '保存失败'));

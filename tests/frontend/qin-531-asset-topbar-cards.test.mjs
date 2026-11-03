@@ -78,15 +78,28 @@ assert.doesNotMatch(
   '不得再对画布卡片隐藏图标与进度条'
 );
 
-// AC5：排序/分组收口在同一胶囊内（前缀标签 + 当前值 + ∨ 箭头）。
-const sortCapsule = js.match(/<label class="hw-btn registry-toolbar-select"><i data-lucide="arrow-down-wide-narrow"><\/i><span>排序<\/span>[\s\S]*?<\/label>/);
-assert.ok(sortCapsule, '排序控件应保留 hw-btn + registry-toolbar-select 胶囊');
-assert.match(sortCapsule[0], /id="registrySort"/, '排序下拉 id 必须保留');
-assert.match(sortCapsule[0], /class="registry-select-caret"/, '排序胶囊内应有 ∨ 箭头元素');
-const groupCapsule = js.match(/<label class="hw-btn registry-toolbar-select"><i data-lucide="layers"><\/i><span>分组<\/span>[\s\S]*?<\/label>/);
-assert.ok(groupCapsule, '分组控件应保留 hw-btn + registry-toolbar-select 胶囊');
-assert.match(groupCapsule[0], /id="registryGroupMode"/, '分组下拉 id 必须保留');
-assert.match(groupCapsule[0], /class="registry-select-caret"/, '分组胶囊内应有 ∨ 箭头元素');
+// AC5：排序/分组收口在同一胶囊内（前缀标签 + 当前值），下拉改为自绘 listbox。
+assert.match(
+  js,
+  /renderRegistrySelectCapsule\(\{kind:'sort', icon:'arrow-down-wide-narrow', label:'排序'\}\)/,
+  '排序控件应由统一胶囊渲染函数产出'
+);
+assert.match(
+  js,
+  /renderRegistrySelectCapsule\(\{kind:'group', icon:'layers', label:'分组'\}\)/,
+  '分组控件应由统一胶囊渲染函数产出'
+);
+assert.match(
+  js,
+  /<label class="hw-btn registry-toolbar-select" data-registry-select-capsule="\$\{kind\}"><i data-lucide="\$\{icon\}"><\/i><span>\$\{label\}<\/span>/,
+  '胶囊应保留 hw-btn 材质、图标在前、标签在后的结构'
+);
+assert.match(js, /\$\{kind === 'sort' \? 'registrySort' : 'registryGroupMode'\}/, '排序/分组 id 必须保留');
+assert.match(js, /class="registry-select-menu" role="listbox"/, '下拉应为自绘 listbox 菜单');
+assert.doesNotMatch(js, /registry-select-caret/, '向下三角箭头必须删除');
+assert.doesNotMatch(js, /class="asset-sort-select"/, '原生 select 必须移除（系统下拉无法控制圆角与蓝底）');
+assert.match(js, /toggleRegistrySelectMenu\(/, '点击胶囊应由自绘菜单开关接管');
+assert.doesNotMatch(js, /showPicker/, '不得再调起原生选择菜单');
 assert.match(
   managerCss,
   /\.registry-toolbar-select \{[\s\S]*?border: 1px solid rgb\(223 195 132 \/ \.22\) !important;[\s\S]*?border-radius: 7px !important;[\s\S]*?background: linear-gradient\(180deg,#1a1d25,#0f1115\) !important;/,
@@ -94,12 +107,36 @@ assert.match(
 );
 assert.match(
   managerCss,
-  /\.registry-toolbar-select \.asset-sort-select \{[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;/,
-  '内层原生 select 必须去框透明，视觉上并入胶囊'
+  /\.registry-toolbar-select \.registry-select-trigger \{[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;/,
+  '触发器必须去框透明，视觉上并入胶囊'
 );
-assert.match(managerCss, /\.registry-select-caret \{[^}]*border-top: 4px solid #8d95a3;/, '∨ 箭头应由 CSS 三角绘制');
-// 点击卡片任意区域调起原生选择菜单
-assert.match(js, /const selectCapsule = target\.closest\?\.\('\.registry-toolbar-select'\);/, '点击委托应识别下拉胶囊');
-assert.match(js, /select\.showPicker\(\)/, '点击胶囊任意区域应调起原生选择菜单');
+assert.match(
+  managerCss,
+  /\.registry-toolbar-select \.registry-select-menu \{[\s\S]*?border-radius: 10px;/,
+  '下拉菜单必须为圆角'
+);
+assert.match(
+  managerCss,
+  /\.registry-select-option:is\(:hover,:focus-visible\) \{\s*background: rgb\(223 195 132 \/ \.14\) !important;/,
+  '选项悬浮应为淡金底，不得出现系统蓝'
+);
+assert.match(
+  managerCss,
+  /:is\(\.registry-select-trigger,\.registry-select-option\):is\(:focus,:focus-visible\) \{[\s\S]*?outline: none !important;/,
+  '触发器与选项不得出现焦点方框'
+);
+assert.doesNotMatch(managerCss, /registry-select-caret/, '三角箭头样式必须移除');
+
+// AC6：「画布」卡片改为双击跳转，单击只做选中反馈。
+const statClickBlock = js.slice(
+  js.indexOf("const registryStat = target.closest?.('[data-registry-stat]')"),
+  js.indexOf("const registryFeature = target.closest?.('[data-registry-feature-toggle]')")
+);
+assert.ok(statClickBlock, '必须存在概览卡片点击分支');
+assert.match(statClickBlock, /双击「画布」进入画布资产库/, '单击画布卡片应提示双击跳转');
+assert.doesNotMatch(statClickBlock, /activeTab = 'canvas-assets'/, '单击画布卡片不得直接跳转');
+const dblClickOpen = js.slice(js.indexOf("root.addEventListener('dblclick'"), js.indexOf("const groupCard = event.target.closest?.('[data-registry-structure-card][data-registry-structure-type=\"group\"]')"));
+assert.match(dblClickOpen, /\[data-registry-stat="reference-canvas"\]/, '双击监听应识别画布卡片');
+assert.match(dblClickOpen, /activeTab = 'canvas-assets'/, '双击画布卡片应跳转到画布资产库');
 
 console.log('QIN-531 asset topbar/toolbar contracts passed');
