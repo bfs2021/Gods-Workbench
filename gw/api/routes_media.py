@@ -91,8 +91,11 @@ def get_thumb_settings(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
+    """读取缩略图设置；QIN-525 起一并返回预览缓存统计（分类文件数 / 占用）。"""
     _read(authorization, x_user_role)
-    return repo.get_thumbnail_settings()
+    settings = dict(repo.get_thumbnail_settings())
+    settings["cache"] = repo.cache_statistics()
+    return settings
 
 
 @router.patch("/api/asset-thumbnails/settings", status_code=status.HTTP_200_OK)

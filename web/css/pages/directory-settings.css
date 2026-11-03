@@ -572,3 +572,37 @@ body.gw-signal.gw-page--asset-manager .directory-page .asset-btn { font-weight:v
 /* 【QIN-519】全库预览缓存预热进度条：沿用黑金设计系统的金色进度，仅本区块生效。 */
 .board-preview-all-progress { inline-size: 100%; height: 6px; accent-color: var(--gold-primary); }
 .asset-preview-all .board-thumbnail-actions { flex-wrap: wrap; }
+
+/* 【QIN-525】删除缓存分类面板：沿用黑金卡片语言，每行给出「分类 + 文件数 + 占用」。 */
+.preview-cache-delete-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(201, 162, 39, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.preview-cache-delete-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.preview-cache-delete-row:hover { background: rgba(201, 162, 39, 0.08); }
+.preview-cache-delete-row input { margin-top: 2px; accent-color: var(--gold-primary); }
+.preview-cache-delete-row span { display: flex; flex-direction: column; gap: 2px; }
+.preview-cache-delete-row strong { font-size: var(--gw-type-label-lg); font-weight: 500; }
+.preview-cache-delete-row small { font-size: var(--gw-type-label-md); opacity: 0.66; }
+.preview-cache-delete-row:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+.preview-cache-delete-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.preview-cache-delete-all { display: flex; align-items: center; gap: 6px; font-size: var(--gw-type-body-sm); opacity: 0.8; }
+.preview-cache-delete-all input { accent-color: var(--gold-primary); }
+.preview-cache-delete-foot .board-thumbnail-actions { margin-top: 0; }

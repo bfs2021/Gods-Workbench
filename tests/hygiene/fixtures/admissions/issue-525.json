@@ -1,0 +1,39 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 525,
+  "authorization_basis": "GitHub Issue #565, 2026-11-02",
+  "files": [
+    "gw/media/repository.py",
+    "gw/api/routes_media.py",
+    "gw/asset_registry/repository.py",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/directory-settings.css",
+    "tests/contracts/media/test_preview_all_cache.py",
+    "tests/frontend/qin-519-preview-all-button.test.mjs",
+    "tests/frontend/qin-525-preview-cache-merge.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-525.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/media/test_preview_all_cache.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #565, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-519-preview-all-button.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #565, 2026-11-02",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-525-preview-cache-merge.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #565, 2026-11-02",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-525：合并「生成缩略图」与「离线预览缓存」为一个区块，只保留【全部缓存/重建缓存】与【删除缓存】；全类型枚举修复 kind=indexed 空跑，文档/Office/3D/字体/音频等无位图能力类型由服务端 Pillow 绘制类型占位图（不新增依赖）；删除缓存按图像/视频/分镜/其他分类勾选，复用 is_cache_artifact_name 与逐文件准入校验。分片按 GitHub Issue #565 命名（票号即文件名，供加载器去重）。"
+}

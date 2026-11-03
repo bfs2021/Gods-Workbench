@@ -39,6 +39,7 @@ import socket
 import subprocess
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
@@ -414,6 +415,35 @@ def is_cache_artifact_name(name: str) -> bool:
     return name.endswith((".jpg.png", ".jxl", ".webp", ".frame.jpg"))
 
 
+#: 预览缓存分类（QIN-525：删除缓存弹窗按此勾选；``all`` 为并集，不落盘为类别）。
+PREVIEW_CACHE_CATEGORIES = ("image", "video", "storyboard", "other")
+
+
+def cache_artifact_category(name: str) -> str:
+    """把缓存产物文件名归到删除弹窗的四个类别；未知产物归 ``other``。"""
+    from gw.asset_registry import media_probe
+
+    if media_probe.is_storyboard_cache_name(name):
+        return "storyboard"
+    if name.endswith(".frame.jpg"):
+        return "video"
+    if name.endswith((".jpg.png", ".jxl", ".webp")):
+        return "image"
+    return "other"
+
+
+def _cache_artifact_key(name: str) -> str:
+    """从缓存文件名还原素材标识，用于「已缓存素材数」去重。
+
+    预览缓存为 ``<key>-w0256-<identity>.<ext>``，预生成缩略图为
+    ``<asset_id>-w0256.<ext>``；两者都以 ``-w####`` 分界，取前缀即可。
+    """
+    match = re.match(r"^(?P<key>.+?)-w\d{4}", name)
+    if match:
+        return match.group("key")
+    return name.split(".", 1)[0]
+
+
 def _iter_cache_artifacts(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
@@ -645,9 +675,255 @@ def _encode_jxl_thumbnail(png_bytes: bytes) -> bytes:
     return result_bytes
 
 
+#: QIN-525：缩略图渲染分派。位图走 PIL 重采样，视频抽帧，音频画真实包络，
+#: 字体渲染样张，文档 / Office / 3D / 未知后缀统一绘制类型占位图。
+_AUDIO_SUFFIXES = frozenset({".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"})
+_FONT_SUFFIXES = frozenset({".ttf", ".otf", ".woff", ".woff2"})
+_DOCUMENT_SUFFIXES = frozenset(
+    {
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".txt", ".md", ".json", ".csv", ".rtf", ".epub", ".srt", ".ass",
+    }
+)
+_MODEL_SUFFIXES = frozenset(
+    {".obj", ".fbx", ".glb", ".gltf", ".stl", ".blend", ".usd", ".usdz"}
+)
+_RENDER_KIND_LABELS = {
+    "audio": "音频",
+    "font": "字体",
+    "model": "3D",
+    "document": "文档",
+    "other": "文件",
+}
+_PLACEHOLDER_BG = (20, 16, 12)
+_PLACEHOLDER_FG = (232, 226, 214)
+_PLACEHOLDER_ACCENT = (201, 162, 39)
+_PLACEHOLDER_MUTED = (138, 130, 118)
+
+
+def _preview_render_kind(path: Path) -> str:
+    """判定缩略图渲染路径；未知后缀仍按位图尝试，失败时由调用方降级占位图。"""
+    suffix = path.suffix.lower()
+    if suffix in _VIDEO_SUFFIXES:
+        return "video"
+    if suffix in _AUDIO_SUFFIXES:
+        return "audio"
+    if suffix in _FONT_SUFFIXES:
+        return "font"
+    if suffix in _MODEL_SUFFIXES:
+        return "model"
+    if suffix in _DOCUMENT_SUFFIXES:
+        return "document"
+    return "image"
+
+
+def _vendor_font(size: int):
+    """加载仓库白名单中文字体；缺失或加载失败返回 None，由调用方回落默认字体。"""
+    try:
+        from PIL import ImageFont  # type: ignore
+    except Exception:
+        return None
+
+    root = Path(__file__).resolve().parents[2]
+    for name in ("SourceHanSansCN-Medium.otf", "SourceHanSansCN-Normal.otf"):
+        candidate = root / "web" / "vendor" / "fonts" / name
+        if not candidate.is_file():
+            continue
+        try:
+            return ImageFont.truetype(str(candidate), size)
+        except Exception:
+            continue
+    return None
+
+
+def _image_font(size: int):
+    """优先白名单中文字体，缺失时用 Pillow 默认字体，保证占位图永远能画出来。"""
+    from PIL import ImageFont  # type: ignore
+
+    font = _vendor_font(size)
+    if font is not None:
+        return font
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _encode_derived_image(image, image_format: str) -> bytes:
+    """把派生预览图编码为目标缓存格式，沿用位图缩略图的体积上限策略。"""
+    import io as _io
+
+    if image_format == "webp":
+        buffer = _io.BytesIO()
+        for quality in (72, 60, 48, 36, 28, 24):
+            buffer = _io.BytesIO()
+            image.save(buffer, format="WEBP", quality=quality, method=6)
+            if buffer.tell() <= MAX_THUMBNAIL_BYTES or quality == 24:
+                break
+        return buffer.getvalue()
+    buffer = _io.BytesIO()
+    image.save(buffer, format="PNG")
+    if image_format == "jxl":
+        return _encode_jxl_thumbnail(buffer.getvalue())
+    return buffer.getvalue()
+
+
+def _draw_centered_text(draw, text: str, font, fill, center_x: float, top: float) -> float:
+    """按中心线绘制一行文本，返回该行底部坐标；不依赖字体的固定行高。"""
+    try:
+        left, top_box, right, bottom_box = draw.textbbox((0, 0), text, font=font)
+    except Exception:
+        return top
+    draw.text(
+        (center_x - (right - left) / 2 - left, top - top_box),
+        text,
+        font=font,
+        fill=fill,
+    )
+    return top + (bottom_box - top_box)
+
+
+def _placeholder_thumbnail_bytes(
+    path: Path, width: int, image_format: str, render_kind: str
+) -> bytes:
+    """绘制类型占位图：扩展名徽标 + 文件名 + 类型标签，离线也能辨认素材。"""
+    Image = _pil()
+    if Image is None:
+        _unavailable("/api/media", "PIL_NOT_AVAILABLE", "未安装 PIL，缩略图能力不可用")
+    from PIL import ImageDraw  # type: ignore
+
+    side = max(64, min(2048, int(width)))
+    image = Image.new("RGB", (side, side), _PLACEHOLDER_BG)
+    draw = ImageDraw.Draw(image)
+    inset = max(3, side // 28)
+    draw.rectangle(
+        (inset, inset, side - inset, side - inset),
+        outline=_PLACEHOLDER_ACCENT,
+        width=max(1, side // 160),
+    )
+
+    extension = path.suffix.lower().lstrip(".").upper()
+    badge = extension if extension and len(extension) <= 6 else _RENDER_KIND_LABELS.get(
+        render_kind, "文件"
+    )
+    badge_font = _image_font(max(16, int(side * 0.24)))
+    label_font = _image_font(max(9, side // 22))
+    caption_font = _image_font(max(8, side // 26))
+
+    center_x = side / 2
+    badge_bottom = _draw_centered_text(
+        draw, badge, badge_font, _PLACEHOLDER_ACCENT, center_x, side * 0.32
+    )
+    kind_label = _RENDER_KIND_LABELS.get(render_kind, "文件")
+    label_bottom = _draw_centered_text(
+        draw, kind_label, label_font, _PLACEHOLDER_FG, center_x, badge_bottom + side * 0.04
+    )
+
+    name = path.name or path.stem
+    if len(name) > 24:
+        name = name[:23] + "…"
+    _draw_centered_text(
+        draw, name, caption_font, _PLACEHOLDER_MUTED, center_x, label_bottom + side * 0.05
+    )
+    return _encode_derived_image(image.convert("RGBA"), image_format)
+
+
+def _font_sample_thumbnail_bytes(path: Path, width: int, image_format: str) -> bytes:
+    """渲染字体样张：用被预览字体本身绘制字形，加载失败时降级占位图。"""
+    Image = _pil()
+    if Image is None:
+        _unavailable("/api/media", "PIL_NOT_AVAILABLE", "未安装 PIL，缩略图能力不可用")
+    from PIL import ImageDraw, ImageFont  # type: ignore
+
+    side = max(64, min(2048, int(width)))
+    try:
+        sample_font = ImageFont.truetype(str(path), int(side * 0.3))
+    except Exception:
+        return _placeholder_thumbnail_bytes(path, width, image_format, "font")
+
+    image = Image.new("RGB", (side, side), _PLACEHOLDER_BG)
+    draw = ImageDraw.Draw(image)
+    inset = max(3, side // 28)
+    draw.rectangle(
+        (inset, inset, side - inset, side - inset),
+        outline=_PLACEHOLDER_ACCENT,
+        width=max(1, side // 160),
+    )
+    caption_font = _image_font(max(8, side // 26))
+    center_x = side / 2
+    sample_bottom = _draw_centered_text(
+        draw, "Aa", sample_font, _PLACEHOLDER_FG, center_x, side * 0.2
+    )
+    sample_bottom = _draw_centered_text(
+        draw, "永字八法", sample_font, _PLACEHOLDER_FG, center_x, sample_bottom + side * 0.02
+    )
+    name = path.stem
+    if len(name) > 22:
+        name = name[:21] + "…"
+    _draw_centered_text(
+        draw, name, caption_font, _PLACEHOLDER_MUTED, center_x, sample_bottom + side * 0.05
+    )
+    return _encode_derived_image(image.convert("RGBA"), image_format)
+
+
+def _audio_waveform_thumbnail_bytes(path: Path, width: int, image_format: str) -> bytes:
+    """把真实 PCM 包络画成波形缩略图；解码失败时由调用方降级占位图。"""
+    Image = _pil()
+    if Image is None:
+        _unavailable("/api/media", "PIL_NOT_AVAILABLE", "未安装 PIL，缩略图能力不可用")
+    from PIL import ImageDraw  # type: ignore
+
+    buckets, _duration = _pcm_envelope(path)
+    side = max(64, min(2048, int(width)))
+    image = Image.new("RGB", (side, side), _PLACEHOLDER_BG)
+    draw = ImageDraw.Draw(image)
+    center_y = side / 2
+    draw.line((0, center_y, side, center_y), fill=_PLACEHOLDER_MUTED, width=1)
+
+    count = len(buckets)
+    if count:
+        step = side / float(count)
+        half = side * 0.36
+        for index, (minimum, maximum) in enumerate(buckets):
+            x = int(index * step)
+            draw.line(
+                (x, center_y - maximum * half, x, center_y - minimum * half),
+                fill=_PLACEHOLDER_ACCENT,
+                width=max(1, int(step)),
+            )
+
+    caption_font = _image_font(max(8, side // 26))
+    name = path.name
+    if len(name) > 24:
+        name = name[:23] + "…"
+    _draw_centered_text(
+        draw, name, caption_font, _PLACEHOLDER_MUTED, side / 2, side * 0.88
+    )
+    return _encode_derived_image(image.convert("RGBA"), image_format)
+
+
+def _derived_thumbnail_bytes(
+    path: Path, width: int, image_format: str, render_kind: str
+) -> bytes:
+    """非位图素材的派生预览：音频波形 / 字体样张 / 其余类型占位图。"""
+    if render_kind == "audio":
+        try:
+            return _audio_waveform_thumbnail_bytes(path, width, image_format)
+        except CleanroomException:
+            pass
+        except Exception:
+            pass
+    if render_kind == "font":
+        return _font_sample_thumbnail_bytes(path, width, image_format)
+    return _placeholder_thumbnail_bytes(path, width, image_format, render_kind)
+
+
 def _thumbnail_bytes(
     path: Path, width: int, image_format: Literal["png", "jxl", "webp"] = "png"
 ) -> bytes:
+    render_kind = _preview_render_kind(path)
+    if render_kind != "image":
+        return _derived_thumbnail_bytes(path, width, image_format, render_kind)
     Image = _pil()
     if Image is None:
         _unavailable("/api/media", "PIL_NOT_AVAILABLE", "未安装 PIL，缩略图能力不可用")
@@ -711,7 +987,14 @@ def _thumbnail_bytes(
     except CleanroomException:
         raise
     except Exception:
-        _unavailable("/api/media", "THUMBNAIL_FAILED", "无法把该文件解码为图片")
+        # 后缀像图片但实际解码失败（损坏文件、伪装扩展名）：降级类型占位图，
+        # 不让全库预热因为单个坏文件记一条失败。
+        try:
+            return _placeholder_thumbnail_bytes(path, width, image_format, "other")
+        except CleanroomException:
+            raise
+        except Exception:
+            _unavailable("/api/media", "THUMBNAIL_FAILED", "无法把该文件解码为图片")
 
 
 def _thumbnail_key(asset_id: str, path: Path) -> str:
@@ -1151,12 +1434,11 @@ def _video_frame_bytes(path: Path, width: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def waveform(payload: dict[str, Any]) -> dict[str, Any]:
-    """用 ffmpeg 把音频解码为 16-bit PCM，再按固定桶算真实 RMS 包络。
+def _pcm_envelope(path: Path) -> tuple[list[tuple[float, float]], float]:
+    """把音频解码为 16-bit PCM 并按固定桶算真实包络，返回 (桶, 时长秒)。
 
-    无音频流 → 400；ffmpeg 缺失或失败 → 503；**禁止**随机/常量假曲线。
+    波形接口与音频缩略图共用这一条实现，禁止出现第二套采样口径。
     """
-    path = _resolve_input(payload)
     ffmpeg = _tool("ffmpeg")
     import array
     import tempfile
@@ -1206,12 +1488,22 @@ def waveform(payload: dict[str, Any]) -> dict[str, Any]:
         minimum = min(chunk) / 32768.0
         maximum = max(chunk) / 32768.0
         buckets.append((round(minimum, 6), round(maximum, 6)))
+    return buckets, duration
+
+
+def waveform(payload: dict[str, Any]) -> dict[str, Any]:
+    """用 ffmpeg 把音频解码为 16-bit PCM，再按固定桶算真实 RMS 包络。
+
+    无音频流 → 400；ffmpeg 缺失或失败 → 503；**禁止**随机/常量假曲线。
+    """
+    path = _resolve_input(payload)
+    buckets, duration = _pcm_envelope(path)
     return {
         "duration": round(duration, 4),
         "minimum": [b[0] for b in buckets],
         "maximum": [b[1] for b in buckets],
-        "bucket_count": bucket_count,
-        "sample_rate": sample_rate,
+        "bucket_count": len(buckets),
+        "sample_rate": 16000,
         "data_status": "ok",
         "data_gaps": [],
     }
@@ -1493,31 +1785,31 @@ def run_background_thumbnail(payload: dict[str, Any]) -> tuple[str, str]:
 
 PREVIEW_ALL_SCOPE = "library"
 PREVIEW_ALL_WIDTH = 256
+#: fill：增量补齐（已有新鲜缓存跳过）；rebuild：先清空整棵缓存树再全量重生成。
+PREVIEW_ALL_MODES = ("fill", "rebuild")
 # 限速：默认每张之间让出 20ms，避免全库预热打满创作者 PC 或 NAS 的 CPU。
 PREVIEW_ALL_THROTTLE_SECONDS = 0.02
 _PREVIEW_ALL_FLUSH_EVERY = 10
-_PREVIEWABLE_KINDS = ("image", "video")
+# 状态写入的瞬时冲突重试次数（Windows 上并发读 + os.replace 会短暂 PermissionError）。
+_PREVIEW_ALL_WRITE_ATTEMPTS = 5
+# 本进程内真正存活的预热任务；进程重启后该集合为空，据此识别遗留 running 记录。
+_PREVIEW_ALL_LIVE: set[str] = set()
+_PREVIEW_ALL_LIVE_LOCK = threading.Lock()
 
 
 def _preview_all_asset_ids() -> list[str]:
-    """登记表里当前可见、未归档的图片/视频素材 id（预热范围，不生成任何东西）。"""
-    from gw.asset_registry import repository as asset_repo
-    from gw.core.asset_visibility import asset_visible
+    """全库可预热素材 id（预热范围，不生成任何东西）。
 
-    raw = asset_repo.state().read()
-    asset_ids: list[str] = []
-    for asset_id, record in sorted((raw.get("assets") or {}).items()):
-        if record.get("archived"):
-            continue
-        if str(record.get("kind") or "") not in _PREVIEWABLE_KINDS:
-            continue
-        try:
-            visible = asset_visible(record)
-        except Exception:  # noqa: BLE001 - 判定异常按不可见处理，绝不越权预热
-            visible = False
-        if visible:
-            asset_ids.append(str(asset_id))
-    return asset_ids
+    QIN-525：枚举口径统一收敛到注册表的 ``preview_asset_ids()``，与资产面板
+    facets 同源；不再按顶层 ``kind`` 白名单过滤，否则 ``kind="indexed"`` 的
+    索引素材会被整体漏掉，任务空跑却报「已完成」。
+    """
+    from gw.asset_registry import repository as asset_repo
+
+    try:
+        return asset_repo.preview_asset_ids()
+    except Exception:  # noqa: BLE001 - 注册表不可读时按空范围失败关闭，不越权预热
+        return []
 
 
 def _preview_cache_hit(
@@ -1536,7 +1828,12 @@ def _preview_cache_hit(
 
 
 def _update_preview_all_job(job_id: str, **changes: Any) -> None:
-    """按稳定 job_id 局部更新任务记录；任务已被清理时静默跳过。"""
+    """按稳定 job_id 局部更新任务记录；任务已被清理时静默跳过。
+
+    Windows 上 ``os.replace`` 与并发读取存在共享冲突（``PermissionError``），
+    瞬时冲突重试即可；写入彻底失败也不允许把异常抛回预热线程——否则线程静默
+    死亡，任务永久停在 ``running``，把后续所有预热请求一起顶死。
+    """
 
     def mutate(raw: dict[str, Any]) -> Any:
         job = (raw.get("jobs") or {}).get(job_id)
@@ -1546,26 +1843,103 @@ def _update_preview_all_job(job_id: str, **changes: Any) -> None:
         raw["revision"] = int(raw.get("revision") or 1) + 1
         return job
 
-    _job_state().mutate(mutate)
+    for attempt in range(_PREVIEW_ALL_WRITE_ATTEMPTS):
+        try:
+            _job_state().mutate(mutate)
+            return
+        except OSError:
+            if attempt + 1 >= _PREVIEW_ALL_WRITE_ATTEMPTS:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
+def _mark_preview_all_live(job_id: str, live: bool) -> None:
+    """登记本进程内真正存活的预热任务；用于识别重启后遗留的 ``running`` 记录。"""
+    with _PREVIEW_ALL_LIVE_LOCK:
+        if live:
+            _PREVIEW_ALL_LIVE.add(job_id)
+        else:
+            _PREVIEW_ALL_LIVE.discard(job_id)
+
+
+def _preview_all_live(job_id: str) -> bool:
+    with _PREVIEW_ALL_LIVE_LOCK:
+        return job_id in _PREVIEW_ALL_LIVE
 
 
 def _run_preview_all(
-    job_id: str, asset_ids: list[str], width: int, throttle: float
+    job_id: str, asset_ids: list[str], width: int, throttle: float, *, mode: str = "fill"
 ) -> None:
-    """守护线程主体：逐项预热，已有新鲜缓存直接跳过（幂等），单项失败不中断整批。"""
+    """预热线程入口：兜住任何逃逸异常，保证任务不会永久停在 ``running``。"""
+    try:
+        _drive_preview_all(job_id, asset_ids, width, throttle, mode=mode)
+    except BaseException as exc:  # noqa: BLE001 - 线程死亡必须收敛为可见失败
+        _fail_preview_all_job(job_id, "PREVIEW_ALL_CRASHED", exc)
+    finally:
+        _mark_preview_all_live(job_id, False)
+
+
+def _fail_preview_all_job(job_id: str, code: str, exc: BaseException) -> None:
+    """把任务收敛为 ``failed`` 并留下栈证据；连状态都写不进时只能吞掉。"""
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    try:
+        _update_preview_all_job(
+            job_id,
+            status="failed",
+            state="failed",
+            error=code,
+            finished_at=storage.now_iso(),
+        )
+    except Exception:  # noqa: BLE001 - 状态文件不可写时已无补救余地
+        pass
+
+
+def _drive_preview_all(
+    job_id: str, asset_ids: list[str], width: int, throttle: float, *, mode: str = "fill"
+) -> None:
+    """守护线程主体：逐项预热，已有新鲜缓存直接跳过（幂等），单项失败不中断整批。
+
+    ``mode="rebuild"`` 时先清空整棵预览缓存树再全量重生成；清空失败按失败关闭，
+    绝不在「没清掉旧缓存」的情况下继续冒充重建。
+    """
     started = time.monotonic()
     total = len(asset_ids)
-    generated = skipped = failed = 0
+    generated = skipped = failed = cleared = 0
     last_flush = 0.0
     try:
         settings: dict[str, Any] | None = get_thumbnail_settings()
     except CleanroomException:
         settings = None
+    if mode == "rebuild":
+        if settings is None:
+            _update_preview_all_job(
+                job_id,
+                status="failed",
+                state="failed",
+                error="PREVIEW_CACHE_UNAVAILABLE",
+                finished_at=storage.now_iso(),
+            )
+            return
+        try:
+            root = cache_root_path(settings)
+            cleared = _delete_cache_artifacts(root)
+            _prune_empty_dirs(root)
+        except (CleanroomException, OSError):
+            _update_preview_all_job(
+                job_id,
+                status="failed",
+                state="failed",
+                error="PREVIEW_CACHE_CLEAR_FAILED",
+                finished_at=storage.now_iso(),
+            )
+            return
     for index, asset_id in enumerate(asset_ids, 1):
         try:
             path = _registry_path(asset_id)
-            if settings is not None and _preview_cache_hit(
-                asset_id, path, width, settings
+            if (
+                mode != "rebuild"
+                and settings is not None
+                and _preview_cache_hit(asset_id, path, width, settings)
             ):
                 skipped += 1
             else:
@@ -1605,6 +1979,8 @@ def _run_preview_all(
             "generated": generated,
             "skipped": skipped,
             "failed": failed,
+            "cleared": cleared,
+            "mode": mode,
             "width": width,
             "elapsed_seconds": round(time.monotonic() - started, 1),
         },
@@ -1616,21 +1992,39 @@ def _run_preview_all(
 def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
     """启动全库预览缓存预热：立即返回稳定 job_id，由守护线程真实推进。
 
-    同一时刻只保留一个运行中的预热任务（重复提交复用既有 job_id，避免重复遍历）；
-    不做任何静默预热，必须由创作者显式触发。
+    ``mode="fill"`` 增量补齐（已有新鲜缓存跳过），``mode="rebuild"`` 先清空整棵
+    预览缓存树再全量重生成。同一时刻只保留一个运行中的预热任务（重复提交复用
+    既有 job_id，避免重复遍历）；不做任何静默预热，必须由创作者显式触发。
     """
+    mode = str((payload or {}).get("mode") or "fill").strip().lower()
+    if mode not in PREVIEW_ALL_MODES:
+        raise CleanroomException(
+            400,
+            "INVALID_PREVIEW_MODE",
+            "mode 只接受 fill / rebuild",
+        )
     state = _job_state().read()
     for record in (state.get("jobs") or {}).values():
-        if record.get("kind") == "preview_all" and record.get("status") in (
-            "queued",
-            "running",
-        ):
-            existing_id = str(record.get("job_id") or "")
+        if record.get("kind") != "preview_all":
+            continue
+        if record.get("status") not in ("queued", "running"):
+            continue
+        existing_id = str(record.get("job_id") or "")
+        if _preview_all_live(existing_id):
             return (
                 existing_id,
                 "/api/asset-thumbnails/jobs/%s" % existing_id,
                 int((record.get("progress") or {}).get("total") or 0),
             )
+        # 进程重启、崩溃或线程异常退出都会留下永远 ``running`` 的记录；不复原就
+        # 会顶死后续每一次预热请求（按钮点了没反应）。收敛为可见失败后继续建新任务。
+        _update_preview_all_job(
+            existing_id,
+            status="failed",
+            state="failed",
+            error="PREVIEW_ALL_INTERRUPTED",
+            finished_at=storage.now_iso(),
+        )
 
     asset_ids = _preview_all_asset_ids()
     try:
@@ -1654,6 +2048,7 @@ def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
             "status": "running",
             "state": "running",
             "kind": "preview_all",
+            "mode": mode,
             "progress": {
                 "processed": 0,
                 "total": len(asset_ids),
@@ -1670,13 +2065,27 @@ def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
         return job_id
 
     job_id = _job_state().mutate(mutate)
-    if asset_ids:
-        threading.Thread(
-            target=_run_preview_all,
-            args=(job_id, asset_ids, width, throttle),
-            name="preview-all-%s" % job_id,
-            daemon=True,
-        ).start()
+    if asset_ids or mode == "rebuild":
+        # 重建即使范围为空也要跑：清空动作本身是用户请求的一部分。
+        # 先登记存活再起线程：避免并发提交把「还没来得及登记的活任务」误判为遗留。
+        _mark_preview_all_live(job_id, True)
+        try:
+            threading.Thread(
+                target=_run_preview_all,
+                args=(job_id, asset_ids, width, throttle),
+                kwargs={"mode": mode},
+                name="preview-all-%s" % job_id,
+                daemon=True,
+            ).start()
+        except (OSError, RuntimeError):
+            _mark_preview_all_live(job_id, False)
+            _update_preview_all_job(
+                job_id,
+                status="failed",
+                state="failed",
+                error="PREVIEW_ALL_START_FAILED",
+                finished_at=storage.now_iso(),
+            )
     else:
         _update_preview_all_job(
             job_id,
@@ -1687,12 +2096,62 @@ def start_preview_all_job(payload: dict[str, Any]) -> tuple[str, str, int]:
                 "generated": 0,
                 "skipped": 0,
                 "failed": 0,
+                "cleared": 0,
+                "mode": mode,
                 "width": width,
                 "elapsed_seconds": 0.0,
             },
             finished_at=storage.now_iso(),
         )
     return job_id, "/api/asset-thumbnails/jobs/%s" % job_id, len(asset_ids)
+
+
+def cache_statistics() -> dict[str, Any]:
+    """预览缓存统计：分类文件数、占用字节与已缓存素材数（供设置面板展示）。
+
+    只枚举并 stat 缓存树，不解码、不写盘；缓存根不可解析时返回
+    ``available=False``，前端据此显示「缓存目录不可用」而不是复述旧数字。
+    """
+    try:
+        settings = get_thumbnail_settings()
+        root = cache_root_path(settings)
+    except (CleanroomException, OSError):
+        return {
+            "available": False,
+            "total_assets": 0,
+            "cached_assets": 0,
+            "bytes": 0,
+            "categories": [
+                {"id": key, "files": 0, "bytes": 0}
+                for key in PREVIEW_CACHE_CATEGORIES
+            ],
+        }
+
+    counts: dict[str, int] = {key: 0 for key in PREVIEW_CACHE_CATEGORIES}
+    sizes: dict[str, int] = {key: 0 for key in PREVIEW_CACHE_CATEGORIES}
+    keys: set[str] = set()
+    total_bytes = 0
+    for path in _iter_cache_artifacts(root):
+        category = cache_artifact_category(path.name)
+        counts[category] += 1
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        sizes[category] += size
+        total_bytes += size
+        if category in ("image", "video"):
+            keys.add(_cache_artifact_key(path.name))
+    return {
+        "available": True,
+        "total_assets": len(_preview_all_asset_ids()),
+        "cached_assets": len(keys),
+        "bytes": total_bytes,
+        "categories": [
+            {"id": key, "files": counts[key], "bytes": sizes[key]}
+            for key in PREVIEW_CACHE_CATEGORIES
+        ],
+    }
 
 
 def _storyboard_error_item(asset_id: str, exc: CleanroomException) -> dict[str, Any]:
@@ -1923,12 +2382,88 @@ def _verified_cache_file(path: Path) -> Path:
     return storage.resolve_within_roots(str(path))
 
 
+def _resolve_cache_delete_target(path: Path) -> Path:
+    """删除缓存前的再校验入口。
+
+    受管缓存根位于数据根内，走产物路径准入（``resolve_output_path``）；
+    自定义缓存根位于允许根内，走 ``resolve_within_roots``。链接逃逸一律拒绝。
+    """
+    try:
+        relative = path.resolve().relative_to(storage.data_root().resolve()).as_posix()
+    except (ValueError, OSError):
+        return storage.resolve_within_roots(str(path))
+    return storage.resolve_output_path(relative)
+
+
+def _delete_cache_categories(payload: dict[str, Any]) -> set[str]:
+    """解析删除弹窗勾选的缓存分类；``all`` 展开为四类并集。"""
+    raw = (payload or {}).get("categories")
+    if raw is None:
+        return set(PREVIEW_CACHE_CATEGORIES)
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        raise CleanroomException(400, "INVALID_REQUEST", "categories 必须是数组")
+    requested = {str(item).strip().lower() for item in raw if str(item).strip()}
+    if "all" in requested:
+        return set(PREVIEW_CACHE_CATEGORIES)
+    unknown = requested - set(PREVIEW_CACHE_CATEGORIES)
+    if unknown:
+        raise CleanroomException(
+            400,
+            "INVALID_CACHE_CATEGORY",
+            "categories 只接受 image / video / storyboard / other / all",
+        )
+    if not requested:
+        raise CleanroomException(400, "INVALID_REQUEST", "categories 不能为空")
+    return requested
+
+
+def _delete_cache_scope(payload: dict[str, Any]) -> dict[str, Any]:
+    """按分类清空预览缓存树（QIN-525「删除缓存」）。
+
+    只处理 ``is_cache_artifact_name()`` 命中的缓存产物；每个文件删除前重新做
+    允许根与链接逃逸校验，失败逐条记录，绝不虚报整批成功。
+    """
+    categories = _delete_cache_categories(payload)
+    settings = get_thumbnail_settings()
+    root = cache_root_path(settings)
+    removed: list[str] = []
+    failed: list[dict[str, str]] = []
+    for path in _iter_cache_artifacts(root):
+        if cache_artifact_category(path.name) not in categories:
+            continue
+        display = storage.relative_display(path)
+        try:
+            _resolve_cache_delete_target(path).unlink()
+            removed.append(display)
+        except CleanroomException:
+            failed.append({"name": display, "code": "CACHE_PATH_CHANGED"})
+        except OSError:
+            failed.append({"name": display, "code": "CACHE_DELETE_FAILED"})
+    _prune_empty_dirs(root)
+    return {
+        "kind": "cache",
+        "scope": "all",
+        "categories": sorted(categories),
+        "removed": len(removed),
+        # 全库可能上千项：只回传前 100 条明细，避免响应体撑爆。
+        "removed_files": removed[:100],
+        "failed": failed[:100],
+        "metadata_cleared": 0,
+        "data_status": "partial" if failed else "ok",
+        "data_gaps": [],
+    }
+
+
 def delete_outputs(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     """仅删除本模块精确生成的缓存；所有候选先预检，失败不虚报整批完成。"""
     if kind not in ("thumbnails", "storyboards"):
         raise CleanroomException(
             400, "INVALID_REQUEST", "kind只接受thumbnails/storyboards"
         )
+    if str((payload or {}).get("scope") or "").strip() == "all":
+        return _delete_cache_scope(payload)
     ids = _asset_ids(payload)
     if not ids:
         raise CleanroomException(400, "INVALID_REQUEST", "缺少asset_ids")

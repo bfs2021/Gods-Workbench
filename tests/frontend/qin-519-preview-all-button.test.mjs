@@ -1,11 +1,9 @@
 /**
- * QIN-519：资产设置「缓存全部预览」按钮与全量后台预生成任务。
+ * QIN-519 基线 + QIN-525 交互更新：预览缓存「全部缓存」入口与全量后台任务。
  *
- * 断言面覆盖票面 AC2 / AC3：
- * - AC2 资产设置面板（renderAssetPreviewSettingsBody）出现「缓存全部预览」入口与离线预热说明；
- * - AC3 两段式确认后才提交，提交走 generate-background 的 scope=library，
- *   忙态显示「正在缓存 processed/total…」，完成通知带新增/跳过/耗时；
- * - 回归护栏：不得静默预热（该入口只能由点击触发），运行中不得重复提交。
+ * 本文件保留 QIN-519 的核心护栏（显式触发、异步任务、进度与幂等计数），
+ * 结构断言按 QIN-525 合并后的单区块 / 两按钮形态更新；新增结构断言见
+ * qin-525-preview-cache-merge.test.mjs。
  */
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -31,23 +29,21 @@ function functionSource(name){
     assert.fail(`函数未闭合：${name}`);
 }
 
-test('AC2: 资产设置面板挂载「缓存全部预览」入口与离线预热说明', () => {
+test('AC2: 预览缓存区块挂载全库入口与离线预热说明', () => {
     const body = functionSource('renderAssetPreviewSettingsBody');
-    assert.match(body, /renderPreviewAllCacheSettingsBody\(\)/, '设置面板必须挂载全库预览缓存区块');
-
-    const section = functionSource('renderPreviewAllCacheSettingsBody');
-    assert.match(section, /缓存全部预览/, '按钮文案必须是「缓存全部预览」');
-    assert.match(section, /为全库素材后台生成预览图，适合离线前预热/, '必须给出离线预热说明');
-    assert.match(section, /data-preview-all-start/, '入口按钮必须带 data-preview-all-start');
-    // 全库口径来自已加载的注册表分类计数，避免误报总数。
-    assert.match(section, /registryCategoryCount\('image'\)/);
-    assert.match(section, /registryCategoryCount\('video'\)/);
+    assert.match(body, /data-preview-all-start/, '入口按钮必须带 data-preview-all-start');
+    assert.match(body, /为全库素材后台生成预览图，适合离线前预热/, '必须给出离线预热说明');
+    // 全库口径来自后端缓存统计（settings.cache），不再用前端 facets 猜数。
+    assert.match(body, /previewCacheStats\(\)/, '总数与已缓存数必须取自缓存统计');
+    assert.doesNotMatch(body, /当前视图 \$\{ids\.length\} 项/, '合并后不再有「当前视图 N 项」口径');
 });
 
-test('AC3: 两段式确认后才提交，提交走 scope=library', () => {
-    const dispatchIndex = MANAGER.indexOf("[data-preview-all-start]");
-    assert.ok(dispatchIndex > 0, '点击派发必须登记 data-preview-all-start');
-    assert.match(MANAGER, /if\(target\.closest\?\.\('\[data-preview-all-start\]'\)\)\{ requestPreviewAllConfirm\(\); return; \}/);
+test('AC3: 两段式确认后才提交，提交走 scope=library 且带 mode', () => {
+    assert.match(
+        MANAGER,
+        /requestPreviewAllConfirm\(previewCacheStart\.dataset\.previewAllMode === 'rebuild' \? 'rebuild' : 'fill'\)/,
+        '点击必须按按钮当前语义进入对应确认态'
+    );
     assert.match(MANAGER, /if\(target\.closest\?\.\('\[data-preview-all-confirm\]'\)\)\{ await startPreviewAllCache\(\); return; \}/);
     assert.match(MANAGER, /if\(target\.closest\?\.\('\[data-preview-all-cancel\]'\)\)\{ cancelPreviewAllConfirm\(\); return; \}/);
 
@@ -58,17 +54,18 @@ test('AC3: 两段式确认后才提交，提交走 scope=library', () => {
     const start = functionSource('startPreviewAllCache');
     assert.match(start, /'\/api\/asset-thumbnails\/generate-background'/);
     assert.match(start, /scope:'library'/, '必须显式声明全库模式');
+    assert.match(start, /mode/, '重建缓存必须把 mode 带给后端');
     assert.match(start, /method:'POST'/);
 });
 
 test('AC3: 忙态显示真实进度，完成通知带新增/跳过/耗时', () => {
-    const section = functionSource('renderPreviewAllCacheSettingsBody');
-    assert.match(section, /正在缓存 \$\{processed\}\/\$\{total\}…/, '忙态必须显示「正在缓存 120/950…」样式进度');
-    assert.match(section, /disabled/, '运行中按钮必须禁用，避免重复提交');
+    const body = functionSource('renderAssetPreviewSettingsBody');
+    assert.match(body, /正在缓存 \$\{processed\}\/\$\{total\}…/, '忙态必须显示「正在缓存 120/950…」样式进度');
+    assert.match(body, /disabled/, '运行中按钮必须禁用，避免重复提交');
 
     const poll = functionSource('pollPreviewAllJob');
     assert.match(poll, /\/api\/asset-thumbnails\/jobs\/\$\{encodeURIComponent\(jobId\)\}/);
-    assert.match(poll, /全库预览缓存完成：新增/, '完成通知必须回报实际新增数量');
+    assert.match(poll, /新增/, '完成通知必须回报实际新增数量');
     assert.match(poll, /跳过/, '完成通知必须回报跳过数量（幂等证明）');
     assert.match(poll, /耗时/);
     assert.match(poll, /setStatus\(notice\)/, '完成通知必须同步到状态栏');

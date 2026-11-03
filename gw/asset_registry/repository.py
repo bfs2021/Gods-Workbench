@@ -1668,6 +1668,29 @@ def facets() -> Dict[str, Any]:
             "data_status": DATA_STATUS_OK, "data_gaps": []}
 
 
+def preview_asset_ids() -> List[str]:
+    """全库可预热素材 id：与 ``facets()`` 同一口径（可见 + 未移除 + 未归档）。
+
+    QIN-525：预热范围覆盖全部素材类型，**不按顶层 ``kind`` 过滤**——索引素材的
+    ``kind`` 是 ``indexed``，按 ``image`` / ``video`` 白名单过滤会让整个任务空跑
+    （QIN-519 的实测缺陷：界面显示「新增 0 · 跳过 0 · 失败 0 · 耗时 0 秒」）。
+    类型判定统一交给渲染层按扩展名分派：位图与视频走真实预览，音频画包络，
+    字体渲染样张，文档 / Office / 3D / 未知后缀绘制类型占位图。
+    """
+    raw = state().read()
+    from gw.core.asset_visibility import asset_visible
+
+    removed_ids = _removed_root_ids()
+    asset_ids: List[str] = []
+    for asset_id, record in sorted(raw["assets"].items()):
+        if record.get("archived"):
+            continue
+        if not asset_visible(record) or _is_removed_asset(record, removed_ids):
+            continue
+        asset_ids.append(str(asset_id))
+    return asset_ids
+
+
 def folders(root_id: Optional[str]) -> Dict[str, Any]:
     raw = state().read()
     items = [dict(f) for f in sorted(raw["folders"].values(), key=lambda x: x["folder_id"])]
