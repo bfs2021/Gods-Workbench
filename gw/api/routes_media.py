@@ -91,8 +91,11 @@ def get_thumb_settings(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
+    """读取缩略图设置；QIN-525 起一并返回预览缓存统计（分类文件数 / 占用）。"""
     _read(authorization, x_user_role)
-    return repo.get_thumbnail_settings()
+    settings = dict(repo.get_thumbnail_settings())
+    settings["cache"] = repo.cache_statistics()
+    return settings
 
 
 @router.patch("/api/asset-thumbnails/settings", status_code=status.HTTP_200_OK)
@@ -185,6 +188,24 @@ def get_thumb_job(
     """读取后台任务状态；不存在 404。"""
     _read(authorization, x_user_role)
     return repo.get_job(job_id)
+
+
+@router.post(
+    "/api/asset-thumbnails/jobs/{job_id}/control", status_code=status.HTTP_200_OK
+)
+async def control_thumb_job(
+    request: Request,
+    job_id: str,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """暂停 / 继续 / 取消全库预览预热任务（QIN-525）。
+
+    只投递信号并返回任务快照；取消后飞行中的项跑完，``status`` 由预热线程在
+    下一个安全点写为 ``cancelled``，调用方按既有轮询读取终态。
+    """
+    _write(authorization, x_user_role)
+    return repo.control_preview_all_job(job_id, await _json(request))
 
 
 @router.post("/api/asset-thumbnails/delete", status_code=status.HTTP_200_OK)
