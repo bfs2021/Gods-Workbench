@@ -261,6 +261,9 @@ window.WorkbenchAssets = (() => {
   let frame = null;
   let status = null;
   let categories = null;
+  let createButton = null;
+  let createButtonClickHandler = null;
+  let requestedBoardId = '';
   let boundFrame = null;
   let frameLoadHandler = null;
   let observer;
@@ -327,14 +330,43 @@ window.WorkbenchAssets = (() => {
     });
   }
 
+  function updateSidebarSelection(id) {
+    const selectedId = String(id || '');
+    categories?.querySelectorAll('[data-asset-board]').forEach(button => {
+      const active = button.dataset.assetBoard === selectedId;
+      button.classList.toggle('is-active', active);
+      if (active) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+    const overview = document.getElementById('assetSidebarOverview');
+    const overviewActive = selectedId === 'registry';
+    overview?.classList.toggle('is-active', overviewActive);
+    overview?.setAttribute('aria-pressed', String(overviewActive));
+    if (overviewActive) overview?.setAttribute('aria-current', 'page');
+    else overview?.removeAttribute('aria-current');
+    overview?.closest('.asset-shell-overview-card')?.classList.toggle('is-active', overviewActive);
+  }
+
   async function activateBoard(id) {
+    const selectedId = String(id || '');
     const current = ++revision;
+    requestedBoardId = selectedId;
+    updateSidebarSelection(selectedId);
     try {
-      const button = await waitForControl(`#assetBoardTabs [data-tab="${CSS.escape(id)}"]`);
+      const button = await waitForControl(`#assetBoardTabs [data-tab="${CSS.escape(selectedId)}"]`);
       if (current !== revision) return;
       if (button.getAttribute('aria-selected') !== 'true') button.click();
+      if (button.getAttribute('aria-selected') === 'true' && requestedBoardId === selectedId) requestedBoardId = '';
+      syncCategories();
       setVaultStatus('');
-    } catch (error) { setVaultStatus(error.message); }
+    } catch (error) {
+      if (current === revision && requestedBoardId === selectedId) {
+        requestedBoardId = '';
+        categorySnapshot = '';
+        syncCategories();
+      }
+      setVaultStatus(error.message);
+    }
   }
 
   function openRequestedAsset() {
@@ -353,10 +385,14 @@ window.WorkbenchAssets = (() => {
       icon: button.querySelector('[data-lucide]')?.getAttribute('data-lucide') || 'folder',
       active: button.getAttribute('aria-selected') === 'true',
     })).filter(row => row.id && row.name);
-    const snapshot = JSON.stringify(rows);
+    const frameSelectedId = rows.find(row => row.active)?.id || '';
+    if (requestedBoardId && frameSelectedId === requestedBoardId) requestedBoardId = '';
+    const selectedId = requestedBoardId || frameSelectedId;
+    const sidebarRows = rows.map(row => ({...row, active: row.id === selectedId}));
+    const snapshot = JSON.stringify(sidebarRows);
     if (categorySnapshot === snapshot) return;
     categorySnapshot = snapshot;
-    const rowsById = new Map(rows.map(row => [row.id, row]));
+    const rowsById = new Map(sidebarRows.map(row => [row.id, row]));
     const systemEntries = SYSTEM_NAVIGATION_GROUPS.map(group => {
       const children = group.children.map(id => rowsById.get(id)).filter(Boolean);
       const source = rowsById.get(group.id) || children.shift();
@@ -399,12 +435,20 @@ window.WorkbenchAssets = (() => {
         for (const entry of entries) {
           const node = document.createElement('div');
           node.className = 'asset-shell-nav-node';
-          node.append(createButton(entry.row));
+          const primaryButton = createButton(entry.row);
+          node.append(primaryButton);
           if (entry.children.length) {
             const children = document.createElement('div');
             children.className = 'asset-shell-nav-sublist';
+            children.id = `asset-shell-nav-sublist-${entry.row.id}`;
             children.setAttribute('role', 'group');
             children.setAttribute('aria-label', `${entry.row.name}子项`);
+            primaryButton.setAttribute('aria-expanded', 'true');
+            primaryButton.setAttribute('aria-controls', children.id);
+            primaryButton.addEventListener('dblclick', () => {
+              children.hidden = !children.hidden;
+              primaryButton.setAttribute('aria-expanded', String(!children.hidden));
+            });
             for (const child of entry.children) children.append(createButton(child, true));
             node.append(children);
           }
@@ -427,12 +471,13 @@ window.WorkbenchAssets = (() => {
       : null;
     categories.replaceChildren(fragment);
     const overview = document.getElementById('assetSidebarOverview');
-    const registryActive = rows.some(row => row.id === 'registry' && row.active);
+    const registryActive = selectedId === 'registry';
     if (overview) {
       overview.classList.toggle('is-active', registryActive);
       overview.setAttribute('aria-pressed', String(registryActive));
       if (registryActive) overview.setAttribute('aria-current', 'page');
       else overview.removeAttribute('aria-current');
+      overview.closest('.asset-shell-overview-card')?.classList.toggle('is-active', registryActive);
     }
     window.lucide?.createIcons();
     if (focused !== null) {
@@ -505,6 +550,13 @@ window.WorkbenchAssets = (() => {
     frame = document.getElementById('assetVaultFrame');
     status = document.getElementById('assetVaultStatus');
     categories = document.getElementById('assetCategories');
+    const nextCreateButton = document.getElementById('assetSidebarCreate');
+    if (nextCreateButton !== createButton) {
+      createButton?.removeEventListener('click', createButtonClickHandler);
+      createButton = nextCreateButton;
+      createButtonClickHandler = createButton ? event => event.stopPropagation() : null;
+      createButton?.addEventListener('click', createButtonClickHandler);
+    }
     if (!frame) return false;
     if (boundFrame !== frame) {
       if (boundFrame && frameLoadHandler) boundFrame.removeEventListener('load', frameLoadHandler);

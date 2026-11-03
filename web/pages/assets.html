@@ -15,40 +15,48 @@
     #assetVaultFrame { flex: 1; width: 100%; min-height: 0; border: 0; background: #0a0b10; }
     #assetVaultStatus { min-width: 0; margin: 0; padding: 0; overflow: hidden; color: #eddab3; font-size: var(--gw-type-body-sm); text-overflow: ellipsis; white-space: nowrap; }
     .asset-shell-deck-status { flex: 0 0 auto; max-width: 150px; }
-    #assetCategories { display: flex; flex-direction: column; gap: 4px; }
-    .asset-shell-overview-card { min-height: 40px; display: flex; align-items: center; gap: 6px; padding: 4px; border: 1px solid rgb(223 195 132 / .28); border-radius: 8px; background: linear-gradient(180deg,#151821 0%,#090b10 100%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .06); }
-    #assetSidebarOverview { min-width: 0; min-height: 32px; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #eddab3; text-align: left; font-weight: 600; }
-    #assetSidebarOverview svg { width: 15px; height: 15px; flex: 0 0 auto; color: #dfc384; }
-    #assetSidebarOverview.is-active { border-color: rgb(223 195 132 / .55); background: #1b202b; color: #f3dfb6; box-shadow: inset 3px 0 #dfc384, 0 0 9px rgb(223 195 132 / .12); }
+    #assetCategories { position: relative; display: flex; flex-direction: column; gap: 0; }
+    #assetCategories::before { content: ""; position: absolute; top: 8px; bottom: 16px; left: 14px; width: 1.5px; background: linear-gradient(to bottom,#dfc384,rgba(223,195,132,.4),transparent); pointer-events: none; }
+    .asset-shell-overview-card { position: relative; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgb(223 195 132 / .35); border-radius: 12px; background: #141720; box-shadow: 0 0 12px rgb(223 195 132 / .12); }
+    .asset-shell-overview-card.is-active { border-color: rgb(223 195 132 / .8); background: linear-gradient(180deg,#1a1f2b 0%,#11141c 100%); box-shadow: 0 0 12px rgb(223 195 132 / .22),inset 0 0 0 1px rgb(223 195 132 / .12); }
+    .asset-shell-overview-card::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: #dfc384; box-shadow: 0 0 8px #dfc384; pointer-events: none; }
+    #assetSidebarOverview { min-width: 0; min-height: 32px; flex: 1 1 auto; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #eddab3; text-align: left; font-family: var(--gw-font-body); font-size: var(--gw-type-body-sm); font-weight: 600; line-height: var(--gw-leading-body-sm); }
+    #assetSidebarOverview svg { width: 16px; height: 16px; flex: 0 0 auto; color: #dfc384; }
+    #assetSidebarOverview.is-active { border-color: transparent; background: transparent; color: #f3dfb6; box-shadow: none; }
     #assetSidebarOverview span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #assetSidebarCreate { width: 30px; height: 30px; min-height: 30px; flex: 0 0 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border-radius: 50%; }
+    #assetSidebarCreate { width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border-radius: 50%; }
     #assetSidebarCreate svg { width: 14px; height: 14px; }
-    .asset-shell-nav-group { position: relative; margin: 2px 8px 8px; padding: 0 0 0 18px; }
-    .asset-shell-nav-group::before { content: ""; position: absolute; top: 20px; bottom: 2px; left: 6px; width: 1.5px; background: linear-gradient(to bottom,#dfc384,rgba(223,195,132,.42),transparent); pointer-events: none; }
-    .asset-shell-nav-group-heading { display: block; padding: 3px 7px 5px; color: #dfc384; font-size: 12px; font-weight: 600; line-height: 18px; }
-    .asset-shell-nav-group-items { display: flex; flex-direction: column; gap: 4px; }
+    .asset-shell-nav-group { position: relative; margin: 0 0 12px; padding: 0 0 0 20px; }
+    .asset-shell-nav-group::before { content: none; }
+    .asset-shell-nav-group-heading { display: block; padding: 0 7px 4px; color: #dfc384; font-family: var(--gw-font-body); font-size: var(--gw-type-body-sm); font-weight: var(--gw-weight-medium); line-height: var(--gw-leading-body-sm); letter-spacing: 0; }
+    .asset-shell-nav-group-items { display: flex; flex-direction: column; gap: 16px; }
     .asset-shell-nav-node { position: relative; min-width: 0; }
-    .asset-shell-nav-button { width: 100%; min-height: 35px; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid rgb(255 255 255 / .1); border-radius: 7px; background: linear-gradient(180deg,#131620 0%,#0d0f15 100%); color: #e5e7eb; text-align: left; transition: background .15s ease,border-color .15s ease,color .15s ease; }
+    .asset-shell-nav-button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgb(255 255 255 / .1); border-radius: 6px; background: linear-gradient(180deg,#131620 0%,#0d0f15 100%); color: #e5e7eb; font-family: var(--gw-font-body); font-size: var(--gw-type-body); font-weight: 400; line-height: var(--gw-leading-body-md); text-align: left; transition: background .15s ease,border-color .15s ease,color .15s ease; }
     .asset-shell-nav-button::before { content: "" !important; position: absolute; left: -12px; top: 50%; width: 12px; height: 1.5px; background: rgb(223 195 132 / .55); pointer-events: none; }
-    .asset-shell-nav-button svg { width: 15px; height: 15px; flex: 0 0 auto; color: #aeb6c2; }
+    .asset-shell-nav-button svg { width: 16px; height: 16px; flex: 0 0 auto; color: #aeb6c2; }
     .asset-shell-nav-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .asset-shell-nav-button .asset-shell-nav-label { flex: 1 1 auto; font-size: var(--gw-type-body) !important; font-weight: 400; line-height: var(--gw-leading-body-md); transform: none !important; }
     .asset-shell-nav-button:hover,.asset-shell-nav-button.is-active { border-color: rgb(223 195 132 / .6) !important; background: linear-gradient(180deg,#191e2b 0%,#11131c 100%) !important; color: #eddab3 !important; }
-    .asset-shell-nav-button.is-active { font-weight: 600; box-shadow: 0 0 8px rgb(223 195 132 / .14),inset 0 0 0 1px rgb(223 195 132 / .08); }
+    .asset-shell-nav-button.is-active { font-weight: 400; box-shadow: 0 0 8px rgb(223 195 132 / .14),inset 0 0 0 1px rgb(223 195 132 / .08); }
     .asset-shell-nav-button.is-active svg { color: #dfc384; }
-    .asset-shell-nav-sublist { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 0 12px; padding: 3px 0 0 9px; border-left: 1px solid rgb(223 195 132 / .28); }
-    .asset-shell-nav-button-sub { min-height: 30px; padding: 5px 8px; border-color: transparent; background: transparent; color: #aeb6c2; font-size: 12px; }
-    .asset-shell-nav-button-sub::before { content: "" !important; left: -10px; width: 10px; height: 1px; background: rgb(223 195 132 / .38); }
+    .asset-shell-nav-sublist { display: flex; flex-direction: column; gap: 12px; margin: 12px 0 0 12px; padding: 2px 0 0 12px; border-left: 1px solid rgb(223 195 132 / .35); }
+    .asset-shell-nav-sublist[hidden] { display: none !important; }
+    .asset-shell-nav-button-sub { min-height: 35px; padding: 8px 12px; border-color: rgb(255 255 255 / .1); background: linear-gradient(180deg,#131620 0%,#0d0f15 100%); color: #e5e7eb; }
+    .asset-shell-nav-button-sub::before { content: "" !important; left: -13px; width: 12px; height: 1px; background: rgb(223 195 132 / .4); }
+    #assetVaultSidebar .asset-shell-nav-button { overflow: visible !important; }
+    #assetVaultSidebar .asset-shell-nav-button::before { content: "" !important; position: absolute; left: -14px; top: 50%; width: 14px; height: 1.5px; background: rgb(223 195 132 / .6); z-index: 2; pointer-events: none; }
+    #assetVaultSidebar .asset-shell-nav-button .card-connector-pin { left: -3px; z-index: 3; }
     .asset-shell-nav-button-sub .card-connector-pin { width: 4px; height: 4px; left: -3px; }
     .asset-shell-nav-button .card-connector-pin { left: -3px; }
     .asset-shell-sidebar-actions { height: 40px; min-height: 40px; max-height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-top: 1px solid rgb(255 255 255 / .08); background: #050608; }
-    .asset-shell-sidebar-actions .hw-btn { min-width: 0; min-height: 30px; height: 30px; flex: 1 1 0; justify-content: center; gap: 4px; padding: 0 5px; font-size: 11px; white-space: nowrap; }
+    .asset-shell-sidebar-actions .hw-btn { min-width: 0; min-height: 30px; height: 30px; flex: 1 1 0; justify-content: center; gap: 4px; padding: 0 5px; font-size: var(--gw-type-body-sm); line-height: var(--gw-leading-body-sm); white-space: nowrap; }
     .asset-shell-sidebar-actions .hw-btn { width: auto !important; }
     .asset-shell-sidebar-actions .hw-btn > :not([hidden]) ~ :not([hidden]) { margin-left: 0; }
     .asset-shell-sidebar-actions .hw-btn svg { width: 13px; height: 13px; flex: 0 0 auto; }
     .asset-shell-sidebar-actions .hw-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     #btnUnassignedInbox { flex-grow: 1.2; }
     #assetSidebarSettings { flex-grow: 1.05; }
-    .asset-shell-nav-empty { display: block; padding: 5px 7px; color: #727b88; font-size: 11px; }
+    .asset-shell-nav-empty { display: block; padding: 5px 7px; color: #727b88; font-size: var(--gw-type-body-sm); line-height: var(--gw-leading-body-sm); }
     #btnUnassignedInbox [data-unassigned-count] { margin-left: 1px; color: #dfc384; font-family: var(--gw-font-mono); }
     @media (max-width: 700px) {
       .asset-shell-workspace { flex-direction: column !important; }
@@ -239,7 +247,7 @@
           <button type="button" id="assetSidebarOverview" aria-pressed="false" onclick="WorkbenchAssets.activateAssetBoard('registry')" title="资产总览">
             <i data-lucide="library-big" aria-hidden="true"></i><span>资产总览</span>
           </button>
-          <button type="button" id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="event.stopPropagation();WorkbenchAssets.openCreateAssetLibrary()" title="新建资源库" aria-label="新建资源库" aria-haspopup="dialog">
+          <button type="button" id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets.openCreateAssetLibrary()" title="新建资源库" aria-label="新建资源库" aria-haspopup="dialog">
             <i data-lucide="plus" aria-hidden="true"></i>
           </button>
         </div>

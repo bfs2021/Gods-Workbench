@@ -14,6 +14,8 @@ class FakeElement {
     this.attributes = {};
     this.listeners = {};
     this.style = {};
+    this.hidden = false;
+    this.parentElement = null;
     this.title = '';
     this.ownText = '';
     this._className = '';
@@ -39,12 +41,24 @@ class FakeElement {
   addEventListener(name, handler) { this.listeners[name] = handler; }
   append(...nodes) {
     for (const node of nodes) {
-      if (node?.isFragment) this.children.push(...node.children);
-      else this.children.push(node);
+      const appended = node?.isFragment ? node.children : [node];
+      for (const child of appended) {
+        child.parentElement = this;
+        this.children.push(child);
+      }
     }
   }
   replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
   contains(target) { return Boolean(target) && (this === target || this.children.some(child => child.contains?.(target))); }
+  closest(selector) {
+    for (let node = this; node; node = node.parentElement) {
+      if (selector === '.asset-shell-overview-card' && node.classList.contains('asset-shell-overview-card')) return node;
+    }
+    return null;
+  }
+  querySelectorAll(selector) {
+    return selector === '[data-asset-board]' ? walk(this).filter(node => node.dataset.assetBoard) : [];
+  }
   querySelector() { return null; }
 }
 
@@ -69,8 +83,17 @@ function boardTab(id, name, active = false, icon = 'folder') {
 
 function loadSidebar(rows) {
   const frameTabs = rows.map(([id, name, active, icon]) => boardTab(id, name, active, icon));
+  for (const tab of frameTabs) {
+    tab.click = () => {
+      tab.clickCount += 1;
+      for (const candidate of frameTabs) candidate.setAttribute('aria-selected', String(candidate === tab));
+    };
+  }
   const categories = new FakeElement('nav');
   const overview = new FakeElement('button');
+  const overviewCard = new FakeElement('div');
+  overviewCard.className = 'asset-shell-overview-card';
+  overviewCard.append(overview);
   const status = new FakeElement('div');
   const boardTabs = new FakeElement('div');
   const managerDocument = {
@@ -89,7 +112,7 @@ function loadSidebar(rows) {
   frame.dataset.src = '/static/asset-manager.html?embedded=1&vault=1';
   frame.contentDocument = managerDocument;
   frame.contentWindow = {postMessage() {}};
-  const elements = {assetVaultFrame: frame, assetVaultStatus: status, assetCategories: categories, assetSidebarOverview: overview};
+  const elements = {assetVaultFrame: frame, assetVaultStatus: status, assetCategories: categories, assetSidebarOverview: overview, assetSidebarOverviewCard: overviewCard};
   const document = {
     activeElement: null,
     body: new FakeElement('body'),
@@ -116,18 +139,20 @@ function loadSidebar(rows) {
     setTimeout, clearTimeout, console,
   });
   runInContext(controller, context);
-  return {categories, overview, frameTabs, window};
+  return {categories, overview, overviewCard, frameTabs, window};
 }
 
 test('AC1 总览与新建资源库共处一张卡片，两个按钮动作互不穿透', () => {
   const card = html.match(/<div class="asset-shell-overview-card"[\s\S]*?<\/div>\s*<\/div>/)?.[0] || '';
   assert.ok(card, '缺少总览与新建按钮合一卡片');
   assert.match(card, /id="assetSidebarOverview"[^>]*WorkbenchAssets\.activateAssetBoard\('registry'\)/);
-  assert.match(card, /id="assetSidebarCreate"[^>]*event\.stopPropagation\(\);WorkbenchAssets\.openCreateAssetLibrary\(\)/);
+  assert.match(card, /id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
+  assert.match(html, /#assetSidebarCreate\s*\{[^}]*width:\s*32px;[^}]*flex:\s*0 0 32px/);
+  assert.match(controller, /createButtonClickHandler = createButton \? event => event\.stopPropagation\(\) : null/);
   assert.match(card, /data-lucide="plus"/);
 });
 
-test('AC2/AC3 动态导航以无编号树状导轨分成系统预设与用户资源', async () => {
+test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分组', async () => {
   const ui = loadSidebar([
     ['registry', '资产总览', false, 'library-big'],
     ['scripts', '剧本资产', false, 'file-text'],
@@ -152,9 +177,44 @@ test('AC2/AC3 动态导航以无编号树状导轨分成系统预设与用户资
   assert.deepEqual(userButtons.map(button => button.dataset.assetBoard), ['custom-brand', 'source_library_root']);
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => !/^\s*\d+\s*$/.test(button.textContent)));
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => button.classList.contains('tree-node-card')));
+  assert.match(html, /\.asset-shell-nav-button \.asset-shell-nav-label\s*\{[^}]*font-size:\s*var\(--gw-type-body\) !important;[^}]*font-weight:\s*400;[^}]*transform:\s*none !important;/);
+  assert.match(html, /\.asset-shell-nav-group\s*\{[^}]*margin:\s*0 0 12px;[^}]*padding:\s*0 0 0 20px/);
+  assert.match(html, /#assetCategories\s*\{[^}]*position:\s*relative/);
+  assert.match(html, /#assetCategories::before\s*\{[^}]*top:\s*8px; bottom:\s*16px; left:\s*14px; width:\s*1\.5px/);
+  assert.match(html, /\.asset-shell-nav-group::before\s*\{\s*content:\s*none;/);
+  assert.match(html, /\.asset-shell-nav-sublist\[hidden\]\s*\{\s*display:\s*none !important;/);
+  assert.match(html, /\.asset-shell-nav-group-heading\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\);[^}]*font-weight:\s*var\(--gw-weight-medium\);[^}]*line-height:\s*var\(--gw-leading-body-sm\)/);
+  assert.match(html, /\.asset-shell-nav-button\s*\{[^}]*min-height:\s*42px;[^}]*font-weight:\s*400/);
+  assert.match(html, /\.asset-shell-nav-group-items\s*\{[^}]*gap:\s*16px/);
+  assert.match(html, /\.asset-shell-nav-sublist\s*\{[^}]*gap:\s*12px; margin:\s*12px[^;]*; padding:\s*2px 0 0 12px/);
+  assert.match(html, /\.asset-shell-overview-card\s*\{[^}]*min-height:\s*48px;[^}]*border-radius:\s*12px/);
+  assert.match(html, /\.asset-shell-overview-card\.is-active\s*\{[^}]*border-color:/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button::before\s*\{[^}]*content:\s*"" !important;[^}]*width:\s*14px/);
+  assert.match(html, /#assetVaultSidebar \.asset-shell-nav-button\s*\{[^}]*overflow:\s*visible !important/);
+  assert.match(html, /\.asset-shell-sidebar-actions \.hw-btn\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\)/);
+  assert.match(html, /\.asset-shell-nav-empty\s*\{[^}]*font-size:\s*var\(--gw-type-body-sm\)/);
   assert.equal(walk(groups[0]).find(node => node.dataset.assetBoard === 'projects').classList.contains('is-active'), true);
-  await walk(groups[0]).find(node => node.dataset.assetBoard === 'scripts').listeners.click();
+  assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => button.children.some(child => child.className === 'card-connector-pin')));
+
+  const projects = walk(groups[0]).find(node => node.dataset.assetBoard === 'projects');
+  const projectChildren = projects.parentElement.children.find(node => node.className === 'asset-shell-nav-sublist');
+  assert.equal(projects.getAttribute('aria-expanded'), 'true');
+  assert.equal(projectChildren.hidden, false);
+  projects.listeners.dblclick();
+  assert.equal(projectChildren.hidden, true);
+  assert.equal(projects.getAttribute('aria-expanded'), 'false');
+  projects.listeners.dblclick();
+  assert.equal(projectChildren.hidden, false);
+  assert.equal(projects.getAttribute('aria-expanded'), 'true');
+
+  const scripts = walk(groups[0]).find(node => node.dataset.assetBoard === 'scripts');
+  const scriptsClick = scripts.listeners.click();
+  assert.equal(scripts.classList.contains('is-active'), true, '首击立即切换按钮高亮，不等待 iframe 状态回读');
+  assert.equal(scripts.getAttribute('aria-current'), 'page');
+  assert.equal(projects.classList.contains('is-active'), false);
+  await scriptsClick;
   assert.equal(ui.frameTabs.find(tab => tab.dataset.tab === 'scripts').clickCount, 1, '嵌套剧本入口须继续切换原看板');
+  assert.equal(ui.frameTabs.find(tab => tab.dataset.tab === 'scripts').getAttribute('aria-selected'), 'true');
 });
 
 test('AC1/AC4 总览状态可见，底栏保留三键横排且高度约 40px', () => {
@@ -165,13 +225,33 @@ test('AC1/AC4 总览状态可见，底栏保留三键横排且高度约 40px', (
   ]);
   assert.equal(ui.overview.classList.contains('is-active'), true);
   assert.equal(ui.overview.getAttribute('aria-pressed'), 'true');
+  assert.equal(ui.overviewCard.classList.contains('is-active'), true, '总览激活时整张外卡片高亮');
   const footer = html.match(/<div class="asset-shell-sidebar-actions[\s\S]*?<\/div>\s*<\/aside>/)?.[0] || '';
   assert.match(footer, /id="btnUnassignedInbox"/);
   assert.match(footer, /onclick="WorkbenchAssets\.uploadAsset\(\)"[^>]*>[\s\S]*?<span>导入<\/span>/);
   assert.match(footer, /id="assetSidebarSettings"/);
   assert.equal((footer.match(/<button\b/g) || []).length, 3);
   assert.match(html, /\.asset-shell-sidebar-actions\s*\{[^}]*height:\s*40px/);
-  assert.match(html, /\.asset-shell-nav-group::before[^}]*#dfc384/);
+  assert.match(html, /#assetCategories::before\s*\{[^}]*linear-gradient\(to bottom,#dfc384/);
   assert.match(controller, /className = 'card-connector-pin'/);
   assert.match(html, /#dfc384/);
+});
+
+test('AC6/AC7 总览和分类按钮点击时即时同步整卡及按钮选中态', async () => {
+  const ui = loadSidebar([
+    ['registry', '资产总览', false, 'library-big'],
+    ['projects', '项目制片', true, 'clapperboard'],
+    ['scripts', '剧本资产', false, 'file-text'],
+  ]);
+  const activation = ui.window.WorkbenchAssets.activateAssetBoard('registry');
+  assert.equal(ui.overviewCard.classList.contains('is-active'), true);
+  assert.equal(ui.overview.getAttribute('aria-pressed'), 'true');
+  await activation;
+  assert.equal(ui.overviewCard.classList.contains('is-active'), true);
+
+  const projects = walk(ui.categories).find(node => node.dataset.assetBoard === 'projects');
+  const change = projects.listeners.click();
+  assert.equal(projects.classList.contains('is-active'), true, '分类首击时同步选中样式');
+  assert.equal(ui.overviewCard.classList.contains('is-active'), false, '离开总览后整卡取消选中态');
+  await change;
 });

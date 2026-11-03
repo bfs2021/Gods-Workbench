@@ -25,10 +25,10 @@ function functionSource(name){
 }
 
 test('AC1: 资源库左侧导航承载资产看板与新建资源入口', () => {
-    assert.match(html, /id="assetSidebarCreate" class="hw-btn w-full[^\"]*" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
-    assert.match(html, /id="assetSidebarCreate"[\s\S]*?<span>新建资源<\/span>[\s\S]*?<div class="gw-side-bus-list[^\"]*" id="assetCategories"/);
+    assert.match(html, /<div class="asset-shell-overview-card"[\s\S]*?id="assetSidebarOverview"[\s\S]*?id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
     assert.doesNotMatch(html, /<span>资源库<\/span>/);
-    assert.match(html, /id="assetCategories" role="tablist" aria-label="资源库导航"/);
+    assert.match(html, /<nav class="gw-side-bus-list[^\"]*" id="assetCategories" aria-label="资源库导航"/);
+    assert.doesNotMatch(html, /id="assetCategories" role="tablist"/);
     assert.match(shell, /querySelectorAll\('#assetBoardTabs \.asset-board-tab'\)/);
     assert.match(shell, /waitForControl\('#assetBoardTabs \[data-board-create\]'\)/);
     for (const label of ['资产总览', '剧本资产', '项目制片', '托管资产', '工作流', '提示词', '画布资产', '上传资源', '治理建议']) {
