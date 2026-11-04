@@ -1,12 +1,44 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+import {createContext, runInContext} from 'node:vm';
 
 const shell = readFileSync(new URL('../../web/js/core/workbench-shell.js', import.meta.url), 'utf8');
 const projects = readFileSync(new URL('../../web/pages/projects.html', import.meta.url), 'utf8');
 const assetManager = readFileSync(new URL('../../web/js/modules/asset-manager.js', import.meta.url), 'utf8');
 const recycleRoute = readFileSync(new URL('../../gw/api/routes_asset_registry.py', import.meta.url), 'utf8');
+const controller = readFileSync(new URL('../../web/js/controllers/projects-controller.js', import.meta.url), 'utf8');
 const sharedShellPages = ['agents.html', 'assets.html', 'collab.html', 'index.html', 'production.html', 'projects.html', 'settings.html', 'storyboard.html', 'workflow.html', 'workshop.html'];
+
+test('统一回收站展示素材回收条目并携带版本调用文件恢复', async () => {
+  const elements = new Map();
+  const getElementById = id => {
+    if (id === 'workbenchToastContainer') return null;
+    if (!elements.has(id)) elements.set(id, {innerHTML:'', textContent:'', style:{}, className:'', setAttribute(){}});
+    return elements.get(id);
+  };
+  const requests = [];
+  const context = createContext({
+    window:{addEventListener(){}, location:{search:''}},
+    document:{getElementById, querySelector:()=>null, querySelectorAll:()=>[], body:{appendChild(){}}},
+    HardwareDeck:{}, localStorage:{getItem:()=>null, setItem(){}}, console, URLSearchParams, location:{search:''},
+    fetch:async (url, options={}) => {
+      requests.push({url, options});
+      const data = url.endsWith('/recycle-bin')
+        ? {revision:7, assets:[{entry_id:'rcy_1', deleted_at:'2026-01-01', payload:{name:'sample.png'}}]}
+        : {projects:[], canvases:[], assets:[]};
+      return {ok:true, json:async()=>data};
+    }
+  });
+  runInContext(controller, context);
+  await context.window.WorkbenchProjects.refreshGlobalTrash();
+  context.window.WorkbenchProjects.switchGlobalTrashTab('assets');
+  assert.match(getElementById('globalTrashContainer').innerHTML, /sample\.png/);
+  await context.window.WorkbenchProjects.restoreAssetFromTrash('rcy_1');
+  const restore = requests.find(request => request.url.endsWith('/recycle-bin/rcy_1/restore'));
+  assert.ok(restore);
+  assert.equal(JSON.parse(restore.options.body).expected_version, 7);
+});
 
 test('顶栏垃圾桶是当前页按钮，缺少抽屉时由共享壳层装载', () => {
   assert.match(shell, /<button type="button" id="topbarUnifiedTrashBtn"/);

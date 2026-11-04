@@ -136,6 +136,7 @@ window.WorkbenchProjects = (function () {
     projects: [],
     assets: [],
     canvases: [],
+    registryRevision: null,
     initialized: false,
     // 显式降级状态：null 表示治理总览已如实应答；否则记 { kind, message }。
     degradation: null
@@ -1423,9 +1424,18 @@ window.WorkbenchProjects = (function () {
         return;
       }
       const data = await response.json();
+      const recycleResponse = await fetch('/api/asset-registry/recycle-bin', { credentials: 'same-origin' });
+      if (!recycleResponse.ok) throw new Error('素材回收站读取失败');
+      const recycleData = await recycleResponse.json();
+      globalTrashState.registryRevision = recycleData.revision;
       globalTrashState.projects = (Array.isArray(data.projects) ? data.projects : [])
         .filter(item => item && (item.deleted_at != null || item.deleted_entity_id));
-      globalTrashState.assets = Array.isArray(data.assets) ? data.assets : [];
+      globalTrashState.assets = (Array.isArray(recycleData.assets) ? recycleData.assets : []).map(entry => ({
+        ...entry.payload,
+        id: entry.entry_id,
+        deleted_at: entry.deleted_at,
+        registry_recycle: true
+      }));
       globalTrashState.canvases = Array.isArray(data.canvases) ? data.canvases : [];
       globalTrashState.degradation = null;
 
@@ -1599,9 +1609,11 @@ window.WorkbenchProjects = (function () {
   async function restoreAssetFromTrash(id) {
     // 显式降级：失败不本地伪造成功。
     try {
-      const res = await fetch(`/api/asset-registry/governance/asset-trash/${encodeURIComponent(id)}/restore`, {
+      const res = await fetch(`/api/asset-registry/recycle-bin/${encodeURIComponent(id)}/restore`, {
         method: 'POST',
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expected_version: globalTrashState.registryRevision })
       });
       if (!res.ok) {
         const failure = await classifyFetchFailure(res);

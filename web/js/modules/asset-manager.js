@@ -20946,6 +20946,7 @@ document.addEventListener('scroll', event => {
     if(event.target?.matches?.('[data-detail-media-library-grid]')) detailViewerState.mediaCanvasLibraryScrollTop = event.target.scrollTop;
     const registryScroll = event.target?.closest?.('.registry-assets-scroll');
     if(registryScroll){
+        saveRegistryBrowseSession();
         // 【浏览预加载】触发提前量从固定 520px 提升到约 1.3 倍视口高度（1.2~1.5 倍区间取中），
         // 下一页数据预取先于滚动到位，配合 prefetchRegistryNextPage 实现无感续读；
         // 键盘可达的 [data-registry-load-more] 按钮保留不动。
@@ -21510,9 +21511,11 @@ Object.defineProperties(window, {
 });
 const REGISTRY_SESSION_KEY = 'gw.registry.browse.session';
 let registryBrowseInteracted = false;
+let registrySessionReady = false;
 document.addEventListener('pointerdown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 document.addEventListener('keydown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 function saveRegistryBrowseSession(){
+    if(!registrySessionReady) return;
     if(activeTab !== 'registry' && assetBoardById(activeTab)?.system !== false) return;
     try {
         sessionStorage.setItem(REGISTRY_SESSION_KEY, JSON.stringify({
@@ -21553,9 +21556,12 @@ async function restoreRegistryBrowseSession(){
     } catch(_) {}
 }
 window.addEventListener('pagehide', saveRegistryBrowseSession);
+document.addEventListener('click', () => {
+    if(registrySessionReady) setTimeout(saveRegistryBrowseSession, 250);
+});
 if(!directorySettingsPage) renderBoardNavigation();
 document.addEventListener('DOMContentLoaded', () => {
     if(directorySettingsPage){ loadGlobalDirectorySettings(); return; }
     loadRegistryPrincipal();
-    loadAll().then(async () => { await restoreRegistryBrowseSession(); startRegistryAutomaticIndexPolling(); }).catch(err => setStatus(err.message || '加载失败'));
+    loadAll().then(async () => { await restoreRegistryBrowseSession(); registrySessionReady = true; saveRegistryBrowseSession(); startRegistryAutomaticIndexPolling(); }).catch(err => setStatus(err.message || '加载失败'));
 });
