@@ -131,10 +131,10 @@ body.gw-signal.gw-page--asset-manager .registry-overview-stats {
     border: 0 !important;
     background: transparent !important;
 }
-/* QIN-531：双行紧凑概览卡片。第 1 行 名称 + 占比（资产总量保留金底徽标），第 2 行 图标 + 数量 + 高光渐变进度条。 */
+/* QIN-531：双行紧凑概览卡片。第 1 行 名称 + 占比，第 2 行 图标 + 数量 + 高光渐变进度条；QIN-538 起颜色分两路：类型项取自身类型色，「资产总量」取系统金色。 */
 html body.gw-signal.gw-page--asset-manager .registry-stat-card {
     --stat-type-color: #aab4c0;
-    --vault-meter: #89929e;
+    --vault-meter: var(--stat-type-color);
     display: grid;
     /* 第二行：图标 16px + 数量（自适应）+ 进度条（可变宽）。卡片整体压到 2/3 宽后，列间距与进度条最小宽度同步收紧，避免数量被进度条压住。 */
     grid-template-columns: 16px minmax(0,auto) minmax(12px,1fr);
@@ -187,6 +187,8 @@ body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="mo
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="font"] { --stat-type-color: var(--asset-type-font); }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="other"] { --stat-type-color: var(--asset-type-other); }
 body.gw-signal.gw-page--asset-manager .registry-stat-card[data-registry-stat="reference-canvas"] { --stat-type-color: var(--asset-type-workflow); }
+/* 「资产总量」是系统汇总而非资产类型，图标、加载条与选中态一律用系统金色。 */
+body.gw-signal.gw-page--asset-manager .registry-stat-card.primary { --stat-type-color: var(--vault-gold); }
 body.gw-signal.gw-page--asset-manager .asset-content { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none; }
 body.gw-signal.gw-page--asset-manager .registry-toolbar {
     display: flex;

@@ -17,22 +17,28 @@
 
 ### 资产类型色
 
-类型色统一定义在 `web/css/base/hardware-tokens.css`；金色仅用于系统强调，不作为类型色。
+类型色统一定义在 `web/css/base/hardware-tokens.css`；金色仅用于系统强调，不作为任何资产类型的颜色。
 
 | 类型 | 变量 | 色值 |
 |---|---|---|
 | image | `--asset-type-image` | `#20a35a` |
 | video | `--asset-type-video` | `#2878d0` |
 | audio | `--asset-type-audio` | `#24a38a` |
-| font | `--asset-type-font` | `#f05a32` |
+| font | `--asset-type-font` | `#c7522a` |
 | model | `--asset-type-model` | `#ff6b6b` |
 | text | `--asset-type-text` | `#bd8bf0` |
-| document | `--asset-type-document` | `#ae9bc4` |
+| document | `--asset-type-document` | `#e1f0e9` |
 | workflow | `--asset-type-workflow` | `#9381bb` |
 | project_file | `--asset-type-project_file` | `#c98675` |
-| other | `--asset-type-other` | `#7654b8` |
+| other | `--asset-type-other` | `#80c2c2` |
 
-用于卡片色条、小色块、单色图标和选中描边；禁止用于正文文字、数字或大面积背景。
+**使用场景**：卡片顶部色条、统计项小色块、单色类型图标、选中态描边与淡底取色。
+
+**禁用场景**：正文文字、数量数字、大面积背景填充；任何类型色都不得与系统金色混用。
+
+**资产统计条例外**：资产库顶部概览统计条中，「资产总量」是系统汇总而非资产类型，其图标、加载条与选中态一律使用系统金色 `--vault-gold`；其余统计项的加载条取自身类型色，数字保持纯白、名称与占比保持中性灰。
+
+**选色要求**：类型色两两之间需在 Lab 空间保持足够色差（本次以 ≥ 20 为下限校核），并在深色卡片底色上保持可辨识；文档、其他原为两种相近的紫色并贴近文字色，已改用纸白与浅青拉开层次。
 
 ### 2.1 表面与品牌
 
