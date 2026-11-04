@@ -91,7 +91,7 @@ test('AC2: 目录层级只呈现登记根目录与真实物理子目录，点击
     // 物理子目录层级来自素材 relative_path（registryAssetFolderPath 派生）
     const tree = functionSource('assetRackFolderTree');
     assert.match(tree, /item\.storage_root_id/, '子目录树必须按存储来源归属');
-    assert.match(tree, /customBoardFolderTree\(items, directories\)/, '目录树必须复用既有物理路径聚类');
+    assert.match(tree, /customBoardFolderTree\(items, directories, summary/, '目录树必须复用既有物理路径聚类');
     assert.match(functionSource('registryAssetFolderPath'), /relative_path/, '目录路径必须取自素材真实相对路径');
 
     // 节点：三角展开、文件夹图标、等宽计数徽标
@@ -101,11 +101,10 @@ test('AC2: 目录层级只呈现登记根目录与真实物理子目录，点击
     assert.match(node, /<em>\$\{Number\(node\.count \|\| 0\)\}<\/em>/, '必须带素材计数徽标');
     assert.match(CSS, /\.asset-rack-root-btn em[\s\S]{0,400}?font-family:var\(--gw-font-mono\)/, '计数徽标必须使用等宽字体');
 
-    // 点击节点：纯前端过滤，无网络请求闪烁
+    // 点击节点：目录状态更新后按当前目录重新读取分页
     const select = functionSource('selectAssetRackFolder');
     assert.match(select, /registryNavFolder = /, '点击必须写入目录过滤态');
-    assert.match(select, /render\(\);/, '点击后必须即时重渲染网格');
-    assert.doesNotMatch(select, /refreshRegistryAssets|apiJsonResponse/, '目录过滤不得触发后端重查（避免整页闪烁）');
+    assert.match(select, /refreshRegistryAssets\(\)/, '点击后必须按所选目录重新加载');
     assert.match(
         functionSource('registryVisibleAssets'),
         /\.filter\(registryNavFolderMatches\)/,

@@ -24,6 +24,10 @@ const SHELL_HTML = readFileSync(
     new URL('../../web/pages/assets.html', import.meta.url),
     'utf8'
 );
+const ASSETS_CONTROLLER = readFileSync(
+    new URL('../../web/js/controllers/assets-controller.js', import.meta.url),
+    'utf8'
+);
 const NODE_FILES = readFileSync(
     new URL('./node-files.txt', import.meta.url),
     'utf8'
@@ -113,7 +117,7 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
     );
 });
 
-test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯前端收敛右网格', () => {
+test('AC2: 看板目录以素材来源与真实物理子目录为准，点击后按目录分页读取右网格', () => {
     const roots = functionSource('assetRackBoardRoots');
     assert.match(roots, /board\.sources/, '看板来源必须取自看板自身绑定来源');
     assert.match(roots, /item\.storage_root_id/, '来源计数必须来自看板素材池');
@@ -127,14 +131,13 @@ test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯
 
     const tree = functionSource('assetRackFolderTree');
     assert.match(tree, /registryRootFolders\.get\(root\)/, '看板子目录必须读该来源已加载的真实目录');
-    assert.match(tree, /customBoardFolderTree\(items, directories\)/, '子目录层级必须复用既有物理路径聚类');
+    assert.match(tree, /customBoardFolderTree\(items, directories, summary/, '子目录层级必须复用既有物理路径聚类');
     assert.match(functionSource('assetRackRootOnlyCount'), /registryAssetFolderPath\(item\)/, '根目录节点必须只统计无子目录素材');
 
     const select = functionSource('selectAssetRackFolder');
     assert.match(select, /boardSourceSelection\[board\.id\]/, '点击来源必须写回看板既有来源选择');
     assert.match(select, /boardFolderSelection\[board\.id\]/, '点击目录必须写回看板既有目录选择');
-    assert.match(select, /render\(\);/, '点击后必须即时重渲染网格');
-    assert.doesNotMatch(select, /refreshRegistryAssets|apiJsonResponse/, '目录过滤不得触发网络重载');
+    assert.match(select, /refreshRegistryAssets\(\)/, '点击后按所选目录重新读取素材');
     assert.match(
         functionSource('registryNavFolderMatches'),
         /if\(assetRackBoard\(\)\) return true;/,
@@ -213,13 +216,11 @@ test('AC2 补充: 自动归档同样下钻真实子目录，目录索引补齐�
         '自动归档下的根目录素材也必须能单独点开'
     );
 
-    // 首屏 100 条常常全在根目录，目录树必须自行补齐分页，否则只看已加载窗口等于没有层级
+    // 目录摘要由后端聚合，不再为建树自动拉取素材分页。
     const index = functionSource('ensureAssetRackDirectoryIndex');
-    assert.match(index, /registryHasMoreAssets\(\)/, '目录索引必须在仍有分页时继续补齐');
-    assert.match(index, /pages < 20/, '目录索引必须有页数上限，避免超大库拖死');
-    assert.match(index, /registryAssets\.length < 5000/, '目录索引必须有条数上限');
-    assert.match(index, /if\(assetRackDirectoryIndexPromise\) return/, '目录索引必须幂等，避免并发重复拉取');
-    assert.match(index, /render\(\);/, '补齐后必须重绘一次以呈现完整层级');
+    assert.match(index, /loadAssetRackRegisteredFolders\(\)/);
+    assert.doesNotMatch(index, /loadMoreRegistryAssets\(/);
+    assert.match(tree, /registryIndexedFolders/);
 
     // 死循环回归：看板渲染入口不得调用收尾会无条件 render() 的目录加载
     const library = functionSource('renderCustomAssetLibrary');
@@ -294,4 +295,46 @@ test('AC5: 测试登记到 node-files.txt 并完成卫生准入分片', () => {
         accepted.includes('tests/frontend/qin-527-custom-library-rack.test.mjs'),
         '新增前端测试必须在准入分片登记'
     );
+});
+
+test('QIN-532: 看板来源和自动归档范围随分页查询发送', () => {
+    const build = new Function('URLSearchParams', `
+        const REGISTRY_PAGE_SIZE=1500, registrySort='newest', registryProjectFilterId='', registryQuery='', registryKind='', registryStatCategory='', registryCollectionId='', registryRootId='', registryRecentDays=0;
+        const registryIncludeTags=new Set(), registryExcludeTags=new Set(), activeTab='board', boardFolderSelection={}, registryNavFolder={};
+        const boardSourceSelection={board:'__automatic__'};
+        const board={id:'board',system:false,automaticHidden:false,sources:[{id:'a',hidden:false},{id:'b',hidden:true}],excludedSourceIds:['c']};
+        const assetBoardById=()=>board, registryDynamicPageSize=()=>120;
+        ${functionSource('registryQueryString')}
+        return registryQueryString;
+    `)(URLSearchParams);
+    const params = new URLSearchParams(build());
+    assert.equal(params.get('dynamic_limit'), '120');
+    assert.deepEqual(JSON.parse(params.get('board_sources')), {
+        visible:['a'], known:['a','b','c'], automatic:true, automatic_only:true,
+    });
+});
+
+test('QIN-532 AC3: 路由离开前同步保存，并恢复任一资产看板', () => {
+    const save = functionSource('saveRegistryBrowseSession');
+    assert.match(save, /if\(!registrySessionReady \|\| !assetBoardById\(activeTab\)\) return false;/, '所有有效系统/自定义看板都必须保存会话');
+    assert.doesNotMatch(save, /system !== false/, '系统看板不得被会话保存过滤掉');
+    assert.match(MANAGER, /window\.GWAssetBrowseSession = Object\.freeze\(\{save:saveRegistryBrowseSession, saveForRoute:saveRegistryBrowseSessionForRoute\}\)/, '宿主必须能同步触发素材页保存并标记工作台路由');
+    assert.match(MANAGER, /REGISTRY_ROUTE_PENDING_KEY = 'gw\.registry\.browse\.route\.pending'/, '工作台离页必须使用独立的一次性恢复标记');
+
+    const restore = functionSource('restoreRegistryBrowseSession');
+    assert.match(restore, /saved\.tab && saved\.tab !== 'registry' && assetBoardById\(saved\.tab\)/, '恢复时必须重新激活任何仍有效的看板');
+    assert.doesNotMatch(restore, /assetBoardById\(saved\.tab\)\?\.system === false/, '系统看板不得被恢复过滤掉');
+    assert.match(restore, /parentNavigation\?\.type === 'reload' && !restoreForShellRoute/, '父页面曾刷新时仍允许明确发生过的工作台路由往返');
+    assert.match(restore, /sessionStorage\.removeItem\(REGISTRY_ROUTE_PENDING_KEY\)/, '一次性路由标记必须在恢复尝试后消费');
+    assert.match(restore, /return desired/, '恢复流程必须把滚动值交给初始化收尾阶段');
+    assert.match(functionSource('applyRegistryBrowseSessionScroll'), /desired <= area\.scrollHeight - area\.clientHeight/, '必须等待滚动容器完成布局后再应用原位置');
+    assert.match(functionSource('applyRegistryBrowseSessionScroll'), /area\.scrollTop = desired/, '布局完成后必须写回原滚动位置');
+    assert.match(MANAGER, /registrySessionReady = true;\s*if\(Number\.isFinite\(restoredScroll\)\) await applyRegistryBrowseSessionScroll\(restoredScroll\);\s*saveRegistryBrowseSession\(\)/, '最终 session 写入必须发生在还原滚动之后');
+
+    assert.match(ASSETS_CONTROLLER, /document\.addEventListener\('click', saveBrowseStateBeforeRoute, true\)/, '宿主导航点击捕获阶段必须先保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('popstate', saveBrowseStateBeforeRoute, true\)/, '浏览器前进/后退必须先保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /typeof document\.addEventListener === 'function'[\s\S]*?typeof window\.addEventListener === 'function'/, '非浏览器轻量宿主中不可假定 DOM 事件 API 存在');
+    assert.match(ASSETS_CONTROLLER, /browseSession\?\.saveForRoute\?\.\(\)/, '工作台路由离开必须同步保存并标记恢复');
+    assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('pagehide', saveBrowseStateBeforeRoute\)/, '整页离开时必须保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /browseSession\?\.save\?\.\(\)/, '整页刷新只保存状态，不标记为工作台路由');
 });

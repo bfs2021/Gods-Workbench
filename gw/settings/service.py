@@ -214,6 +214,7 @@ class StorageSettingsService:
             "extra_local_entries": [],
             "local_library_names": {},
             "local_library_order": [],
+            "local_library_read_only": {},
         }
 
     # ------------------------------------------------------------------
@@ -355,6 +356,7 @@ class StorageSettingsService:
             extra_local_entries=entries,
             local_library_names=names,
             local_library_order=order,
+            local_library_read_only=dict(state.get("local_library_read_only") or {}),
             local_libraries=StorageSettingsService._build_local_libraries(dirs, entries, names, configured),
             data_status=DATA_STATUS_OK if configured else DATA_STATUS_NOT_CONFIGURED,
             data_gaps=gaps,
@@ -409,6 +411,7 @@ class StorageSettingsService:
             entries = copy.deepcopy(state.get("extra_local_entries") or [])
             names = dict(state.get("local_library_names") or {})
             order = list(state.get("local_library_order") or [])
+            read_only = dict(state.get("local_library_read_only") or {})
             if payload.dirs is not None:
                 dirs = self._normalize_directory_mapping(payload.dirs)
             if payload.extra_local_entries is not None:
@@ -418,11 +421,14 @@ class StorageSettingsService:
                 names = {str(k): str(v) for k, v in payload.local_library_names.items()}
             if payload.local_library_order is not None:
                 order = [str(item) for item in payload.local_library_order]
+            if payload.local_library_read_only is not None:
+                read_only = dict(payload.local_library_read_only)
             state.update({
                 "dirs": dirs,
                 "extra_local_entries": entries,
                 "local_library_names": names,
                 "local_library_order": order,
+                "local_library_read_only": read_only,
                 "configured": True,
                 "revision": revision + 1,
             })

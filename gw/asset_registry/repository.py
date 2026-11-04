@@ -766,10 +766,15 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
                 focal_length: Optional[str] = None,
                 lighting_phase: Optional[str] = None,
                 aspect_ratio: Optional[str] = None,
-                include_removed: bool = False) -> Dict[str, Any]:
+                include_removed: bool = False,
+                dynamic_limit: Optional[int] = None,
+                folder_path: Optional[str] = None,
+                board_sources: Optional[str] = None) -> Dict[str, Any]:
     if structured:
         if (
             root_id
+            or folder_path
+            or board_sources
             or collection_id
             or any(
                 value is not None
@@ -858,9 +863,22 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         (key, tuple(val) if isinstance(val, list) else val)
         for key, val in normalized_cinematography.items()
     )
+    board_scope = None
+    if board_sources is not None:
+        try:
+            board_scope = json.loads(board_sources)
+            if (not isinstance(board_scope, dict)
+                    or set(board_scope) != {"visible", "known", "automatic", "automatic_only"}
+                    or any(not isinstance(board_scope[key], list)
+                           or any(not isinstance(value, str) or len(value) > 128 for value in board_scope[key])
+                           or len(board_scope[key]) > 500 for key in ("visible", "known"))
+                    or any(type(board_scope[key]) is not bool for key in ("automatic", "automatic_only"))):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise CleanroomException(400, "INVALID_REQUEST", "看板来源过滤无效") from None
     filters = [query or "", kind or "", archived, ordering, category or "", tag or "", project_id or "",
                includes, excludes, cutoff, root_id or "", collection_id or "",
-               cinematography_tokens]
+               cinematography_tokens, folder_path or "", board_scope]
     fingerprint = hashlib.sha256(json.dumps(filters, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     if cursor:
         try:
@@ -910,11 +928,15 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         str(root.get("id") or ""): str(root.get("availability_reason") or "")
         for root in root_facets
     }
+    from gw.settings.service import default_storage_settings_service
+    source_read_only = default_storage_settings_service.get_snapshot().local_library_read_only
     for item in items:
         source_id = str(item.get("storage_root_id") or "")
         asset_root_id = str(item.get("root_id") or "")
+        item["can_recycle"] = False
         if not item.get("is_remote") and (source_id or asset_root_id):
             availability_id = source_id or asset_root_id
+            item["can_recycle"] = not source_read_only.get(availability_id, False) and root_availability.get(availability_id) == "available"
             item["root_availability"] = root_availability.get(
                 availability_id, "offline"
             )
@@ -928,6 +950,26 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         items = [a for a in items if str(a.get("storage_root_id") or a.get("root_id") or "") == root_id]
     elif not include_removed:
         items = [a for a in items if a.get("root_availability") != "removed"]
+    if board_scope is not None:
+        visible_sources = set(board_scope["visible"])
+        known_sources = set(board_scope["known"])
+        def belongs_to_board(asset: Dict[str, Any]) -> bool:
+            source = str(asset.get("storage_root_id") or "")
+            if board_scope["automatic_only"]:
+                return bool(visible_sources and board_scope["automatic"] and source not in known_sources)
+            if source in known_sources:
+                return source in visible_sources
+            return bool(visible_sources and board_scope["automatic"])
+        items = [item for item in items if belongs_to_board(item)]
+    if folder_path:
+        selected_folder = folder_path.replace("\\", "/").strip("/")
+        def in_folder(asset: Dict[str, Any]) -> bool:
+            relative = str(asset.get("relative_path") or asset.get("canonical_relpath") or "").replace("\\", "/").strip("/")
+            folder = relative.rpartition("/")[0]
+            if selected_folder == "__root__":
+                return not folder
+            return folder == selected_folder or folder.startswith(selected_folder + "/")
+        items = [item for item in items if in_folder(item)]
     if collection_id:
         def belongs_to_collection(asset: Dict[str, Any]) -> bool:
             value = asset.get("collection_id")
@@ -995,6 +1037,8 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
     elif ordering == "size_desc":
         items.sort(key=lambda a: a.get("size_bytes") if type(a.get("size_bytes")) in {int, float} else -1, reverse=True)
     total = len(items)
+    if dynamic_limit is not None and total > 1500:
+        limit = min(limit, dynamic_limit)
     page = items[offset:offset + limit]
     has_more = offset + len(page) < total
     next_offset = offset + len(page) if has_more else None
@@ -1696,7 +1740,25 @@ def folders(root_id: Optional[str]) -> Dict[str, Any]:
     items = [dict(f) for f in sorted(raw["folders"].values(), key=lambda x: x["folder_id"])]
     if root_id:
         items = [f for f in items if f.get("parent_id") == root_id]
-    return {"folders": items, "root_id": root_id, "revision": raw["revision"],
+    indexed: dict[tuple[str, str], dict[str, Any]] = {}
+    removed_ids = _removed_root_ids()
+    for asset in raw["assets"].values():
+        if not _visible(asset) or _is_removed_asset(asset, removed_ids):
+            continue
+        source_id = str(asset.get("storage_root_id") or asset.get("root_id") or "")
+        if not source_id or (root_id and source_id != root_id):
+            continue
+        relative = str(asset.get("relative_path") or asset.get("canonical_relpath") or "").replace("\\", "/").strip("/")
+        folder = relative.rpartition("/")[0]
+        if folder:
+            summary = indexed.setdefault((source_id, folder), {"count": 0, "categories": {}})
+            summary["count"] += 1
+            category = _asset_category(asset)
+            summary["categories"][category] = summary["categories"].get(category, 0) + 1
+    indexed_folders = [{"root_id": source, "path": path, **summary}
+                       for (source, path), summary in sorted(indexed.items())]
+    return {"folders": items, "indexed_folders": indexed_folders,
+            "root_id": root_id, "revision": raw["revision"],
             "data_status": DATA_STATUS_OK, "data_gaps": []}
 
 

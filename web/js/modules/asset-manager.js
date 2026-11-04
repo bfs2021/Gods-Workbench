@@ -261,6 +261,7 @@ const assetRackExpandedFolders = new Set(readAssetRackExpandedFolders());
 // 目录层级模式下的目录过滤（rootId + 物理相对路径），纯前端过滤，不触发网络请求
 let registryNavFolder = {rootId:'', path:''};
 let registryRegisteredFolders = [];
+let registryIndexedFolders = [];
 let registryRegisteredFoldersLoaded = false;
 let registryRegisteredFoldersLoading = false;
 let boardDragId = '';
@@ -272,6 +273,7 @@ let boardSourceState = {open:false, boardId:'', editor:'', existingId:'', name:'
 let boardFolderCreateState = {open:false, boardId:'', rootId:'', parent:'', name:'新文件夹', saving:false, error:''};
 let boardSourceSelection = {};
 let boardFolderSelection = {};
+let registryRackSnapshot = null;
 let boardGroupSelection = {};
 let boardReferenceCanvasSelection = {};
 let boardCollapsedFolders = readCollapsedLibraryFolders();
@@ -383,7 +385,7 @@ let registryManageMode = false;
 // Similar-asset stacking was removed; keep the persisted field ignored for old sessions.
 let registryGroupSimilar = false;
 // 预览大小改为连续档：Shift+滚轮调节（px），旧的 小/中/大 离散档按中值迁移。
-const REGISTRY_CARD_SIZE = { min: 120, max: 360, fallback: 176, presets: { small: 126, medium: 176, large: 244 } };
+const REGISTRY_CARD_SIZE = { min: 96, max: 360, fallback: 176, presets: { small: 126, medium: 176, large: 244 } };
 let registryCardSize = (() => {
     const stored = Number(savedRegistryViewSettings.cardSize);
     if(Number.isFinite(stored) && stored > 0) return Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, Math.round(stored)));
@@ -425,7 +427,14 @@ let registryRecycleState = {open:false, assetId:'', busy:false, dontAsk:false, e
 let registryRecyclerSetupAssetId = '';
 let registryRecycleBinState = {open:false, loading:false, restoringId:'', items:[], error:''};
 const registryAssetsQueryCache = new Map();
-const REGISTRY_PAGE_SIZE = 100;
+const REGISTRY_PAGE_SIZE = 1500;
+function registryDynamicPageSize(){
+    const area = root.querySelector('.registry-assets-scroll');
+    const width = area?.clientWidth || window.innerWidth || 1024;
+    const height = area?.clientHeight || window.innerHeight || 768;
+    const columns = Math.max(1, Math.floor(width / (registryCardSize + 12)));
+    return Math.min(1500, Math.max(100, columns * Math.ceil(height / registryCardSize) * 4));
+}
 // Asset-structure discovery must stay bounded as the user scrolls a large
 // library.  Appended pages query only their newly seen IDs, one API window at
 // a time, instead of re-requesting every previously loaded card in parallel.
@@ -449,6 +458,7 @@ let registryPreviewObserver = null;
 let registryPreviewFallbackCleanup = null;
 let registryVirtualScrollCleanup = null;
 let registryVirtualScrollFrame = 0;
+let registryVirtualRemeasureFrame = 0;
 let registryVirtualState = {key:'', start:0, end:0, cols:1, totalHeight:0, rowTops:[], rowHeights:[], itemLayouts:[]};
 const registryVirtualHeightCache = new Map();
 let registryVirtualHeightCacheMode = '';
@@ -671,7 +681,7 @@ let canvasAssetManageMode = false;
 let searchCompositionActive = false;
 let searchRenderTimer = null;
 let lastSearchCompositionEndAt = 0;
-let storageSettingsState = {open:false, tab:'boards', focusSection:'', dirs:{}, defaults:{}, revision:null, extraLocalDirs:[], extraLocalEntries:[], localLibraryNames:{}, localLibraries:[]};
+let storageSettingsState = {open:false, tab:'boards', focusSection:'', dirs:{}, defaults:{}, revision:null, extraLocalDirs:[], extraLocalEntries:[], localLibraryNames:{}, localLibraryReadOnly:{}, localLibraries:[]};
 let allowedRootSettingsState = {revision:null, roots:[], loading:false, saving:false, error:''};
 let serverDirectoryBrowserState = {open:false, path:null, parent:null, directories:[], loading:false, saving:false, error:'', key:'projects'};
 let storageSettingsReturnFocus = null;
@@ -1068,11 +1078,18 @@ function resetBoardSelections(){
     selectedLocalUploadIds.clear();
     selectedCanvasAssetIds.clear();
 }
+function resetRegistryScroll(){
+    savedScrollPositions.registry = 0;
+    const currentScroll = root.querySelector('.registry-assets-scroll');
+    if(currentScroll) currentScroll.scrollTop = 0;
+}
 async function activateAssetBoard(id){
+    resetRegistryScroll();
     const board = assetBoardById(id);
     if(!board || ensureBoardNavigationState().hidden.includes(id)) return;
     const previousBoard = assetBoardById(activeTab);
     activeTab = id;
+    registryRackSnapshot = null;
     registryRequestSeq += 1;
     registryPageLoading = false;
     resetBoardSelections();
@@ -2304,6 +2321,7 @@ function renderBoardSourceModal(){
             ${editing ? '' : `<label><span>已有来源</span><select id="boardSourceExisting"><option value="">新建素材路径</option>${localLibraries.map(lib => `<option value="${escapeAttr(lib.id)}" ${boardSourceState.existingId === lib.id ? 'selected' : ''}>${escapeHtml(lib.name)} · ${escapeHtml(lib.path || '')}</option>`).join('')}</select></label>`}
             <label><span>来源名称</span><input id="boardSourceName" maxlength="40" value="${escapeAttr(boardSourceState.name || editingSource?.name || '用户素材')}" placeholder="例如：NAS 品牌素材"></label>
             <label><span>素材路径</span><input id="boardSourcePath" value="${escapeAttr(boardSourceState.path || editingSource?.path || '')}" placeholder="D:\\Assets 或 NAS 共享目录"></label>
+            ${editing ? `<label><span>来源只读</span><input id="boardSourceReadOnly" type="checkbox" ${storageSettingsState.localLibraryReadOnly?.[editingSource?.id] ? 'checked' : ''}><small>禁止将该来源素材移入回收站</small></label>` : ''}
         </div></div>` : ''}
         <div class="board-create-actions"><button class="hw-btn" type="button" ${showForm ? 'data-board-source-editor-cancel' : 'data-board-source-close'}>${showForm && board ? '取消编辑' : '关闭'}</button>${showForm ? `<button class="hw-btn hw-btn-gold" type="button" data-board-source-confirm><i data-lucide="${editing ? 'save' : 'folder-plus'}"></i><span>${editing ? '保存更改' : '添加来源'}</span></button>` : ''}</div>
     </div>`;
@@ -2327,7 +2345,7 @@ function cancelBoardSourceEditor(){
     boardSourceState = {...boardSourceState, editor:'', existingId:'', name:'', path:''};
     renderBoardSourceModal();
 }
-async function updateBoardSourcePath(sourceId, name, path){
+async function updateBoardSourcePath(sourceId, name, path, readOnly=false){
     const cleanPath = String(path || '').trim();
     if(!sourceId || !cleanPath) return null;
     const data = await apiJsonResponse(assetManagerApi.getStorageSettings());
@@ -2347,6 +2365,7 @@ async function updateBoardSourcePath(sourceId, name, path){
         dirs,
         extra_local_entries:entries,
         local_library_names:names,
+        local_library_read_only:{...storageSettingsState.localLibraryReadOnly, [sourceId]:Boolean(readOnly)},
         local_library_order:localLibraries.map(lib => lib.id).filter(Boolean),
         expected_version:Number(storageSettingsState.revision || 1),
     }));
@@ -2418,7 +2437,7 @@ async function confirmBoardSource(){
     const editingSource = board?.sources?.find(item => item.id === boardSourceState.editor) || null;
     if(editingSource){
         if(!path){ setStatus('请输入素材路径'); return; }
-        source = await updateBoardSourcePath(editingSource.id, name, path);
+        source = await updateBoardSourcePath(editingSource.id, name, path, Boolean(document.getElementById('boardSourceReadOnly')?.checked));
         if(!source) return;
         Object.assign(editingSource, {name:source.name, path:source.path});
         boardFolderSelection[board.id] = '';
@@ -2574,6 +2593,7 @@ function applyStorageSettingsData(data={}){
         }))
         : storageSettingsState.extraLocalDirs.map((path, index) => ({id:`local_extra_${index}`, kind:`local_extra_${index}`, name:storageExtraDefaultName(path, index), path}));
     storageSettingsState.localLibraryNames = data.local_library_names || storageSettingsState.localLibraryNames || {};
+    storageSettingsState.localLibraryReadOnly = data.local_library_read_only || {};
     storageSettingsState.localLibraries = normalizeLocalLibrariesFromSettings(data);
     localLibraries = storageSettingsState.localLibraries.slice();
     if(!localLibraries.some(lib => lib.id === activeLocalLibraryId)) activeLocalLibraryId = localLibraries[0]?.id || 'local';
@@ -6498,7 +6518,7 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
     const contentWidth = Math.max(320, Number(width) || grid?.clientWidth || root.querySelector('.registry-content')?.clientWidth || window.innerWidth || 1024);
     const gridStyle = grid ? getComputedStyle(grid) : {};
     const columnGap = Math.max(0, Number.parseFloat(gridStyle.columnGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
-    const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
+    const rowGap = Math.max(0, Number.parseFloat(gridStyle.getPropertyValue?.('--registry-masonry-gap')) || Number.parseFloat(gridStyle.rowGap || gridStyle.gap) || REGISTRY_VIRTUAL_GAP);
     const rowHeight = Math.max(1, Number.parseFloat(gridStyle.gridAutoRows) || 8);
     const preferred = Math.max(REGISTRY_CARD_SIZE.min, Math.min(REGISTRY_CARD_SIZE.max, Number(registryCardSize) || REGISTRY_CARD_SIZE.fallback));
     const cols = Math.max(1, Math.floor((contentWidth + columnGap) / (preferred + columnGap)));
@@ -6528,53 +6548,18 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
         if(id && height > 0) registryVirtualHeightCache.set(registryVirtualHeightCacheKey(entry.item,entry.index,cacheMode), height);
     });
     if(measureMissing) registryVirtualMeasureCardHeights(items, {contentWidth, cardWidth, cols, columnGap, rowGap, rowHeight, cacheMode});
-    const occupiedRows = [];
+    // 每次放入当前最短列，避免行优先占位留下大块空隙。
+    const columnBottoms = Array(cols).fill(0);
     const itemLayouts = [];
-    let cursorRow = 0;
-    let cursorColumn = 0;
-    let totalRows = 0;
     items.forEach((item,index) => {
         const cachedHeight = registryVirtualHeightCache.get(registryVirtualHeightCacheKey(item,index,cacheMode));
         const height = Math.max(1, Number(cachedHeight || registryVirtualCardHeight(item, cardWidth)) || 1);
+        const column = columnBottoms.indexOf(Math.min(...columnBottoms));
+        const top = columnBottoms[column];
         const span = Math.max(1, Math.ceil((height + rowGap) / pitch));
-        let row = cursorRow;
-        let column = cursorColumn;
-        while(true){
-            if(column >= cols){
-                row += 1;
-                column = 0;
-                continue;
-            }
-            let fits = true;
-            for(let occupiedRow = row; occupiedRow < row + span; occupiedRow += 1){
-                if(occupiedRows[occupiedRow]?.has(column)){
-                    fits = false;
-                    break;
-                }
-            }
-            if(fits) break;
-            column += 1;
-        }
-        for(let occupiedRow = row; occupiedRow < row + span; occupiedRow += 1){
-            if(!occupiedRows[occupiedRow]) occupiedRows[occupiedRow] = new Set();
-            occupiedRows[occupiedRow].add(column);
-        }
-        itemLayouts.push({
-            left:column * (cardWidth + columnGap),
-            top:row * pitch,
-            width:cardWidth,
-            height,
-            column,
-            row,
-            span,
-        });
-        totalRows = Math.max(totalRows, row + span);
-        cursorRow = row;
-        cursorColumn = column + 1;
-        if(cursorColumn >= cols){
-            cursorRow += 1;
-            cursorColumn = 0;
-        }
+        itemLayouts.push({left:column * (cardWidth + columnGap), top, width:cardWidth,
+            height, column, row:Math.floor(top / pitch), span});
+        columnBottoms[column] = top + height + rowGap;
     });
     if(!items.length){
         registryVirtualHeightCache.clear();
@@ -6587,7 +6572,7 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
         maxBottom = Math.max(maxBottom, position.top + position.height);
         itemMaxBottoms.push(maxBottom);
     });
-    const totalHeight = Math.max(0, totalRows * rowHeight + Math.max(0, totalRows - 1) * rowGap);
+    const totalHeight = Math.max(0, ...columnBottoms) - (items.length ? rowGap : 0);
     return {cols, cardWidth, width:contentWidth, rowHeight, rowGap, rowHeights, rowTops, itemMaxBottoms, totalHeight, itemLayouts};
 }
 function registryVirtualRowAt(layout, target, fallback=0){
@@ -6775,7 +6760,7 @@ function syncRegistryVaultFooter(){
     if(spans.length < 3) return;
     const total = spans[0].querySelector('strong');
     if(total) total.textContent = registryTotalKnown ? Number(registryTotal || 0).toLocaleString('zh-CN') : '统计中';
-    spans[1].textContent = registryLoading ? '正在读取' : `已加载 ${registryAssets.length} 项`;
+    spans[1].textContent = registryLoading ? '正在读取' : `已加载${registryPageHasMore ? '' : '全部'} ${registryAssets.length} 项`;
     spans[2].textContent = registryPageHasMore ? '下滑加载更多' : `当前显示 ${registryVisibleAssets().length} 项`;
 }
 function selectedRegistryAsset(){
@@ -6824,12 +6809,24 @@ function registryQueryString({offset=0, limit=REGISTRY_PAGE_SIZE, cursor=''}={})
     const params = new URLSearchParams({limit:String(limit), offset:String(Math.max(0, Number(offset) || 0)), sort:registrySort || 'newest', view:'card'});
     // 默认呈现全局统一资产金库；仅当用户通过「项目素材」智能筛选选择项目时携带（解耦默认的 activeProjectId）
     if(registryProjectFilterId) params.set('project_id', registryProjectFilterId);
+    params.set('dynamic_limit', String(registryDynamicPageSize()));
     if(cursor) params.set('cursor', cursor);
     if(registryQuery.trim()) params.set('search', registryQuery.trim());
     if(registryKind) params.set('kind', registryKind);
     if(registryStatCategory) params.set('category', registryStatCategory);
     if(registryCollectionId) params.set('collection_id', registryCollectionId);
-    if(registryRootId) params.set('root_id', registryRootId);
+    const board = assetBoardById(activeTab);
+    const folderRoot = board?.system === false ? (board.sourceBoard ? board.rootId : boardSourceSelection[board.id]) : registryNavFolder.rootId;
+    const folderPath = board?.system === false ? boardFolderSelection[board.id] : registryNavFolder.path;
+    const selectedRoot = folderRoot && folderRoot !== '__automatic__' ? folderRoot : registryRootId;
+    if(selectedRoot) params.set('root_id', selectedRoot);
+    if(board?.system === false && !board.sourceBoard){
+        const sources = Array.isArray(board.sources) ? board.sources : [];
+        const visible = sources.filter(source => !source.hidden).map(source => String(source.id));
+        const known = [...new Set([...sources.map(source => String(source.id)), ...(board.excludedSourceIds || []).map(String)])];
+        params.set('board_sources', JSON.stringify({visible, known, automatic:!board.automaticHidden, automatic_only:folderRoot === '__automatic__'}));
+    }
+    if(folderPath) params.set('folder_path', folderPath);
     if(registryRecentDays) params.set('recent_days', String(registryRecentDays));
     if(registryIncludeTags.size) params.set('include_tags', [...registryIncludeTags].join(','));
     if(registryExcludeTags.size) params.set('exclude_tags', [...registryExcludeTags].join(','));
@@ -6952,6 +6949,7 @@ async function refreshRegistryAssets(renderNow=true){
         if(requestId === registryRequestSeq) registryRequestAbortController = null;
         if(requestId === registryRequestSeq) registryLoading = false;
         if(renderNow && requestId === registryRequestSeq) render();
+        if(requestId === registryRequestSeq && !registryLoading) scheduleRegistryPrefetch();
     }
 }
 function registryAppendDomContext(){
@@ -8447,9 +8445,10 @@ function updateRegistryMasonryCards(cards=[], grid){
         && (!card.style.getPropertyValue('--registry-masonry-span') || card.dataset.registryMasonryDirty === 'true'));
     if(!candidates.length) return;
     const gridStyle = getComputedStyle(grid);
-    const rowHeight = Math.max(1, parseFloat(gridStyle.gridAutoRows) || 8);
-    const rowGap = Math.max(0, parseFloat(gridStyle.rowGap) || 10);
-    // 【修复 masonry 测量塌陷】测量态（grid-row:auto + 固定 8px 行轨道）会让整块网格瞬时塌陷，
+    const rowHeight = Math.max(1, parseFloat(gridStyle.gridAutoRows) || 1);
+    const rowGap = Math.max(0, Number.parseFloat(gridStyle.rowGap) || 0);
+    const requiredGap = Math.max(0, Number.parseFloat(gridStyle.getPropertyValue('--registry-masonry-gap')) || 10);
+    // 【修复 masonry 测量塌陷】测量态（grid-row:auto + 固定行轨道）会让整块网格瞬时塌陷，
     // getBoundingClientRect 强制回流时浏览器可能把 scrollTop 钳回顶部——浏览中“跳回顶部”的元凶之一。
     // 测量前记录滚动容器位置，跨度回填完成后立即恢复。
     const measureScrollRoot = grid.closest('.registry-assets-scroll');
@@ -8466,7 +8465,7 @@ function updateRegistryMasonryCards(cards=[], grid){
         delete card.dataset.registryMasonryDirty;
     });
     measurements.forEach(({card, height}) => {
-        const span = Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
+        const span = Math.max(1, Math.ceil((height + requiredGap) / (rowHeight + rowGap)));
         if(card.style.getPropertyValue('--registry-masonry-span') !== String(span)){
             card.style.setProperty('--registry-masonry-span', String(span));
         }
@@ -8519,6 +8518,21 @@ function scheduleRegistryMasonryLayout(){
         });
     });
 }
+function scheduleRegistryVirtualRemeasure(){
+    if(registryVirtualRemeasureFrame) return;
+    registryVirtualRemeasureFrame = requestAnimationFrame(() => {
+        registryVirtualRemeasureFrame = 0;
+        const grid = root.querySelector('[data-registry-virtual-grid]');
+        if(!grid) return;
+        const {items} = registryVirtualItemsForActiveBoard();
+        const positions = new Map(items.map((item, index) => [String(item.id || ''), registryVirtualState.itemLayouts?.[index]]));
+        const changed = [...grid.querySelectorAll(':scope > .registry-card[data-registry-card]')].some(card => {
+            const position = positions.get(String(card.dataset.registryCard || ''));
+            return position && Math.abs(card.getBoundingClientRect().height - position.height) > 1;
+        });
+        if(changed) updateRegistryVirtualWindow(true);
+    });
+}
 function pumpRegistryPreviewQueue(){
     while(registryPreviewActive < REGISTRY_PREVIEW_CONCURRENCY && registryPreviewQueue.length){
         const image = registryPreviewQueue.shift();
@@ -8535,6 +8549,7 @@ function pumpRegistryPreviewQueue(){
             if(settled) return;
             settled = true;
             registryPreviewActive = Math.max(0, registryPreviewActive - 1);
+            scheduleRegistryVirtualRemeasure();
             pumpRegistryPreviewQueue();
         };
         image.addEventListener('load', finish, {once:true});
@@ -9579,7 +9594,7 @@ function customAssetLibraryBaseItems(board, options={}){
     const sources = Array.isArray(board?.sources) ? board.sources : [];
     const sourceIds = new Set([...sources.map(source => source.id), ...(board?.excludedSourceIds || [])]);
     const visibleSourceIds = new Set(sources.filter(source => !source.hidden).map(source => source.id));
-    return registryAssets.filter(item => {
+    return (options.items || registryAssets).filter(item => {
         const categoryMatch = board?.preset === 'other' || kinds.has(String(item.kind || '')) || extensions.has(registryAssetExtension(item));
         if(!categoryMatch) return false;
         const itemSourceId = String(item.storage_root_id || '');
@@ -9640,7 +9655,7 @@ function customAssetLibraryItems(board){
     const referenceIds = referenceCanvasId ? new Set((canvasAssetsData.items || []).filter(item => item.canvas_id === referenceCanvasId).map(item => String(item.asset_id || '')).filter(Boolean)) : null;
     return customAssetLibraryBaseItems(board).filter(item => !customBoardFolderIsHidden(board?.id, registryAssetFolderPath(item)) && registryAssetMatchesFolder(item, folderPath) && (!groupIds || groupIds.has(item.id)) && (!referenceIds || referenceIds.has(item.id)));
 }
-function customBoardFolderTree(items=[], directories=[]){
+function customBoardFolderTree(items=[], directories=[], summary=null, category=''){
     const roots = [];
     const map = new Map();
     const ensureFolder = folder => {
@@ -9666,6 +9681,18 @@ function customBoardFolderTree(items=[], directories=[]){
             if(map.has(path)) map.get(path).count += 1;
         });
     });
+    if(Array.isArray(summary)){
+        map.forEach(node => { node.count = 0; });
+        summary.forEach(entry => {
+            const folder = String(entry.path || '');
+            ensureFolder(folder);
+            const count = category ? Number(entry.categories?.[category] || 0) : Number(entry.count || 0);
+            folder.split('/').filter(Boolean).forEach((_name, index, segments) => {
+                const path = segments.slice(0, index + 1).join('/');
+                if(map.has(path)) map.get(path).count += count;
+            });
+        });
+    }
     const sortNodes = nodes => nodes.sort((a,b) => a.name.localeCompare(b.name, 'zh-Hans-CN', {numeric:true, sensitivity:'base'})).forEach(node => sortNodes(node.children));
     sortNodes(roots);
     return roots;
@@ -10521,7 +10548,7 @@ function renderRegistryDetail(){
  * QIN-524：统一资产库中栏「双模紧凑机架」
  * 顶部双段拨片在「目录层级」与「智能筛选」之间切换，状态落 localStorage；
  * 目录层级只呈现已登记素材库根目录与素材 relative_path 反映的真实物理子目录，
- * 点击节点直接收敛右网格（纯前端过滤，无整页刷新）；智能筛选收敛为紧凑硬件胶囊。
+ * 点击节点按目录分页收敛右网格；智能筛选收敛为紧凑硬件胶囊。
  *
  * QIN-527：同一套机架覆盖自定义资源库看板（Input / 剧本 / 制片等）。
  * 看板态下「来源」= 看板绑定的素材来源，「目录」= 该来源素材 relative_path 反映的真实物理子目录；
@@ -10533,7 +10560,7 @@ function assetRackBoard(){
     return board && board.system === false ? board : null;
 }
 function assetRackBoardPool(board=assetRackBoard()){
-    return board ? customAssetLibraryBaseItems(board, {ignoreSourceSelection:true}) : [];
+    return board ? customAssetLibraryBaseItems(board, {ignoreSourceSelection:true, items:registryRackSnapshot || registryAssets}) : [];
 }
 function assetRackBoardRoots(board){
     const pool = assetRackBoardPool(board);
@@ -10716,25 +10743,32 @@ function assetRackFolderTree(rootId){
             // 【QIN-527 修复】自动归档同样要下钻真实物理子目录：生产库 900+ 条素材都落在
             // 未显式登记的根上，早先返回空树会让用户只看到一行「自动归档」而误判没有层级。
             const items = assetRackAutomaticItems(board);
+            const known = new Set([...(board.sources || []).map(source => String(source.id || '')), ...(board.excludedSourceIds || []).map(String)]);
             const directories = [
+                ...registryIndexedFolders.filter(folder => !known.has(String(folder.root_id || ''))).map(folder => folder.path),
                 ...assetRackAutomaticDirectories(items),
                 ...assetRackDiskDirectoriesForItems(items),
             ];
-            return customBoardFolderTree(items, directories);
+            const summary = registryIndexedFolders.filter(folder => !known.has(String(folder.root_id || '')));
+            return customBoardFolderTree(items, directories, summary, board.preset === 'other' ? '' : board.preset);
         }
         const items = assetRackBoardPool(board).filter(item => String(item.storage_root_id || '') === root);
         const directories = [
+            ...registryIndexedFolders.filter(folder => String(folder.root_id || '') === root).map(folder => folder.path),
             ...(registryRootFolders.get(root) || []).map(folder => String(folder?.path || '')).filter(Boolean),
             ...assetRackDiskDirectories(root),
         ];
-        return customBoardFolderTree(items, directories);
+        const summary = registryIndexedFolders.filter(folder => String(folder.root_id || '') === root);
+        return customBoardFolderTree(items, directories, summary, board.preset === 'other' ? '' : board.preset);
     }
     const items = registryAssets.filter(item => String(item.storage_root_id || '') === root);
     const directories = [
+        ...registryIndexedFolders.filter(folder => String(folder.root_id || '') === root).map(folder => folder.path),
         ...(assetRackRegisteredFoldersByRoot().get(root) || []),
         ...assetRackDiskDirectories(root),
     ];
-    return customBoardFolderTree(items, directories);
+    const summary = registryIndexedFolders.filter(folder => String(folder.root_id || '') === root);
+    return customBoardFolderTree(items, directories, summary);
 }
 function assetRackRootOnlyCount(rootId){
     // 看板态保留「根目录」节点：只筛选未落在任何子目录的素材
@@ -10779,6 +10813,7 @@ async function loadAssetRackRegisteredFolders(force=false){
     try {
         const data = await apiJsonResponse(assetManagerApi.getRegistryFolders(''));
         registryRegisteredFolders = Array.isArray(data?.folders) ? data.folders : [];
+        registryIndexedFolders = Array.isArray(data?.indexed_folders) ? data.indexed_folders : [];
         registryRegisteredFoldersLoaded = true;
     } catch(_) {
         registryRegisteredFoldersLoaded = true;
@@ -10788,44 +10823,20 @@ async function loadAssetRackRegisteredFolders(force=false){
     // 总览态同样合并磁盘真实子目录（含空目录；admin 可读，editor 静默降级）
     const rootIds = assetRackRoots().map(root => String(root.id || '')).filter(Boolean);
     const diskResults = await Promise.all(rootIds.map(rootId => loadAssetRackDiskFolders(rootId)));
-    if(activeTab === 'registry' && !assetRackCollapsed && diskResults.some(entries => entries.length)) render();
+    if((activeTab === 'registry' || assetRackBoard()) && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
 }
 let assetRackDirectoryIndexPromise = null;
 function resetAssetRackDirectoryIndex(){
     assetRackDirectoryIndexPromise = null;
+    registryRegisteredFoldersLoaded = false;
 }
 async function ensureAssetRackDirectoryIndex(){
-    // 【QIN-527 修复】目录层级必须覆盖整个素材库，而不是只覆盖网格已加载的那一屏：
-    // 生产库首屏 100 条全部落在根目录，只靠已加载窗口会让用户误判「没有子文件夹」。
-    // 这里复用 loadMoreRegistryAssets 逐页续拉（它自带请求序列/游标/预取语义，
-    // 与首屏 refresh 天然互斥：refresh 进行中它会直接让路），拉齐后统一重绘一次。
-    // 上限保护：最多 20 页 / 5000 条 / 30 秒，超大库不至于把整库拉到内存里。
+    // 文件夹摘要由后端聚合，避免为了目录树自动拉取整库素材。
     if(assetRackDirectoryIndexPromise) return assetRackDirectoryIndexPromise;
-    if(!registryHasMoreAssets()) return null;
-    const run = (async () => {
-        const startedAt = Date.now();
-        let pages = 0;
-        while(registryHasMoreAssets() && pages < 20 && registryAssets.length < 5000){
-            if(Date.now() - startedAt > 30000) return false;
-            await loadMoreRegistryAssets();
-            if(registryLoading || registryPageLoading){
-                // 首屏 refresh 正在落地：让路等待，不占用页数预算
-                await new Promise(resolve => setTimeout(resolve, 150));
-                continue;
-            }
-            pages += 1;
-        }
-        return true;
-    })().catch(() => false);
-    assetRackDirectoryIndexPromise = run;
-    const complete = await run;
-    if(!complete){
-        // 没拉满（被打断/超时）：作废本次结论，允许下一次渲染重新补拉
-        if(assetRackDirectoryIndexPromise === run) resetAssetRackDirectoryIndex();
-        return null;
-    }
-    if(!assetRackCollapsed) render();
-    return assetRackDirectoryIndexPromise;
+    const request = loadAssetRackRegisteredFolders();
+    assetRackDirectoryIndexPromise = request;
+    await request;
+    return request;
 }
 function setAssetRackCollapsed(collapsed){
     assetRackCollapsed = Boolean(collapsed);
@@ -10865,17 +10876,20 @@ function selectAssetRackFolder(rootId, path){
     const folder = String(path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
     const board = assetRackBoard();
     if(board){
+        if(!registryRackSnapshot) registryRackSnapshot = registryAssets.slice();
         const currentRoot = String(boardSourceSelection[board.id] || '');
         const currentFolder = String(boardFolderSelection[board.id] || '');
         const same = currentRoot === root && currentFolder === folder;
         boardSourceSelection[board.id] = same ? '' : root;
         boardFolderSelection[board.id] = same ? '' : folder;
+        if(!board.sourceBoard) registryRootId = '';
         if(!same && folder && folder !== '__root__'){
             const segments = folder.split('/').filter(Boolean);
             segments.slice(0, -1).forEach((_segment, index) => assetRackExpandedFolders.add(`${root}::${segments.slice(0, index + 1).join('/')}`));
             saveAssetRackExpandedFolders();
         }
-        render();
+        savedScrollPositions.registry = 0;
+        refreshRegistryAssets().catch(err => setStatus(err.message || '加载目录失败'));
         return;
     }
     const same = registryNavFolder.rootId === root && registryNavFolder.path === folder;
@@ -10886,7 +10900,8 @@ function selectAssetRackFolder(rootId, path){
         segments.slice(0, -1).forEach((_segment, index) => assetRackExpandedFolders.add(`${root}::${segments.slice(0, index + 1).join('/')}`));
         saveAssetRackExpandedFolders();
     }
-    render();
+    savedScrollPositions.registry = 0;
+    refreshRegistryAssets().catch(err => setStatus(err.message || '加载目录失败'));
 }
 function clearAssetRackFolder(){
     const board = assetRackBoard();
@@ -10894,12 +10909,16 @@ function clearAssetRackFolder(){
         if(!boardSourceSelection[board.id] && !boardFolderSelection[board.id]) return;
         boardSourceSelection[board.id] = '';
         boardFolderSelection[board.id] = '';
-        render();
+        if(!board.sourceBoard) registryRootId = '';
+        registryRackSnapshot = null;
+        savedScrollPositions.registry = 0;
+        refreshRegistryAssets().catch(err => setStatus(err.message || '加载目录失败'));
         return;
     }
     if(!registryNavFolderActive()) return;
     registryNavFolder = {rootId:'', path:''};
-    render();
+    savedScrollPositions.registry = 0;
+    refreshRegistryAssets().catch(err => setStatus(err.message || '加载目录失败'));
 }
 async function createAssetRackFolder(rootId){
     const root = String(rootId || '').trim();
@@ -11063,7 +11082,7 @@ function renderRegistryManager(){
         ${renderRegistryFilterChips()}
         <div class="registry-fresh-notice" data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, null, '没有符合条件的资产。可以清空排除条件。')}${renderRegistryPagination()}</div>
-        <div class="registry-vault-footer" aria-label="资产库状态"><span>资产索引 <strong>${registryTotalKnown ? Number(registryTotal).toLocaleString('zh-CN') : '统计中'}</strong></span><span>${registryLoading ? '正在读取' : `已加载 ${registryAssets.length} 项`}</span><span>${registryPageHasMore ? '下滑加载更多' : `当前显示 ${visible.length} 项`}</span></div>
+        <div class="registry-vault-footer" aria-label="资产库状态"><span>资产索引 <strong>${registryTotalKnown ? Number(registryTotal).toLocaleString('zh-CN') : '统计中'}</strong></span><span>${registryLoading ? '正在读取' : `已加载${registryPageHasMore ? '' : '全部'} ${registryAssets.length} 项`}</span><span>${registryPageHasMore ? '下滑加载更多' : `当前显示 ${visible.length} 项`}</span></div>
         ${renderRegistrySelectionBar(null)}
     </section>`;
     syncRegistryFacetLayout();
@@ -11098,7 +11117,7 @@ function renderCustomAssetLibrary(board){
         ${renderRegistryFilterChips()}
         <div class="registry-fresh-notice" data-registry-fresh-notice></div>
         <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, board, emptyAssetMessage)}${renderRegistryPagination()}</div>
-        <div class="registry-vault-footer" aria-label="资产库状态"><span>匹配资产 <strong>${Number(matching.length || 0).toLocaleString('zh-CN')}</strong></span><span>${registryLoading ? '正在读取' : `当前显示 ${visible.length} 项`}</span><span>${escapeHtml(sourceLabel)}</span></div>
+        <div class="registry-vault-footer" aria-label="资产库状态"><span>匹配资产 <strong>${Number(matching.length || 0).toLocaleString('zh-CN')}</strong></span><span>${registryLoading ? '正在读取' : registryPageHasMore ? `已加载 ${visible.length} 项` : `已加载全部 ${visible.length} 项`}</span><span>${escapeHtml(sourceLabel)}</span></div>
         ${renderRegistrySelectionBar(board)}
     </section>
     ${renderRegistryDetailResizer()}
@@ -13097,6 +13116,7 @@ async function handleClick(event){
             registryManageMode = true;
             syncRegistrySelectionDom();
         } else if(event.ctrlKey || event.metaKey){
+            if(!registrySelectedIds.size && selectedRegistryAssetId && selectedRegistryAssetId !== id) registrySelectedIds.add(selectedRegistryAssetId);
             if(registrySelectedIds.has(id)) registrySelectedIds.delete(id); else registrySelectedIds.add(id);
             registrySelectionAnchorId = id;
             selectedRegistryAssetId = id;
@@ -20917,7 +20937,8 @@ function handleRegistryCardResizeWheel(event){
     clearTimeout(registryCardSizeSaveTimer);
     registryCardSizeSaveTimer = setTimeout(() => {
         saveRegistryViewSettings();
-        setStatus('预览大小 ' + registryCardSize + 'px');
+        const boundary = registryCardSize === REGISTRY_CARD_SIZE.min ? '（已到最小）' : registryCardSize === REGISTRY_CARD_SIZE.max ? '（已到最大）' : '';
+        setStatus('预览大小 ' + registryCardSize + 'px' + boundary);
     }, 240);
 }
 document.addEventListener('wheel', handleRegistryCardResizeWheel, {passive:false});
@@ -20925,6 +20946,7 @@ document.addEventListener('scroll', event => {
     if(event.target?.matches?.('[data-detail-media-library-grid]')) detailViewerState.mediaCanvasLibraryScrollTop = event.target.scrollTop;
     const registryScroll = event.target?.closest?.('.registry-assets-scroll');
     if(registryScroll){
+        saveRegistryBrowseSession();
         // 【浏览预加载】触发提前量从固定 520px 提升到约 1.3 倍视口高度（1.2~1.5 倍区间取中），
         // 下一页数据预取先于滚动到位，配合 prefetchRegistryNextPage 实现无感续读；
         // 键盘可达的 [data-registry-load-more] 按钮保留不动。
@@ -21303,14 +21325,14 @@ assetTabsEl?.addEventListener('click', event => {
     if(event.target.closest?.('[data-board-create]')){ openCreateLibraryModal(); return; }
     if(event.target.closest?.('[data-registry-recycle-bin-open]')){ openRegistryRecycleBin().catch(err => setStatus(err.message || '打开回收站失败')); return; }
     if(event.target.closest?.('[data-thumbnail-generator-open]')){ openThumbnailGenerator().catch(err => setStatus(err.message || '打开缩略图工具失败')); return; }
-    if(event.target.closest?.('[data-refresh-assets]')){ loadAll().catch(err => setStatus(err.message || '刷新资产失败')); return; }
+    if(event.target.closest?.('[data-refresh-assets]')){ resetRegistryScroll(); loadAll().catch(err => setStatus(err.message || '刷新资产失败')); return; }
     if(event.target.closest?.('[data-storage-directories-open]')){ openStorageSettings('directories').catch(err => setStatus(err.message || '打开保存目录失败')); return; }
     if(event.target.closest?.('[data-board-settings-open]')){ openStorageSettings('boards').catch(err => setStatus(err.message || '打开资产设置失败')); return; }
     const tab = event.target.closest?.('[data-tab]');
     if(tab) activateAssetBoard(tab.dataset.tab || 'registry').catch(err => setStatus(err.message || '打开看板失败'));
 });
 root.addEventListener('click', async event => {
-    if(event.target.closest?.('[data-refresh-assets]')){ loadAll().catch(err => setStatus(err.message || '刷新资产失败')); return; }
+    if(event.target.closest?.('[data-refresh-assets]')){ resetRegistryScroll(); loadAll().catch(err => setStatus(err.message || '刷新资产失败')); return; }
     if(event.target.closest?.('[data-asset-collect-open]')){
         const trigger = event.target.closest('[data-asset-collect-open]');
         try {
@@ -21446,6 +21468,7 @@ window.addEventListener('message', event => {
             .catch(err => setStatus(err.message || '打开素材失败'));
     }
     if(event.data?.type === 'asset-refresh'){
+        resetRegistryScroll();
         loadAll().catch(err => setStatus(err.message || '刷新资产失败'));
     }
     if(event.data?.type === 'asset-sync'){
@@ -21486,9 +21509,81 @@ Object.defineProperties(window, {
     seekDetailVideoTo:{configurable:true, value:seekDetailVideoTo},
     openRegistryAssetFromGlobalSearch:{configurable:true, value:openRegistryAssetFromGlobalSearch},
 });
+const REGISTRY_SESSION_KEY = 'gw.registry.browse.session';
+const REGISTRY_ROUTE_PENDING_KEY = 'gw.registry.browse.route.pending';
+let registryBrowseInteracted = false;
+let registrySessionReady = false;
+document.addEventListener('pointerdown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
+document.addEventListener('keydown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
+function saveRegistryBrowseSession(){
+    if(!registrySessionReady || !assetBoardById(activeTab)) return false;
+    try {
+        sessionStorage.setItem(REGISTRY_SESSION_KEY, JSON.stringify({
+            tab:activeTab, folder:registryNavFolder, sources:boardSourceSelection,
+            folders:boardFolderSelection, scroll:root.querySelector('.registry-assets-scroll')?.scrollTop || 0,
+        }));
+        return true;
+    } catch(_) { return false; }
+}
+function saveRegistryBrowseSessionForRoute(){
+    if(!saveRegistryBrowseSession()) return;
+    try { sessionStorage.setItem(REGISTRY_ROUTE_PENDING_KEY, '1'); } catch(_) {}
+}
+window.GWAssetBrowseSession = Object.freeze({save:saveRegistryBrowseSession, saveForRoute:saveRegistryBrowseSessionForRoute});
+async function restoreRegistryBrowseSession(){
+    try {
+        const navigation = performance.getEntriesByType?.('navigation')?.[0];
+        const saved = JSON.parse(sessionStorage.getItem(REGISTRY_SESSION_KEY) || 'null');
+        const restoreForShellRoute = sessionStorage.getItem(REGISTRY_ROUTE_PENDING_KEY) === '1';
+        sessionStorage.removeItem(REGISTRY_SESSION_KEY);
+        sessionStorage.removeItem(REGISTRY_ROUTE_PENDING_KEY);
+        const parentNavigation = window.parent !== window ? window.parent.performance.getEntriesByType?.('navigation')?.[0] : navigation;
+        if(!saved || navigation?.type === 'reload' || (parentNavigation?.type === 'reload' && !restoreForShellRoute) || registryBrowseInteracted) return;
+        registryNavFolder = saved.folder || {rootId:'', path:''};
+        boardSourceSelection = saved.sources || {};
+        boardFolderSelection = saved.folders || {};
+        if(saved.tab === 'registry' && (registryNavFolder.rootId || registryNavFolder.path)) await refreshRegistryAssets(false);
+        if(saved.tab && saved.tab !== 'registry' && assetBoardById(saved.tab)){
+            await activateAssetBoard(saved.tab);
+            if(registryLoading) await refreshRegistryAssets(false);
+        }
+        render();
+        const desired = Math.max(0, Number(saved.scroll) || 0);
+        let scroll = root.querySelector('.registry-assets-scroll');
+        while(scroll && desired > scroll.scrollHeight - scroll.clientHeight && registryHasMoreAssets()){
+            const previous = registryNextOffset;
+            await loadMoreRegistryAssets();
+            if(registryNextOffset === previous) break;
+            scroll = root.querySelector('.registry-assets-scroll');
+        }
+        savedScrollPositions.registry = desired;
+        return desired;
+    } catch(_) {}
+}
+async function applyRegistryBrowseSessionScroll(desired){
+    const deadline = Date.now() + 1500;
+    let area = null;
+    while(Date.now() < deadline){
+        area = root.querySelector('.registry-assets-scroll');
+        if(area && (desired <= 0 || desired <= area.scrollHeight - area.clientHeight)) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    area = root.querySelector('.registry-assets-scroll');
+    if(area){ area.scrollTop = desired; scheduleRegistryVirtualWindow(); }
+}
+window.addEventListener('pagehide', saveRegistryBrowseSession);
+document.addEventListener('click', () => {
+    if(registrySessionReady) setTimeout(saveRegistryBrowseSession, 250);
+});
 if(!directorySettingsPage) renderBoardNavigation();
 document.addEventListener('DOMContentLoaded', () => {
     if(directorySettingsPage){ loadGlobalDirectorySettings(); return; }
     loadRegistryPrincipal();
-    loadAll().then(startRegistryAutomaticIndexPolling).catch(err => setStatus(err.message || '加载失败'));
+    loadAll().then(async () => {
+        const restoredScroll = await restoreRegistryBrowseSession();
+        registrySessionReady = true;
+        if(Number.isFinite(restoredScroll)) await applyRegistryBrowseSessionScroll(restoredScroll);
+        saveRegistryBrowseSession();
+        startRegistryAutomaticIndexPolling();
+    }).catch(err => setStatus(err.message || '加载失败'));
 });

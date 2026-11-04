@@ -401,7 +401,12 @@ test('QIN-504 AC6: 瀑布流进入虚拟窗口后保留逐列高度差并完整�
     assert.equal(layout.cols, 9);
     assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.top), Array(9).fill(0));
     assert.deepEqual(layout.itemLayouts.slice(0, 9).map(position => position.column), [0,1,2,3,4,5,6,7,8]);
-    assert.ok(layout.itemLayouts.slice(9, 27).some((position,index,positions) => index > 0 && position.row !== positions[index - 1].row), '不同高度素材按 CSS 行优先占位形成错落，而不是重新按最短列打乱顺序');
+    for(let column=0; column<layout.cols; column++){
+        const positions = layout.itemLayouts.filter(position => position.column === column);
+        for(let i=1; i<positions.length; i++){
+            assert.equal(positions[i].top - (positions[i-1].top + positions[i-1].height), 10, '同列卡片间距固定且不重叠');
+        }
+    }
     assert.ok(layout.rowTops.every((top,index,tops) => index === 0 || top >= tops[index - 1]), '按素材顺序的 top 位置保持单调，供二分窗口定位');
     assert.deepEqual(
         layout.itemLayouts.slice(0,100).map(({left,top,span}) => [left,top,span]),
@@ -514,7 +519,7 @@ test('QIN-504 AC3: 快速分页后同步资产库计数与续载状态', () => {
     const loadStart = manager.indexOf('async function loadMoreRegistryAssets(){');
     const loadEnd = manager.indexOf('// 【浏览预加载】契约', loadStart);
     assert.ok(loadStart >= 0 && loadEnd > loadStart);
-    assert.match(footer, /已加载 \$\{registryAssets\.length\} 项/);
+    assert.match(footer, /已加载\$\{registryPageHasMore/);
     assert.match(footer, /registryPageHasMore \? '下滑加载更多'/);
     assert.match(manager.slice(loadStart, loadEnd), /syncRegistryVaultFooter\(\);/);
 });
@@ -653,7 +658,39 @@ test('QIN-504 AC7: 只在向下滚动时预加载视口外下一批20张预览',
     // QIN-518 AC2：预览预取改为带 200px 视口提前量，消除快速滚动白块。
     assert.equal(manager.match(/const REGISTRY_PREVIEW_ROOT_MARGIN = '([^']+)'/)?.[1], '200px 0px');
 
-    assert.match(manager, /const REGISTRY_PAGE_SIZE = 100/);
+    assert.match(manager, /const REGISTRY_PAGE_SIZE = 1500/);
     assert.match(functionSource('loadMoreRegistryAssets'), /registryQueryString\(\{offset,cursor\}\)/);
     assert.match(functionSource('prefetchRegistryNextPage'), /registryQueryString\(\{offset,cursor\}\)/);
+});
+
+test('QIN-532: Shift+滚轮可缩至 96px 并提示边界', () => {
+    let save;
+    let status = '';
+    const content = {style:{setProperty(){}}};
+    const root = {querySelectorAll:() => [content], querySelector:() => null};
+    const handle = new Function(
+        'root','REGISTRY_CARD_SIZE','clearTimeout','setTimeout','saveRegistryViewSettings','setStatus','requestAnimationFrame','scheduleRegistryMasonryLayout','updateRegistryVirtualWindow','remeasureRegistryMasonryGrid',
+        `let registryCardSize=108; let registryCardSizeSaveTimer=0; let registryCardSizeLayoutFrame=0; let registryCardSizeVirtualMeasureRevision=0; ${functionSource('handleRegistryCardResizeWheel')}\nreturn {handle:handleRegistryCardResizeWheel,size:()=>registryCardSize};`,
+    )(root, {min:96,max:360}, () => {}, callback => {save = callback;}, () => {}, value => {status = value;}, () => 1, () => {}, () => {}, () => {});
+    handle.handle({shiftKey:true, deltaY:1, target:{closest:() => true}, preventDefault(){}});
+    save();
+    assert.equal(handle.size(), 96);
+    assert.equal(status, '预览大小 96px（已到最小）');
+});
+
+test('QIN-532: 图片异步改变高度后合并重测并修正虚拟布局', () => {
+    let frame;
+    let updates = 0;
+    const cards = [{dataset:{registryCard:'a'}, getBoundingClientRect:() => ({height:300})}];
+    const grid = {querySelectorAll:() => cards};
+    const schedule = new Function('root','requestAnimationFrame','registryVirtualItemsForActiveBoard','registryVirtualState','updateRegistryVirtualWindow',
+        `let registryVirtualRemeasureFrame=0; ${functionSource('scheduleRegistryVirtualRemeasure')}\nreturn scheduleRegistryVirtualRemeasure;`)(
+        {querySelector:() => grid}, callback => {frame=callback; return 1;},
+        () => ({items:[{id:'a'}]}), {itemLayouts:[{height:120}]},
+        force => {assert.equal(force,true); updates++;},
+    );
+    schedule();
+    schedule();
+    frame();
+    assert.equal(updates,1);
 });

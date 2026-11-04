@@ -394,6 +394,9 @@ def test_a2_index_scans_allowed_roots_for_real(client, tmp_path, monkeypatch):
     assert job["progress"]["scanned"] == 2
     assert job["progress"]["error_count"] == 0
     assert job["error_code"] is None
+    listed = client.get("/api/asset-registry/assets?limit=1500", headers=AUTH).json()
+    assert len(listed["items"]) == 2
+    assert all(item["can_recycle"] for item in listed["items"])
     sync = client.post("/api/asset-registry/index/sync", headers=AUTH, json={})
     assert sync.status_code == 200
     assert sync.json()["on_disk"] == 2
@@ -645,3 +648,65 @@ def test_project_recycle_restore_uses_project_state_machine_and_cas(client):
     read = client.get(f"/api/projects/{project_id}", headers=AUTH).json()["project"]
     assert read["deleted_at"] is None and read["archived_at"] is None and read["version"] == 4
     assert client.post(target, headers=GOVERNOR, json={"expected_version": 4}).status_code == 409
+
+
+def test_qin_532_pagination_and_recycle_capability(client, assets, monkeypatch):
+    """小库一次返回，大库按视口分页，回收权限随来源变化。"""
+    from gw.asset_registry import index_jobs, repository
+    from gw.settings.models import StorageSettingsPatchRequest
+    from gw.settings.service import default_storage_settings_service
+
+    default_storage_settings_service.patch(StorageSettingsPatchRequest(
+        local_library_read_only={"readonly": True}, expected_version=1
+    ))
+    raw = repository.state().read()
+    first = raw["assets"][assets[0]]
+    first["storage_root_id"] = "writable"
+    first["canonical_relpath"] = "small/sub/one.png"
+    second = raw["assets"][assets[1]]
+    second["storage_root_id"] = "readonly"
+    repository.state().write(raw)
+    monkeypatch.setattr(index_jobs, "root_facets", lambda: [
+        {"id": "writable", "availability": "available"},
+        {"id": "readonly", "availability": "available"},
+    ])
+    response = client.get("/api/asset-registry/assets?limit=1500&dynamic_limit=120", headers=AUTH)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 2
+    capabilities = {item["asset_id"]: item["can_recycle"] for item in data["items"]}
+    assert capabilities == {assets[0]: True, assets[1]: False}
+    revision = repository.state().read()["revision"]
+    denied = client.request("DELETE", f"/api/asset-registry/assets/{assets[1]}", headers=AUTH, json={"expected_version": revision})
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "SOURCE_READ_ONLY"
+    assert assets[1] in repository.state().read()["assets"]
+
+    raw = repository.state().read()
+    for index in range(1499):
+        item = dict(first, asset_id=f"asset-large-{index:04d}", canonical_relpath="large/one.png")
+        raw["assets"][item["asset_id"]] = item
+    repository.state().write(raw)
+    data = client.get("/api/asset-registry/assets?limit=1500&dynamic_limit=120", headers=AUTH).json()
+    assert data["total"] == 1501
+    assert len(data["items"]) == 120
+    assert data["has_more"] is True
+    assert data["next_cursor"]
+    scoped = client.get("/api/asset-registry/assets?limit=1500&dynamic_limit=120&root_id=writable&folder_path=small", headers=AUTH).json()
+    assert scoped["total"] == 1
+    assert scoped["items"][0]["asset_id"] == assets[0]
+    assert scoped["has_more"] is False
+    board_filter = json.dumps({"visible": ["readonly"], "known": ["readonly", "writable"],
+                               "automatic": False, "automatic_only": False})
+    board = client.get("/api/asset-registry/assets", headers=AUTH, params={
+        "limit": 1500, "dynamic_limit": 120, "board_sources": board_filter,
+    }).json()
+    assert board["total"] == 1
+    assert board["items"][0]["asset_id"] == assets[1]
+    assert board["has_more"] is False
+    invalid = client.get("/api/asset-registry/assets", headers=AUTH, params={"board_sources": "{}"})
+    assert invalid.status_code == 400
+    folders = client.get("/api/asset-registry/folders?root_id=writable", headers=AUTH).json()
+    counts = {item["path"]: item["count"] for item in folders["indexed_folders"]}
+    assert counts == {"large": 1499, "small/sub": 1}
+    assert client.get("/api/asset-registry/assets?limit=1501", headers=AUTH).status_code == 400

@@ -272,6 +272,7 @@ FEATURE_NAMES = {
 def list_registry_assets(
     limit: Optional[str] = Query(None),
     offset: int = Query(0, ge=0),
+    dynamic_limit: Optional[int] = Query(None, ge=1, le=1500),
     cursor: Optional[str] = Query(None),
     sort: Optional[str] = Query(None),
     view: Optional[str] = Query(None),
@@ -284,6 +285,8 @@ def list_registry_assets(
     include_tags: Optional[str] = Query(None),
     exclude_tags: Optional[str] = Query(None),
     root_id: Optional[str] = Query(None),
+    folder_path: Optional[str] = Query(None),
+    board_sources: Optional[str] = Query(None),
     collection_id: Optional[str] = Query(None),
     recent_days: Optional[int] = Query(None),
     archived: Optional[bool] = Query(None),
@@ -324,7 +327,7 @@ def list_registry_assets(
             effective_limit = int(limit)
         except (TypeError, ValueError):
             raise CleanroomException(400, "INVALID_LIMIT", "limit 必须是整数") from None
-    if type(effective_limit) is not int or effective_limit < 1 or effective_limit > (200 if structured else 500):
+    if type(effective_limit) is not int or effective_limit < 1 or effective_limit > (200 if structured else 1500):
         raise CleanroomException(400, "INVALID_LIMIT", "limit 超出当前查询允许范围")
     structured_text = text
     legacy_text = query or search
@@ -354,7 +357,8 @@ def list_registry_assets(
                             shot_size=shot_size, camera_movement=camera_movement,
                             focal_length=focal_length, lighting_phase=lighting_phase,
                             aspect_ratio=aspect_ratio,
-                            include_removed=include_removed)
+                            include_removed=include_removed, dynamic_limit=dynamic_limit,
+                            folder_path=folder_path, board_sources=board_sources)
 
 
 #: 镜头级检索单次返回上限，防止一次下钻把整库镜头全部返回。
@@ -1132,6 +1136,10 @@ def delete_registry_asset(
             if exc.status_code == 404:
                 raise CleanroomException(404, "ASSET_NOT_FOUND", f"素材 {asset_id} 不存在")
             raise
+    source_id = str(raw_asset.get("storage_root_id") or raw_asset.get("root_id") or "")
+    source_policy = default_storage_settings_service.get_snapshot().local_library_read_only
+    if source_id and source_policy.get(source_id, False):
+        raise CleanroomException(403, "SOURCE_READ_ONLY", "素材来源为只读，不能移入回收站")
     request_payload = _payload(payload)
     recycler_mode = str(request_payload.get("recycler_mode") or x_gw_recycler_mode or "managed")
     if recycler_mode not in {"source", "managed"}:
