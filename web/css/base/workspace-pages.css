@@ -727,16 +727,16 @@ body:has(.observability-content) { background: var(--paper); }
 .asset-volume-head { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .asset-type-swatch { width: 8px; height: 8px; flex: 0 0 auto; background: var(--asset-type-color); }
 .asset-volume-fill { background: var(--asset-type-color); }
-.asset-volume-row.type-image { --asset-type-color: var(--asset-type-image, #20a35a); }
-.asset-volume-row.type-video { --asset-type-color: var(--asset-type-video, #2878d0); }
-.asset-volume-row.type-audio { --asset-type-color: var(--sf-amber, #f59e0b); }
-.asset-volume-row.type-font { --asset-type-color: var(--asset-type-font, #f05a32); }
-.asset-volume-row.type-model { --asset-type-color: var(--sf-coral, #ff6b6b); }
-.asset-volume-row.type-document { --asset-type-color: color-mix(in srgb, var(--asset-type-text, #e3a51a) 72%, var(--ink) 28%); }
-.asset-volume-row.type-workflow { --asset-type-color: color-mix(in srgb, var(--asset-type-other, #7654b8) 72%, var(--ink) 28%); }
-.asset-volume-row.type-project_file { --asset-type-color: color-mix(in srgb, var(--asset-type-font, #f05a32) 72%, var(--ink) 28%); }
-.asset-volume-row.type-text { --asset-type-color: var(--asset-type-text, #e3a51a); }
-.asset-volume-row.type-other { --asset-type-color: var(--asset-type-other, #7654b8); }
+.asset-volume-row.type-image { --asset-type-color: var(--asset-type-image); }
+.asset-volume-row.type-video { --asset-type-color: var(--asset-type-video); }
+.asset-volume-row.type-audio { --asset-type-color: var(--asset-type-audio); }
+.asset-volume-row.type-font { --asset-type-color: var(--asset-type-font); }
+.asset-volume-row.type-model { --asset-type-color: var(--asset-type-model); }
+.asset-volume-row.type-document { --asset-type-color: var(--asset-type-document); }
+.asset-volume-row.type-workflow { --asset-type-color: var(--asset-type-workflow); }
+.asset-volume-row.type-project_file { --asset-type-color: var(--asset-type-project_file); }
+.asset-volume-row.type-text { --asset-type-color: var(--asset-type-text); }
+.asset-volume-row.type-other { --asset-type-color: var(--asset-type-other); }
 .asset-volume-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--gw-type-body-sm); }
 .asset-volume-asset-count { flex: 0 0 auto; max-width: 15ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 700 var(--gw-type-label-md)/1 var(--gw-font-mono); }
 .asset-volume-track { min-width: 0; height: 9px; overflow: hidden; border: 1px solid var(--line); background: var(--paper); }

@@ -14,6 +14,26 @@
 
 ## 2. 视觉 token
 
+
+### 资产类型色
+
+类型色统一定义在 `web/css/base/hardware-tokens.css`；金色仅用于系统强调，不作为类型色。
+
+| 类型 | 变量 | 色值 |
+|---|---|---|
+| image | `--asset-type-image` | `#20a35a` |
+| video | `--asset-type-video` | `#2878d0` |
+| audio | `--asset-type-audio` | `#24a38a` |
+| font | `--asset-type-font` | `#f05a32` |
+| model | `--asset-type-model` | `#ff6b6b` |
+| text | `--asset-type-text` | `#bd8bf0` |
+| document | `--asset-type-document` | `#ae9bc4` |
+| workflow | `--asset-type-workflow` | `#9381bb` |
+| project_file | `--asset-type-project_file` | `#c98675` |
+| other | `--asset-type-other` | `#7654b8` |
+
+用于卡片色条、小色块、单色图标和选中描边；禁止用于正文文字、数字或大面积背景。
+
 ### 2.1 表面与品牌
 
 | Token | 值 | 用途 |

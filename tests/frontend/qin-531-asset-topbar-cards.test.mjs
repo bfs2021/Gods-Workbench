@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,9 +50,9 @@ assert.match(
   /\.registry-stat-meter \{ grid-area: 2 \/ 3 \/ 3 \/ 4;/,
   '进度条应落在第 2 行右侧并自适应拉伸'
 );
-// 资产总量卡片保留金底微型徽标
+// 资产总量卡片保留索引提示，颜色遵循 QIN-538。
 assert.match(js, /<em>\$\{stat\.primary \? '统一资产索引' : `\$\{ratio\}%`\}<\/em>/, '资产总量卡片应保留统一资产索引徽标');
-assert.match(vaultCss, /\.registry-stat-card\.primary em \{[^}]*background: color-mix/s, '徽标应有金底背景');
+assert.doesNotMatch(vaultCss, /\.registry-stat-card\.primary em \{[^}]*background:/s, '徽标不再使用金底');
 
 // AC3：细进度条 + 深凹槽底轨 + 水平高光渐变填充。
 const meterTrack = vaultCss.match(/\.registry-stat-meter \{([^}]*)\}/);
@@ -72,11 +72,7 @@ assert.match(
   '画布数量应取 canvasAssetsData.canvases 全量长度'
 );
 assert.doesNotMatch(js, /filter\(item => \(item\.kind \|\| 'classic'\) === 'reference'\)/, '不得再只过滤参考画布');
-assert.doesNotMatch(
-  vaultCss,
-  /\[data-registry-stat="reference-canvas"\]/,
-  '不得再对画布卡片隐藏图标与进度条'
-);
+assert.doesNotMatch(vaultCss, /\[data-registry-stat="reference-canvas"\][^{]*\{[^}]*display:\s*none/, '画布卡片不得隐藏');
 
 // AC5：排序/分组收口在同一胶囊内（前缀标签 + 当前值），下拉改为自绘 listbox。
 assert.match(
@@ -188,17 +184,21 @@ assert.match(statsBlock[1], /margin-inline: 0 auto;/, '整排必须向左对齐'
 assert.match(vaultCss, /--registry-stat-gap-count: 3;/, '1200px 断点下 4 列应对应 3 个间距');
 assert.match(vaultCss, /--registry-stat-gap-count: 1;/, '480px 断点下 2 列应对应 1 个间距');
 
-// AC9：卡片被选中时，除边框高亮外名称 / 数量 / 占比文字也转金色。
-assert.match(
-  vaultCss,
-  /\.registry-stat-card\.active :is\(small,strong,em\) \{ color: var\(--vault-gold\) !important; \}/,
-  '选中卡片的名称、数量、占比文字应统一转金色'
-);
-assert.match(
-  vaultCss,
-  /html\[data-theme="light"\] body\.gw-signal\.gw-page--asset-manager \.registry-stat-card\.active \{\n\s*border-color: var\(--vault-gold\) !important;/,
-  '浅色主题下选中卡片应同样有金色描边'
-);
+// QIN-538：选中描边、淡底使用类型色，数字和标签保持中性。
+assert.match(vaultCss, /\.registry-stat-card\.active \{\s*border-color: var\(--stat-type-color\) !important;/);
+assert.match(vaultCss, /\.registry-stat-card\.is-empty \{ opacity: \.5; \}/);
+assert.match(js, /Number\(stat\.value \|\| 0\) === 0 \? 'is-empty'/);
+const kinds = ['image','video','audio','font','model','text','document','workflow','project_file','other'];
+const cssDir = path.join(root, 'web/css');
+function cssFiles(dir) {
+  return readdirSync(dir, {withFileTypes: true}).flatMap(entry => entry.isDirectory() ? cssFiles(path.join(dir, entry.name)) : entry.name.endsWith('.css') ? [path.join(dir, entry.name)] : []);
+}
+const definitions = cssFiles(cssDir).flatMap(file => [...readFileSync(file, 'utf8').matchAll(/--asset-type-(image|video|audio|font|model|text|document|workflow|project_file|other)\s*:/g)].map(match => ({kind: match[1], file})));
+for (const kind of kinds) {
+  const found = definitions.filter(item => item.kind === kind);
+  assert.equal(found.length, 1, `${kind} 类型色必须仅定义一次`);
+  assert.equal(path.relative(root, found[0].file).replaceAll('\\', '/'), 'web/css/base/hardware-tokens.css');
+}
 
 // AC10：材质对调不得吃掉工具栏按钮的常驻激活态（「方格」用 aria-pressed、「简洁」用 .is-active）。
 // 只高亮描边与文字/图标，按钮底色保持普通按键的扁平底板——整块变金底属于过度高亮。

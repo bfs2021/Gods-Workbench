@@ -5080,16 +5080,16 @@ html body.gw-signal.gw-page--task-center .task-progress-track.unavailable .task-
    value marker. This keeps same-type rows identical while preserving distinct
    hues for all supported kinds. */
 html body.gw-signal.gw-page--task-center .asset-volume-row { --asset-type-color: var(--sf-faint) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-image { --asset-type-color: var(--sf-cyan) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-video { --asset-type-color: var(--sf-mint) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-audio { --asset-type-color: var(--sf-amber) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-font { --asset-type-color: var(--sf-indigo) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-model { --asset-type-color: var(--sf-coral) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-document { --asset-type-color: color-mix(in srgb, var(--sf-cyan) 72%, var(--sf-text) 28%) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-workflow { --asset-type-color: color-mix(in srgb, var(--sf-indigo) 72%, var(--sf-text) 28%) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-project_file { --asset-type-color: color-mix(in srgb, var(--sf-amber) 72%, var(--sf-text) 28%) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-text { --asset-type-color: color-mix(in srgb, var(--sf-coral) 72%, var(--sf-text) 28%) !important; }
-html body.gw-signal.gw-page--task-center .asset-volume-row.type-other { --asset-type-color: var(--sf-faint) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-image { --asset-type-color: var(--asset-type-image) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-video { --asset-type-color: var(--asset-type-video) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-audio { --asset-type-color: var(--asset-type-audio) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-font { --asset-type-color: var(--asset-type-font) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-model { --asset-type-color: var(--asset-type-model) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-document { --asset-type-color: var(--asset-type-document) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-workflow { --asset-type-color: var(--asset-type-workflow) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-project_file { --asset-type-color: var(--asset-type-project_file) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-text { --asset-type-color: var(--asset-type-text) !important; }
+html body.gw-signal.gw-page--task-center .asset-volume-row.type-other { --asset-type-color: var(--asset-type-other) !important; }
 
 html body.gw-signal.gw-page--task-center :is(.asset-volume-columns, .asset-volume-row) {
   width: 100%;
