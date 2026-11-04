@@ -212,7 +212,9 @@ def get_registry_root(
     return {
         "registry": "asset-registry",
         "revision": raw["revision"],
-        "assets": [dict(a) for a in raw["assets"].values() if asset_visible(a)],
+        "assets": repo.annotate_asset_provenance(
+            [a for a in raw["assets"].values() if asset_visible(a)], raw=raw
+        ),
         "features": repo.features_snapshot()["features"],
         "backend": "json-state",
         "data_status": DATA_STATUS_OK,

@@ -6365,6 +6365,19 @@ function registrySourceNames(item={}){
     const names = Array.isArray(item.source_names) ? item.source_names.map(String).filter(Boolean) : [];
     return names.length ? [...new Set(names)] : [item.storage_root_name || '统一资产'];
 }
+// 【QIN-539】修改时间以文件修改时间为准：后端下发 ISO 8601 字符串，本地 File 给毫秒数，
+// 统一收敛成 formatDate 需要的毫秒时间戳；两者都没有时返回 0，由调用方决定回落文案。
+function registryModifiedTime(item={}){
+    const raw = item.modified_at || item.lastModified || 0;
+    if(typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+    const parsed = Date.parse(String(raw || ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+// 确无修改时间时统一回落「—」，不再把「未知」当作时间展示。
+function registryModifiedLabel(item={}){
+    const value = registryModifiedTime(item);
+    return value ? formatDate(value) : '—';
+}
 function registryKindIcon(kind=''){
     return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box'})[String(kind || '').toLowerCase()] || 'file';
 }
@@ -6408,7 +6421,7 @@ function renderRegistryListRow(item){
         <span class="registry-list-name" role="cell"><span class="registry-list-thumb">${deferRegistryPreviewThumb(assetThumb(item))}</span><strong data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</strong></span>
         <span class="registry-list-type" role="cell"><i data-lucide="${escapeAttr(registryAssetTypeIcon(item))}"></i>${escapeHtml(registryAssetTypeLabel(item))}</span>
         <span role="cell">${escapeHtml(formatFileSize(item.size || 0))}</span>
-        <span role="cell">${escapeHtml(formatDate(item.updated_at || item.created_at))}</span>
+        <span role="cell">${escapeHtml(registryModifiedLabel(item))}</span>
         <span class="registry-list-tags" role="cell">${tags.map(tag => `<em>${escapeHtml(tag.name || tag.tag || String(tag))}</em>`).join('') || '<small>—</small>'}${(item.tags || []).length > tags.length ? `<small>+${(item.tags || []).length - tags.length}</small>` : ''}</span>
         <span class="registry-list-path" role="cell" title="${escapeAttr(`${registrySourceNames(item).join(' · ')} / ${registrySourcePath(item)}`)}"><span>${escapeHtml(registrySourceNames(item).join(' · '))}</span>${renderRegistryRecycleButton(item, 'registry-list-recycle')}</span>
     </article>`;
@@ -7768,7 +7781,7 @@ function syncRegistryCardsInPlace(){
         const listCells = [...card.children];
         if(card.classList.contains('registry-list-row')){
             if(listCells[3]) listCells[3].textContent = formatFileSize(item.size || 0);
-            if(listCells[4]) listCells[4].textContent = formatDate(item.updated_at || item.created_at);
+            if(listCells[4]) listCells[4].textContent = registryModifiedLabel(item);
             const tagsNode = card.querySelector('.registry-list-tags');
             if(tagsNode){
                 const tags = Array.isArray(item.tags) ? item.tags : [];
@@ -14028,14 +14041,13 @@ function findMatchedVideoSegment(item, query=''){
 }
 function detailViewerMetaRows(source, item, type){
     const extension = assetFileExtension(item).toUpperCase() || detailViewerTypeLabel(type);
-    const created = item.created_at || item.lastModified || item.canvas_updated_at || 0;
     const fallbackPath = item.relative_path || item.relativePath || item.file || detailViewerUrl(source, item);
     const path = item.absolute_path || (item.is_remote ? detailViewerUrl(source, item) : (fallbackPath ? '正在读取完整路径…' : '位置不可用'));
     const rows = [
         ['文件格式', extension],
         ['文件大小', formatFileSize(item.size || 0)],
         ['素材来源', detailViewerSourceLabel(source, item)],
-        ['更新时间', created ? formatDate(created) : '未知'],
+        ['修改时间', registryModifiedLabel(item)],
     ];
     const width = Number(item.width || item.metadata?.width || 0);
     const height = Number(item.height || item.metadata?.height || 0);
