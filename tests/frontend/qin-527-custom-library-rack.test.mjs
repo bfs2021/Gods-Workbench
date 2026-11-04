@@ -152,10 +152,9 @@ test('AC2: 看板目录以素材来源与真实物理子目录为准，点击纯
     // 隐藏文件夹能力在看板态保留（行内单图标）
     assert.match(functionSource('renderAssetRackFolderNode'), /data-board-folder-visibility/, '看板态必须保留隐藏文件夹开关');
 
-    // 智能筛选按看板范围取数
-    assert.match(functionSource('renderAssetRackKindBadges'), /assetRackBoardPool\(board\)/, '类型徽标计数必须按看板素材池统计');
-    assert.match(functionSource('renderAssetRackTagCloud'), /customBoardTagEntries\(assetRackBoardPool\(board\)\)/, '标签云必须只看板内标签');
-    assert.match(functionSource('renderAssetRackFilters'), /renderAssetRackBoardExtras\(board\)/, '看板分组与参考画布入口必须保留');
+    // 智能筛选页已由 QIN-533 下线：看板附加入口改由目录层级页承载
+    assert.match(functionSource('renderAssetRackFolders'), /renderAssetRackBoardExtras\(board\)/, '分组目录与参考画布入口必须迁到目录层级页');
+    assert.ok(!MANAGER.includes('renderAssetRackFilters'), '智能筛选页必须整体下线');
 
     // 清理看板筛选时同时复位看板来源/目录选择
     assert.match(
@@ -178,8 +177,8 @@ test('AC3/AC14: 左栏不再渲染底部操作组，保留未归属状态代理'
         /<div id="assetSidebarActionState" hidden aria-hidden="true">[\s\S]*id="btnUnassignedInbox"/,
         '未归属状态代理继续留给看板工具栏同步'
     );
-    // 中栏拨片承担唯一筛选入口，不得回退成按钮
-    assert.match(functionSource('renderAssetRackSegmented'), /智能筛选/);
+    // 中栏只剩目录层级：「目录层级」标题承担唯一入口，不得回退成按钮
+    assert.match(functionSource('renderAssetRackTitle'), /目录层级/, '中栏标题必须是目录层级');
 });
 
 test('AC4: 无根目录时给出可点的登记引导，直接唤起既有登记弹窗', () => {

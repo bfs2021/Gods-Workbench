@@ -552,11 +552,12 @@ window.WorkbenchAssets = (() => {
     } catch (error) { setVaultStatus(error.message); }
   }
 
+  // 【QIN-533】中栏智能筛选页下线，本入口只负责开关「目录层级」机架（保留对外名称）
   function toggleSmartFilter() {
     const doc = manager();
     const panel = doc?.getElementById('registryFacetPopover');
     const root = doc?.getElementById('assetManagerRoot');
-    if (!panel || !root) { setVaultStatus('智能筛选尚未就绪，请刷新页面。'); return; }
+    if (!panel || !root) { setVaultStatus('目录层级尚未就绪，请刷新页面。'); return; }
     if (panel.hasAttribute('popover')) {
       if (panel.matches(':popover-open')) panel.hidePopover();
       else panel.showPopover();
