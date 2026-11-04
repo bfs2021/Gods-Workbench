@@ -1321,7 +1321,7 @@ body.gw-signal.gw-page--asset-manager .registry-grid.registry-masonry-fallback {
     box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.95);
     border-radius: 5px;
     color: #fae2c8;
-    font: 700 12px/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font: 700 var(--gw-type-body-sm)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.5px;
     text-shadow: 0 0 8px rgba(223, 195, 132, 0.35);

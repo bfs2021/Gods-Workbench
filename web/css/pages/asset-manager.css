@@ -506,12 +506,17 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-video-dock.player-chassis {
     position: absolute;
     z-index: 20;
-    top: 14px;
+    /* QIN-537：机箱必须承接既有「位于素材节点下方、宽度铺满节点」的走带底座几何。
+       本规则的 .player-chassis 与 .asset-detail-media-node > .asset-detail-video-dock
+       同为 2 个类选择器且声明在后，会把 width:100% 覆盖成 width:auto；再叠加
+       container-type:inline-size 的行内尺寸抑制，宽度会塌成 padding 宽度（30px），
+       控制台被压成竖条并遮住画面。此处显式写回定宽与下方定位。 */
+    top: calc(100% + 12px);
     right: auto;
-    left: 14px;
-    width: auto;
+    left: 0;
+    width: 100%;
     min-width: 0;
-    max-width: calc(100% - 28px);
+    max-width: none;
     padding: 10px 14px 12px;
     background: linear-gradient(175deg, #181a22 0%, #101217 60%, #0a0b0e 100%);
     border: 1px solid rgba(223, 195, 132, 0.28);
@@ -568,7 +573,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     margin-bottom: 6px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
-    font-size: 10px;
+    font-size: var(--gw-type-button-xs);
     letter-spacing: 0.5px;
 }
 .asset-detail-video-telemetry .telemetry-deck {
@@ -588,7 +593,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     box-shadow: 0 0 6px #dfc384;
 }
 .asset-detail-video-telemetry .telemetry-specs {
-    font-size: 9px;
+    font-size: var(--gw-type-button-xs);
     color: rgba(255, 255, 255, 0.45);
 }
 
@@ -624,8 +629,71 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     gap: 6px;
 }
 
-/* AC5: 纯正物理光学背灯主播放按键 (Play Button) */
-.asset-detail-video-controls button.asset-detail-video-play,
+/* AC5: 走带播放/暂停大键 —— 金属双层倒角触感按键 (hw-tactile-btn)，金色仅作背光点缀。
+   票面 AC5 明确要求播放/暂停大键与上一帧/下一帧同为 hw-tactile-btn；AC2 的金色拟物
+   微球只属于画面中央悬停大键，两者不可混用。 */
+.asset-detail-video-controls button.asset-detail-video-play {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    /* 双层倒角：外环暗金属壳 + 内圈金属盘，金色仅做边缘背光 */
+    background: linear-gradient(180deg, #1b1f28 0%, #0b0d12 100%);
+    border: 1px solid rgba(250, 226, 200, 0.32);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.85),
+        0 0 10px rgba(223, 195, 132, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: #fae2c8;
+}
+.asset-detail-video-controls button.asset-detail-video-play .hw-play-tactile-inner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 35%, #2b3140 0%, #141821 62%, #0a0c11 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.9),
+        0 1px 2px rgba(0, 0, 0, 0.8);
+    color: #fae2c8;
+    transition: all 0.15s ease;
+}
+.asset-detail-video-controls button.asset-detail-video-play:hover {
+    border-color: rgba(250, 226, 200, 0.55);
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.9),
+        0 0 16px rgba(223, 195, 132, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.asset-detail-video-controls button.asset-detail-video-play:active {
+    transform: translateY(1px);
+    box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.9),
+        inset 0 2px 5px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-controls button.asset-detail-video-play:active .hw-play-tactile-inner {
+    background: #0c0e13;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-controls button.asset-detail-video-play svg {
+    width: 14px;
+    height: 14px;
+    fill: #fae2c8;
+    color: #fae2c8;
+}
+.asset-detail-video-controls button.asset-detail-video-play svg.asset-detail-video-icon-play {
+    margin-left: 1.5px;
+}
+
+/* AC2: 画面中央悬停播放微球 —— 香槟钛金光学微球（仅此一处使用金色球体材质） */
 .asset-detail-video-controls button.hw-play-capsule {
     flex: 0 0 34px;
     width: 34px;
@@ -646,7 +714,6 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     transition: all 0.15s ease;
     color: #171107;
 }
-.asset-detail-video-controls button.asset-detail-video-play:hover,
 .asset-detail-video-controls button.hw-play-capsule:hover {
     filter: brightness(1.08);
     transform: translateY(-0.5px);
@@ -655,7 +722,6 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
         0 8px 22px 3px rgba(186, 147, 91, 0.45),
         inset 0 1.5px 1.5px rgba(255, 255, 255, 0.98);
 }
-.asset-detail-video-controls button.asset-detail-video-play:active,
 .asset-detail-video-controls button.hw-play-capsule:active {
     transform: translateY(1px);
     box-shadow: 
@@ -663,14 +729,13 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
         0 1px 3px rgba(0, 0, 0, 0.8),
         inset 0 1px 1px rgba(255, 255, 255, 0.85);
 }
-.asset-detail-video-controls button.asset-detail-video-play svg,
 .asset-detail-video-controls button.hw-play-capsule svg {
     width: 15px;
     height: 15px;
     fill: #171107;
     color: #171107;
 }
-.asset-detail-video-controls button.asset-detail-video-play svg.asset-detail-video-icon-play {
+.asset-detail-video-controls button.hw-play-capsule svg.asset-detail-video-icon-play {
     margin-left: 1.5px;
 }
 
@@ -752,7 +817,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.95);
     border-radius: 5px;
     color: #fae2c8;
-    font: 700 12px/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font: 700 var(--gw-type-body-sm)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.5px;
     text-shadow: 0 0 8px rgba(223, 195, 132, 0.35);
@@ -825,6 +890,17 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     background: transparent;
     border: 0;
 }
+
+/* QIN-537：走带滑块必须保持透明底，否则会盖住自绘的 scrubber 轨、缓冲条与高光填充。
+   base/theme.css 存在全局 `body.studio-theme-dark input { background: var(--soft) !important }`，
+   会把 range 输入整体涂成不透明面板色；此处按容器作用域提升优先级，只影响走带内滑块。 */
+body.studio-theme-dark .asset-detail-video-dock input.asset-detail-video-progress,
+body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input,
+.studio-theme-dark .asset-detail-video-dock input.asset-detail-video-progress,
+.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input {
+    background: transparent !important;
+    border-color: transparent !important;
+}
 .asset-detail-video-progress::-webkit-slider-thumb {
     width: 14px;
     height: 14px;
@@ -886,12 +962,12 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     align-items: center;
     gap: 6px;
     color: #eddab3;
-    font-size: 11px;
+    font-size: var(--gw-type-label-md);
     font-weight: 600;
 }
 .asset-detail-video-volume span {
     flex: 0 0 auto;
-    font-size: 10px;
+    font-size: var(--gw-type-button-xs);
     color: rgba(223, 195, 132, 0.7);
 }
 .asset-detail-video-volume input {
@@ -948,7 +1024,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     padding: 0 6px;
     border-left: 1px solid rgba(255, 255, 255, 0.1);
     font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
-    font-size: 8px;
+    font-size: var(--gw-icon-size-xs);
     color: rgba(255, 255, 255, 0.4);
 }
 .asset-detail-video-vu-meter .vu-label {
@@ -967,7 +1043,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 }
 .asset-detail-video-vu-meter .vu-ch-name {
     width: 6px;
-    font-size: 7px;
+    font-size: inherit;
     color: #64748b;
 }
 .asset-detail-video-vu-meter .vu-bar-track {
@@ -1014,7 +1090,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     padding: 0 10px;
     grid-auto-flow: column;
     gap: 5px;
-    font-size: 11px;
+    font-size: var(--gw-type-label-md);
     font-weight: 700;
     letter-spacing: 0.2px;
     white-space: nowrap;
@@ -1074,7 +1150,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     align-items: center;
     gap: 8px;
     color: #94a3b8;
-    font-size: 11px;
+    font-size: var(--gw-type-label-md);
     font-weight: 600;
 }
 .asset-detail-video-range span {
@@ -1085,7 +1161,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-video-range b {
     min-width: 38px;
     color: #fae2c8;
-    font: 700 11px/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font: 700 var(--gw-type-label-md)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1126,7 +1202,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     width: 26px;
     min-width: 26px;
     border-left: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 10px;
+    font-size: var(--gw-type-button-xs);
     font-weight: 700;
     font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
     color: #dfc384;
@@ -1135,7 +1211,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     min-width: 34px;
     color: #fae2c8;
     text-align: center;
-    font: 700 11px/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font: 700 var(--gw-type-label-md)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
 }
 
 /* 导出目标素材库下拉 */
@@ -1153,7 +1229,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     align-items: center;
     gap: 6px;
     color: rgba(223, 195, 132, 0.7);
-    font-size: 10px;
+    font-size: var(--gw-type-button-xs);
     font-weight: 600;
 }
 .asset-detail-video-root select {
@@ -1164,7 +1240,7 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
     background: #141720;
     color: #fae2c8;
     padding: 0 4px;
-    font-size: 11px;
+    font-size: var(--gw-type-label-md);
     font-weight: 600;
 }
 
