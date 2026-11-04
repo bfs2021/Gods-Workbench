@@ -459,6 +459,7 @@ let registryPreviewFallbackCleanup = null;
 let registryVirtualScrollCleanup = null;
 let registryVirtualScrollFrame = 0;
 let registryVirtualRemeasureFrame = 0;
+let registryVirtualObserver = null;
 let registryVirtualState = {key:'', start:0, end:0, cols:1, totalHeight:0, rowTops:[], rowHeights:[], itemLayouts:[]};
 const registryVirtualHeightCache = new Map();
 let registryVirtualHeightCacheMode = '';
@@ -6631,10 +6632,10 @@ function registryVirtualCardHeight(item={}, cardWidth=176){
     const width = Number(item.width || item.metadata?.width || 0);
     const height = Number(item.height || item.metadata?.height || 0);
     const ratio = width > 0 && height > 0 ? width / height : type === 'video' ? 16 / 9 : 1;
-    const innerWidth = Math.max(96, cardWidth - 14);
+    const innerWidth = Math.max(1, cardWidth - 2);
     const hasImagePreview = type === 'image' || type === 'video' || (type === 'audio' && assetSupportsImagePreview(item));
     const mediaHeight = hasImagePreview
-        ? registryAspect === 'square' && type === 'video'
+        ? registryAspect === 'square'
             ? innerWidth
             : width > 0 && height > 0
                 ? Math.max(96, Math.min(520, innerWidth / Math.max(.2, ratio)))
@@ -6642,7 +6643,7 @@ function registryVirtualCardHeight(item={}, cardWidth=176){
                     ? innerWidth / (16 / 9)
                     : 96
         : 150;
-    // Reserve enough space for the two-line name, metadata and source label.
+    // 首次估算仅用于占位，渲染后以卡片实测高度为准。
     const bodyHeight = registrySimple ? 0 : 92;
     return Math.ceil(mediaHeight + bodyHeight + 14);
 }
@@ -6733,7 +6734,7 @@ function registryVirtualLayout(items=[], width=0, measureMissing=true){
         const actualAspect = thumb?.style?.getPropertyValue?.('--asset-media-aspect') || '';
         const measuredWidth = Number(card.getBoundingClientRect().width || 0);
         const height = Number(card.getBoundingClientRect().height || 0);
-        if(thumb && actualAspect !== expectedAspect) return;
+        if(thumb && expectedAspect && actualAspect !== expectedAspect) return;
         if(measuredWidth > 0 && Math.abs(measuredWidth - cardWidth) > 1) return;
         if(id && height > 0) registryVirtualHeightCache.set(registryVirtualHeightCacheKey(entry.item,entry.index,cacheMode), height);
     });
@@ -6869,8 +6870,15 @@ function updateRegistryVirtualWindow(force=false, skipMeasurements=false){
         && registryVirtualState.key === key
         && registryVirtualState.itemLayouts?.length === items.length
         && Math.abs(Number(registryVirtualState.width || 0) - width) < 1;
-    const layout = canReuseLayout ? registryVirtualState : registryVirtualLayout(items, width, !skipMeasurements);
-    const range = registryVirtualRange(items, layout, scrollRoot.scrollTop, scrollRoot.clientHeight || 650);
+    const oldState = registryVirtualState;
+    const anchorIndex = force && oldState.key === key
+        ? oldState.itemLayouts.findIndex(position => position.top + position.height > scrollRoot.scrollTop)
+        : -1;
+    const anchorOffset = anchorIndex >= 0 ? oldState.itemLayouts[anchorIndex].top - scrollRoot.scrollTop : 0;
+    const layout = canReuseLayout ? oldState : registryVirtualLayout(items, width, !skipMeasurements);
+    const adjustedScrollTop = anchorIndex >= 0 && layout.itemLayouts[anchorIndex]
+        ? Math.max(0, layout.itemLayouts[anchorIndex].top - anchorOffset) : scrollRoot.scrollTop;
+    const range = registryVirtualRange(items, layout, adjustedScrollTop, scrollRoot.clientHeight || 650);
     const sameWindow = !force
         && registryVirtualState.key === key
         && registryVirtualState.start === range.start
@@ -6879,11 +6887,11 @@ function updateRegistryVirtualWindow(force=false, skipMeasurements=false){
         && Math.abs(Number(registryVirtualState.width || 0) - width) < 1
         && Math.abs(Number(registryVirtualState.totalHeight || 0) - layout.totalHeight) < 1;
     if(sameWindow) return false;
-    const savedScrollTop = scrollRoot.scrollTop;
     const registryPreviewCache = captureRegistryPreviewImages();
     grid.style.setProperty('--registry-virtual-height', `${layout.totalHeight.toFixed(2)}px`);
     grid.innerHTML = registryVirtualGridMarkup(items, layout, range).replace(/^<div class="registry-grid registry-grid-virtualized"[^>]*>/, '').replace(/<\/div>\s*$/, '');
     restoreRegistryPreviewImages(registryPreviewCache);
+    grid.querySelectorAll('img[data-registry-preview-loaded="true"]').forEach(applyRegistryVirtualPreviewAspect);
     registryVirtualState = {
         ...layout,
         width,
@@ -6892,7 +6900,8 @@ function updateRegistryVirtualWindow(force=false, skipMeasurements=false){
         end:range.end,
     };
     refreshIcons();
-    scrollRoot.scrollTop = savedScrollTop;
+    scrollRoot.scrollTop = adjustedScrollTop;
+    observeRegistryVirtualCards(grid);
     scheduleRegistryPreviewImages();
     return true;
 }
@@ -6915,7 +6924,8 @@ function scheduleRegistryVirtualWindow(){
         scrollRoot.removeEventListener('scroll', onScroll);
         if(frame) cancelAnimationFrame(frame);
     };
-    requestAnimationFrame(() => updateRegistryVirtualWindow());
+    observeRegistryVirtualCards(grid);
+    requestAnimationFrame(() => scheduleRegistryVirtualRemeasure());
 }
 function renderRegistryAssetSections(items=[], board=null, emptyText='暂无匹配资产'){
     const projectedItems = registryProjectedAssetItems(items);
@@ -8655,6 +8665,8 @@ function disconnectRegistryPreviewScheduling(){
     registryPreviewQueue = [];
     registryVirtualScrollCleanup?.();
     registryVirtualScrollCleanup = null;
+    registryVirtualObserver?.disconnect?.();
+    registryVirtualObserver = null;
     if(registryVirtualScrollFrame) cancelAnimationFrame(registryVirtualScrollFrame);
     registryVirtualScrollFrame = 0;
     registryMasonryScheduleRevision += 1;
@@ -8747,6 +8759,19 @@ function scheduleRegistryMasonryLayout(){
         });
     });
 }
+function applyRegistryVirtualPreviewAspect(image){
+    if(registryAspect !== 'original' || !image?.naturalWidth || !image?.naturalHeight) return;
+    const thumb = image.closest?.('.asset-thumb');
+    if(!thumb || thumb.style.getPropertyValue('--asset-media-aspect')) return;
+    thumb.style.setProperty('--asset-media-aspect', String(image.naturalWidth / image.naturalHeight));
+}
+function observeRegistryVirtualCards(grid){
+    registryVirtualObserver?.disconnect?.();
+    registryVirtualObserver = null;
+    if(!grid || typeof ResizeObserver !== 'function') return;
+    registryVirtualObserver = new ResizeObserver(() => scheduleRegistryVirtualRemeasure());
+    grid.querySelectorAll(':scope > .registry-card[data-registry-card]').forEach(card => registryVirtualObserver.observe(card));
+}
 function scheduleRegistryVirtualRemeasure(){
     if(registryVirtualRemeasureFrame) return;
     registryVirtualRemeasureFrame = requestAnimationFrame(() => {
@@ -8778,6 +8803,7 @@ function pumpRegistryPreviewQueue(){
             if(settled) return;
             settled = true;
             registryPreviewActive = Math.max(0, registryPreviewActive - 1);
+            if(image.closest?.('[data-registry-virtual-grid]')) applyRegistryVirtualPreviewAspect(image);
             scheduleRegistryVirtualRemeasure();
             pumpRegistryPreviewQueue();
         };
