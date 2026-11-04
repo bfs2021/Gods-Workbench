@@ -9899,6 +9899,12 @@ async function loadCustomBoardFolderDirectories(board, force=false){
         ...rootIds.map(rootId => loadAssetRackDiskFolders(rootId)),
         loadAssetRackDiskFolders('__automatic__'),
     ]);
+    // QIN-542 AC4：403 提示条需要一次强制重绘（可能其他结果全为空），noticed 只放行一次
+    if(registryDiskFolderPermissionDenied && !registryDiskFolderPermissionNoticed){
+        registryDiskFolderPermissionNoticed = true;
+        if(activeTab === board?.id) render();
+        return;
+    }
     if(activeTab === board?.id && diskResults.some(entries => entries.length)) render();
 }
 function customAssetLibraryItems(board){
@@ -9919,7 +9925,7 @@ function customBoardFolderTree(items=[], directories=[], summary=null, category=
         folder.split('/').filter(Boolean).forEach((name, index, segments) => {
             const path = segments.slice(0, index + 1).join('/');
             if(!map.has(path)){
-                const node = {path, name, count:0, children:[]};
+                const node = {path, name, count:0, selfCount:0, children:[]};
                 map.set(path, node);
                 if(parentPath) map.get(parentPath)?.children.push(node);
                 else roots.push(node);
@@ -9933,20 +9939,42 @@ function customBoardFolderTree(items=[], directories=[], summary=null, category=
         ensureFolder(folder);
         folder.split('/').filter(Boolean).forEach((_name, index, segments) => {
             const path = segments.slice(0, index + 1).join('/');
-            if(map.has(path)) map.get(path).count += 1;
+            if(map.has(path)){
+                map.get(path).count += 1;
+                // QIN-542 AC3：素材落在该目录本体时计为本层文件（非递归口径）
+                if(index === segments.length - 1) map.get(path).selfCount += 1;
+            }
         });
     });
+    // QIN-542 AC2 修复：reset 计数前先按全类型口径记录「本目录是否有已索引素材」，
+    // 供空目录标记判定（QA 复验缺陷：有文件无子目录的目录曾被误标「空」）
+    map.forEach(node => { node.hasIndexedAssets = node.count > 0; });
     if(Array.isArray(summary)){
-        map.forEach(node => { node.count = 0; });
+        map.forEach(node => { node.count = 0; node.selfCount = 0; });
         summary.forEach(entry => {
             const folder = String(entry.path || '');
             ensureFolder(folder);
-            const count = category ? Number(entry.categories?.[category] || 0) : Number(entry.count || 0);
+            // 后端 entry.count 是全类型本层文件数，与看板分类无关；有文件即非空目录
+            if(Number(entry.count || 0) > 0){
+                const selfNode = map.get(folder);
+                if(selfNode) selfNode.hasIndexedAssets = true;
+            }
+            const selfC = category ? Number(entry.categories?.[category] || 0) : Number(entry.count || 0);
             folder.split('/').filter(Boolean).forEach((_name, index, segments) => {
                 const path = segments.slice(0, index + 1).join('/');
-                if(map.has(path)) map.get(path).count += count;
+                const node = map.get(path);
+                if(!node) return;
+                node.count += selfC;
+                if(index === segments.length - 1) node.selfCount += selfC;
             });
         });
+        // QIN-542 AC3：后端 total_count（含子目录递归总数）与累加口径等价，有值时覆盖写入
+        if(!category){
+            summary.forEach(entry => {
+                const node = map.get(String(entry.path || ''));
+                if(node && entry.total_count != null) node.count = Number(entry.total_count || 0);
+            });
+        }
     }
     const sortNodes = nodes => nodes.sort((a,b) => a.name.localeCompare(b.name, 'zh-Hans-CN', {numeric:true, sensitivity:'base'})).forEach(node => sortNodes(node.children));
     sortNodes(roots);
@@ -10943,10 +10971,13 @@ function assetRackAutomaticItems(board=assetRackBoard()){
  * QIN-527 补充：目录树合并磁盘真实子目录（含尚未索引到素材的空目录）。
  * 素材 canonical_relpath 只能推出「有素材的目录」，磁盘上像 3d/、pixaroma/、
  * 111111111/ 这类空目录必须走 /api/storage-settings/browse 逐层懒加载；
- * 该接口仅 admin 可读，editor 403 时静默降级为仅素材推导，不报错不占位。
+ * QIN-542：拼树消费全部已加载层级缓存（不再只读根层），非 admin 403 时
+ * 在目录层级页显式提示（不再静默），空目录在加载确认后标明「空」徽标。
  * ------------------------------------------------------------------------- */
 const registryDiskFolderCache = new Map();
-const registryDiskFolderLoading = new Set();
+const registryDiskFolderLoading = new Map();
+let registryDiskFolderPermissionDenied = false;
+let registryDiskFolderPermissionNoticed = false;
 let assetAllowedRootPathsPromise = null;
 const assetAllowedRootPaths = new Map();
 async function loadAssetAllowedRootPaths(){
@@ -10988,33 +11019,54 @@ async function loadAssetRackDiskFolders(rootId, relPath=''){
     const rootPath = assetRackRootDiskPath(id);
     if(!rootPath) return [];
     const key = `${id}::${relPath}`;
-    if(registryDiskFolderCache.has(key) || registryDiskFolderLoading.has(key)) return registryDiskFolderCache.get(key) || [];
-    registryDiskFolderLoading.add(key);
-    try {
-        const base = rootPath.replace(/\\/g, '/').replace(/\/+$/g, '');
-        const target = relPath ? `${base}/${relPath}` : base;
-        const response = await fetch(`/api/storage-settings/browse?path=${encodeURIComponent(target)}`, {credentials:'same-origin'});
-        const data = await response.json().catch(() => ({}));
-        if(!response.ok){
+    if(registryDiskFolderLoading.has(key)) return registryDiskFolderLoading.get(key);
+    if(registryDiskFolderCache.has(key)) return registryDiskFolderCache.get(key) || [];
+    const promise = (async () => {
+        try {
+            const base = rootPath.replace(/\\/g, '/').replace(/\/+$/g, '');
+            const target = relPath ? `${base}/${relPath}` : base;
+            const response = await fetch(`/api/storage-settings/browse?path=${encodeURIComponent(target)}`, {credentials:'same-origin'});
+            const data = await response.json().catch(() => ({}));
+            if(!response.ok){
+                // QIN-542 AC4：非 admin 浏览磁盘目录被拒（403）时显式登记，不再静默
+                if(response.status === 403){
+                    registryDiskFolderPermissionDenied = true;
+                }
+                registryDiskFolderCache.set(key, []);
+                return [];
+            }
+            const entries = (Array.isArray(data?.directories) ? data.directories : []).map(item => {
+                const abs = String(item?.path || '').replace(/\\/g, '/').replace(/\/+$/g, '');
+                const rel = abs.startsWith(`${base}/`) ? abs.slice(base.length + 1) : String(item?.name || '');
+                return {name: String(item?.name || rel), rel: rel.replace(/^\/+|\/+$/g, '')};
+            }).filter(item => item.rel);
+            registryDiskFolderCache.set(key, entries);
+            return entries;
+        } catch(_) {
             registryDiskFolderCache.set(key, []);
             return [];
         }
-        const entries = (Array.isArray(data?.directories) ? data.directories : []).map(item => {
-            const abs = String(item?.path || '').replace(/\\/g, '/').replace(/\/+$/g, '');
-            const rel = abs.startsWith(`${base}/`) ? abs.slice(base.length + 1) : String(item?.name || '');
-            return {name: String(item?.name || rel), rel: rel.replace(/^\/+|\/+$/g, '')};
-        }).filter(item => item.rel);
-        registryDiskFolderCache.set(key, entries);
-        return entries;
-    } catch(_) {
-        registryDiskFolderCache.set(key, []);
-        return [];
-    } finally {
-        registryDiskFolderLoading.delete(key);
-    }
+    })();
+    registryDiskFolderLoading.set(key, promise);
+    void promise.finally(() => registryDiskFolderLoading.delete(key));
+    return promise;
 }
 function assetRackDiskDirectories(rootId, relPath=''){
-    return (registryDiskFolderCache.get(`${String(rootId || '')}::${relPath}`) || []).map(item => item.rel);
+    // QIN-542 AC1：拼树必须消费全部已加载层级的磁盘目录缓存，不能再只读根层；
+    // 逐层懒加载靠展开节点的 toggleAssetRackFolder 触发，这里只负责合并已有缓存。
+    const id = String(rootId || '');
+    if(!id) return [];
+    const merged = [];
+    const walk = prefix => {
+        (registryDiskFolderCache.get(`${id}::${prefix}`) || []).forEach(entry => {
+            const rel = String(entry?.rel || '');
+            if(!rel || merged.includes(rel)) return;
+            merged.push(rel);
+            walk(rel);
+        });
+    };
+    walk(relPath);
+    return merged;
 }
 function assetRackDiskDirectoriesForItems(items=[]){
     // 聚合（自动归档）视角：合并池内各素材根已缓存的磁盘目录
@@ -11109,9 +11161,14 @@ async function loadAssetRackRegisteredFolders(force=false){
     } finally {
         registryRegisteredFoldersLoading = false;
     }
-    // 总览态同样合并磁盘真实子目录（含空目录；admin 可读，editor 静默降级）
+    // 总览态同样合并磁盘真实子目录（含空目录）；QIN-542 AC4：403 时提示条需一次强制重绘
     const rootIds = assetRackRoots().map(root => String(root.id || '')).filter(Boolean);
     const diskResults = await Promise.all(rootIds.map(rootId => loadAssetRackDiskFolders(rootId)));
+    if(registryDiskFolderPermissionDenied && !registryDiskFolderPermissionNoticed){
+        registryDiskFolderPermissionNoticed = true;
+        if(activeTab === 'registry' || assetRackBoard()) render();
+        return;
+    }
     if((activeTab === 'registry' || assetRackBoard()) && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
 }
 let assetRackDirectoryIndexPromise = null;
@@ -11144,8 +11201,9 @@ function toggleAssetRackFolder(key){
         const rootId = separator > 0 ? value.slice(0, separator) : '';
         const path = separator > 0 ? value.slice(separator + 2) : '';
         if(path){
-            void loadAssetRackDiskFolders(rootId, path).then(entries => {
-                if(entries.length && assetRackExpandedFolders.has(value)) render();
+            // QIN-542 AC1/AC2：加载完成即重绘（无论有无子目录），呈现深层子目录或「空」标记
+            void loadAssetRackDiskFolders(rootId, path).then(() => {
+                if(assetRackExpandedFolders.has(value)) render();
             });
         }
     }
@@ -11264,7 +11322,16 @@ function renderAssetRackFolderNode(rootId, node, depth=0){
         ? String(boardSourceSelection[board.id] || '') === root && String(boardFolderSelection[board.id] || '') === node.path
         : registryNavFolder.rootId === root && registryNavFolder.path === node.path;
     const expanded = assetRackExpandedFolders.has(key);
-    const expandable = node.children.length > 0;
+    // QIN-542 AC1/AC2：全部节点保留展开入口（叶子展开触发逐层懒加载）；
+    // 已确认的空目录（已加载且无子目录、无权限问题）标明「空」徽标
+    const diskEmpty = registryDiskFolderCache.has(`${root}::${node.path}`)
+        && !(registryDiskFolderCache.get(`${root}::${node.path}`) || []).length
+        && !node.children.length
+        && !node.hasIndexedAssets
+        && !registryDiskFolderPermissionDenied;
+    const emptyBadge = diskEmpty ? '<em title="空目录：无已索引素材与子目录">空</em>' : '';
+    const selfBadge = Number(node.selfCount || 0) > 0 ? `<em title="仅本层文件数">本层${Number(node.selfCount)}</em>` : '';
+    const expandable = true;
     // 看板态保留既有「隐藏此文件夹」能力，压成行内单图标，不新增工具栏占位
     const hidden = board ? customBoardFolderIsHidden(board.id, node.path) : false;
     const directlyHidden = board ? (boardHiddenFolders[board.id] || []).includes(node.path) : false;
@@ -11273,10 +11340,8 @@ function renderAssetRackFolderNode(rootId, node, depth=0){
         : '';
     return `<div class="asset-rack-branch">
         <div class="asset-rack-node ${active ? 'is-active' : ''}" style="--rack-depth:${Math.min(depth, 6)}">
-            ${expandable
-                ? `<button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠文件夹' : '展开文件夹'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>`
-                : '<span class="asset-rack-twisty-spacer" aria-hidden="true"></span>'}
-            <button class="asset-rack-folder" type="button" data-asset-rack-folder-root="${escapeAttr(root)}" data-asset-rack-folder-path="${escapeAttr(node.path)}" aria-pressed="${active}" title="${escapeAttr(node.path)}"><i data-lucide="${active ? 'folder-open' : 'folder'}"></i><span>${escapeHtml(node.name)}</span><em>${Number(node.count || 0)}</em></button>
+            <button class="asset-rack-twisty" type="button" data-asset-rack-toggle="${escapeAttr(key)}" aria-expanded="${expanded}" title="${expanded ? '折叠文件夹' : '展开文件夹'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>
+            <button class="asset-rack-folder" type="button" data-asset-rack-folder-root="${escapeAttr(root)}" data-asset-rack-folder-path="${escapeAttr(node.path)}" aria-pressed="${active}" title="${escapeAttr(node.path)}"><i data-lucide="${active ? 'folder-open' : 'folder'}"></i><span>${escapeHtml(node.name)}</span><em>${Number(node.count || 0)}</em>${selfBadge}${emptyBadge}</button>
             ${eye}
         </div>
         ${expandable && expanded ? `<div class="asset-rack-children">${node.children.map(child => renderAssetRackFolderNode(root, child, depth + 1)).join('')}</div>` : ''}
@@ -11319,9 +11384,14 @@ function renderAssetRackBoardExtras(board){
 function renderAssetRackFolders(){
     ensureAssetRackRootsExpanded();
     const board = assetRackBoard();
+    // QIN-542 AC4：非 admin 浏览磁盘子目录被拒（403）时显式提示，不再静默
+    const permissionHint = registryDiskFolderPermissionDenied
+        ? '<div class="asset-rack-root-offline" role="note" title="磁盘子目录浏览接口仅管理员会话可读；目录树以已索引素材与登记目录为准">磁盘子目录浏览需要管理员权限，部分层级以已索引素材与登记目录为准</div>'
+        : '';
     return `<div class="asset-rack-pane" role="tabpanel" aria-label="目录层级">
         ${renderAssetRackFolderToolbar()}
         <div class="asset-rack-tree" role="tree" aria-label="素材库目录层级">${renderAssetRackFolderRoots()}</div>
+        ${permissionHint}
         ${board ? renderAssetRackBoardExtras(board) : ''}
     </div>`;
 }
