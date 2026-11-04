@@ -394,7 +394,8 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-media-canvas-toolbar button:disabled { opacity:.38; cursor:not-allowed; }
 .asset-detail-media-canvas-toolbar svg { width:13px; height:13px; }
 .asset-detail-media-canvas-toolbar button.primary svg[data-lucide="loader-2"] { animation:asset-spin 1s linear infinite; }
-.asset-detail-media-canvas-toolbar button.is-active { border-color:var(--sf-cyan); background:var(--sf-cyan); color:#fff; }
+.asset-detail-media-canvas-toolbar button.is-active { border-color:var(--vault-accent, #dfc384) !important; background:#141822 !important; color:var(--vault-gold, #dfc384) !important; box-shadow:0 0 8px rgba(223, 195, 132, 0.18), inset 0 0 0 1px rgba(223, 195, 132, 0.25) !important; }
+.asset-detail-media-canvas-toolbar button.is-active :is(svg, span, i) { color:var(--vault-gold, #dfc384) !important; }
 .asset-detail-media-canvas-viewport { position:relative; min-width:0; min-height:0; overflow:hidden; cursor:default; outline:none; touch-action:none; }
 .asset-detail-media-canvas-viewport.is-panning { cursor:grabbing; }
 .asset-detail-media-canvas-viewport.is-asset-drag-over { box-shadow:inset 0 0 0 3px var(--sf-cyan); }

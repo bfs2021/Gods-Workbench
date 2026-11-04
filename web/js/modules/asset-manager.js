@@ -6045,12 +6045,16 @@ function mountDetailImageEditorCoverflow(state, shell){
     }}));
 }
 function detailReferenceCanvasCoverflowAssets(){
-    const source = detailViewerState.source || 'canvas-asset';
+    const source = detailViewerState.source || 'registry';
     const seen = new Set();
-    // Keep existing canvas nodes first, then add the visible library. Both
-    // surfaces resolve the same stable asset ID, so a Coverflow drag can add
+    // Keep existing canvas nodes first, then add current session items and visible library.
+    // Both surfaces resolve the same stable asset ID, so a Coverflow drag can add
     // an image that is not on the canvas yet without creating a local shadow.
-    const values = [...detailMediaCanvasItems(), ...detailMediaCanvasLibraryItems()];
+    const values = [
+        ...detailMediaCanvasItems(),
+        ...(detailViewerState.items || []),
+        ...detailMediaCanvasLibraryItems(),
+    ];
     return values.filter(item => registryCoverflowSourceIsVisual(source, item)).map(item => {
         const assetId = detailMediaCanvasPersistId(item, source);
         const id = String(assetId || item?.id || '').trim();
@@ -6067,12 +6071,14 @@ function detailReferenceCanvasCoverflowAssets(){
     }).filter(Boolean);
 }
 function mountDetailReferenceCanvasCoverflow(shell){
-    if(!shell || !detailViewerState.referenceCanvasMode) return;
+    if(!shell) return;
     const assets = detailReferenceCanvasCoverflowAssets();
     if(!assets.length) return;
-    const source = detailViewerState.source || 'canvas-asset';
-    const activeItem = detailMediaCanvasItems().find(value => String(value.id || '') === String(detailViewerState.mediaCanvasActiveId || ''));
-    const activeId = String(detailMediaCanvasPersistId(activeItem, source) || detailViewerState.mediaCanvasActiveId || '').trim();
+    const source = detailViewerState.source || 'registry';
+    const activeItem = detailMediaCanvasItems().find(value => String(value.id || '') === String(detailViewerState.mediaCanvasActiveId || ''))
+        || detailViewerState.items?.[detailViewerState.index]
+        || detailViewerItem(source, detailViewerState.id);
+    const activeId = String(detailMediaCanvasPersistId(activeItem, source) || detailViewerState.mediaCanvasActiveId || detailViewerState.id || '').trim();
     const currentAssetId = assets.some(value => value.id === activeId) ? activeId : assets[0].id;
     window.dispatchEvent(new CustomEvent('gw:asset-coverflow-open', {detail:{
         mode:'editor', source, scope:'reference-canvas', structureId:detailViewerState.referenceCanvasStructureId || '', host:shell, assets, currentAssetId, total:assets.length,
@@ -6159,7 +6165,7 @@ window.addEventListener('gw:asset-coverflow-change', event => {
         if(detailImageEditorState && source === detailViewerState.source){
             detailImageEditorState.coverflowAssetId = id;
             switchDetailImageEditorAsset(detail).catch(err => setStatus(err.message || '无法切换 Coverflow 当前图片'));
-        } else if(detailViewerState.open && detailViewerState.referenceCanvasMode && source === detailViewerState.source){
+        } else if(detailViewerState.open && (detailViewerState.referenceCanvasMode || document.querySelector('[data-detail-media-canvas-viewport]')) && (source === detailViewerState.source || source === 'registry')){
             const item = detailMediaCanvasItems().find(value => String(detailMediaCanvasPersistId(value, source) || value.id || '') === id);
             detailViewerState.mediaCanvasLibrarySelectedId = id;
             if(item){
@@ -6194,8 +6200,8 @@ window.addEventListener('gw:asset-coverflow-add-to-reference-canvas', event => {
         || detail.mode !== 'editor'
         || detail.scope !== 'reference-canvas'
         || !detailViewerState.open
-        || !detailViewerState.referenceCanvasMode
-        || String(detail.source || '') !== String(detailViewerState.source || '')
+        || (!detailViewerState.referenceCanvasMode && !document.querySelector('[data-detail-media-canvas-viewport]'))
+        || (String(detail.source || '') !== String(detailViewerState.source || '') && String(detail.source || '') !== 'registry')
     ) return;
     const viewport = document.querySelector('[data-detail-media-canvas-viewport]');
     const rect = viewport?.getBoundingClientRect();
@@ -16112,7 +16118,7 @@ function renderDetailViewer(){
     if(type === 'video') hydrateVideoStoryboardImages(overlay);
     if(type === 'font') initializeDetailFontPreview(overlay, url);
     else clearDetailViewerFontFace();
-    if(mediaCanvasMode && detailViewerState.referenceCanvasMode && detailMediaCanvasCoverflowVisible){
+    if(mediaCanvasMode && detailMediaCanvasCoverflowVisible){
         const refShell = overlay.querySelector('.asset-detail-media-canvas-shell');
         refShell?.classList.add('gw-coverflow-embedded-host');
         mountDetailReferenceCanvasCoverflow(refShell);
