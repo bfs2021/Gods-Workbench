@@ -2316,8 +2316,9 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card:focus-visible { box-shadow:0 0 0 2px var(--strong); }
 .registry-card .asset-card-check { top:43px; left:9px; z-index:5; accent-color:var(--asset-type-color); }
 /* 【QIN-534】选中态升级为黑金微光高亮：缩略图本身不加任何半透明变色遮罩（保持原色原貌），
-   只把卡片容器外框换成暗金渐变 + 描边 + 呼吸光晕，确保深色素材一眼可辨。 */
-.registry-card.active,.registry-card.selected { --asset-type-ink:var(--text); border-color:#dfc384; background:linear-gradient(165deg,rgba(223,195,132,.16),rgba(223,195,132,.05)),#0f1218; box-shadow:0 0 10px rgba(223,195,132,.22),inset 0 1px rgba(255,255,255,.1); }
+   只把卡片容器外框换成暗金渐变 + 描边 + 呼吸光晕，确保深色素材一眼可辨。
+   【QIN-534 复验】用户实测后要求金色背景亮度提升 50%：两段金色叠层不透明度由 .16/.05 提到 .24/.075。 */
+.registry-card.active,.registry-card.selected { --asset-type-ink:var(--text); border-color:#dfc384; background:linear-gradient(165deg,rgba(223,195,132,.24),rgba(223,195,132,.075)),#0f1218; box-shadow:0 0 10px rgba(223,195,132,.22),inset 0 1px rgba(255,255,255,.1); }
 .registry-card.active::before,.registry-card.selected::before { height:5px; }
 .registry-card.active .asset-thumb,.registry-card.selected .asset-thumb { box-shadow:inset 0 0 0 1px rgba(223,195,132,.55); }
 .registry-card-selection-overlay { position:absolute; z-index:2; inset:0; background:var(--asset-type-color); opacity:0; pointer-events:none; transition:opacity .14s ease; }

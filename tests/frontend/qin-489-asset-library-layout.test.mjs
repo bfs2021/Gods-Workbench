@@ -122,7 +122,8 @@ test('QIN-505 AC2-AC5: 类型徽标承载分类色，简洁模式保留瀑布流
     assert.match(vaultCss, /registry-card \.registry-card-format \{[^}]*background: color-mix\(in hsl,var\(--asset-type-color\) 50%,#000 50%\) !important; color: var\(--vault-accent\) !important/);
     assert.doesNotMatch(vaultCss, /registry-card\.asset-type-video \.registry-card-format \{[^}]*color:/);
     // 【QIN-534 更新】金库壳选中态由「深底 + 1px 线」升级为黑金微光渐变 + 暗金描边 + 呼吸光晕（AC1）。
-    assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: linear-gradient\(165deg,rgba\(223,195,132,\.16\),rgba\(223,195,132,\.05\)\),#0f1218 !important; border: 1px solid #dfc384 !important; box-shadow: 0 0 10px rgba\(223,195,132,\.22\),inset 0 1px rgba\(255,255,255,\.1\) !important; \}/);
+    // 【QIN-534 复验】金色背景亮度提升 50%：两段金色叠层不透明度 .16/.05 → .24/.075。
+    assert.match(vaultCss, /registry-card:is\(\.active,\.selected\) \{ background: linear-gradient\(165deg,rgba\(223,195,132,\.24\),rgba\(223,195,132,\.075\)\),#0f1218 !important; border: 1px solid #dfc384 !important; box-shadow: 0 0 10px rgba\(223,195,132,\.22\),inset 0 1px rgba\(255,255,255,\.1\) !important; \}/);
     assert.match(managerCss, /\.registry-card\.active \.registry-card-selection-overlay,\.registry-card\.selected \.registry-card-selection-overlay \{ display:none; \}/);
     assert.match(vaultCss, /grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
     assert.match(managerCss, /grid-template-columns:repeat\(auto-fill,minmax\(min\(100%,var\(--registry-card-size,176px\)\),min\(100%,var\(--registry-card-size,176px\)\)\)\)/);
