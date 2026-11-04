@@ -64,6 +64,8 @@ function buildContext(overrides = {}){
         registryAssets: [],
         registryAssetStructures: new Map(),
         registryStructureMutationId: '',
+        detailViewerState: {open: false, source: 'registry'},
+        renderDetailViewer(){},
         setStatus(){},
         render(){},
         closeRegistryStructureMenu(){},

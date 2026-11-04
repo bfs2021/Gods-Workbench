@@ -5716,7 +5716,8 @@ async function releaseRegistryRelations(assetIds=[]){
         });
     }
     setStatus(removedPairs.length ? `已解除 ${removedPairs.length} 条素材关联` : '选中素材之间没有可解除的关联');
-    render();
+    if(detailViewerState.open && detailViewerState.source === 'registry') renderDetailViewer();
+    else render();
 }
 // 【QIN-534】多选右键菜单不再限定 kind==='image'：版本/组结构按「是否全为图片」决定可用性，
 // 关联结构对任意多模态素材可用，避免右键菜单被旧限制静默拦掉。
