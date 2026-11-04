@@ -15253,7 +15253,7 @@ function renderDetailMediaCanvasContextMenu(){
         <section><header><span>规格化</span><select data-detail-media-normalize-basis aria-label="规格化尺寸基准"><option value="first" ${(detailViewerState.mediaCanvasNormalizeBasis || 'first') === 'first' ? 'selected' : ''}>第一个</option><option value="average" ${detailViewerState.mediaCanvasNormalizeBasis === 'average' ? 'selected' : ''}>平均</option><option value="last" ${detailViewerState.mediaCanvasNormalizeBasis === 'last' ? 'selected' : ''}>最后一个</option></select></header><div><button type="button" data-detail-media-context-action="normalize-width" title="统一宽度"><i data-lucide="move-horizontal"></i></button><button type="button" data-detail-media-context-action="normalize-height" title="统一高度"><i data-lucide="move-vertical"></i></button><button type="button" data-detail-media-context-action="normalize-original" title="恢复原始尺寸"><i data-lucide="maximize"></i></button></div></section>
     </div>`;
 }
-function renderDetailMediaCanvas(source){
+function renderDetailMediaCanvas(source, currentItem){
     const items = detailMediaCanvasItems();
     const metrics = detailMediaCanvasMetrics(items);
     const scale = Math.max(.005, Math.min(4, Number(detailViewerState.mediaCanvasScale || 1)));
@@ -15264,6 +15264,7 @@ function renderDetailMediaCanvas(source){
     const activeVideo = activeItem && detailViewerType(source,activeItem) === 'video' ? activeItem : null;
     const canPersist = items.length > 0 || Boolean(detailViewerState.referenceCanvasId);
     const minimapScale = Math.min(196 / Math.max(1, metrics.width), 106 / Math.max(1, metrics.height));
+    const item = currentItem || detailViewerState.items[detailViewerState.index] || detailViewerItem(source, detailViewerState.id) || activeItem || {};
     return `<div class="asset-detail-media-canvas-shell ${activeVideo ? 'has-video-controls' : ''}" data-detail-media-canvas-shell>
         <div class="asset-detail-media-canvas-toolbar">
             <div class="asset-detail-media-toolbar-primary">
@@ -15280,7 +15281,7 @@ function renderDetailMediaCanvas(source){
                 <button class="hw-btn" type="button" data-detail-reference-share title="分享素材 / 复制链接" aria-label="分享素材"><i data-lucide="share-2"></i><span>分享</span></button>
                 <button class="hw-btn" type="button" data-detail-viewer-close title="关闭 (Esc)" aria-label="关闭详情"><i data-lucide="x"></i><span>关闭</span></button>
                 </div>
-            </div> </div>
+            </div>
             <div class="asset-detail-media-toolbar-tools">${renderDetailMediaCanvasToolButtons()}</div>
         </div>
         <div class="asset-detail-media-canvas-viewport ${activeVideo ? 'has-video-dock' : ''}" data-detail-media-canvas-viewport tabindex="0" aria-label="无限画布，左键选择或框选，Shift 加选，中键拖动画布，滚轮缩放">
@@ -16070,7 +16071,7 @@ function renderDetailViewer(){
     const imageVersionsPanel = showImageVersions ? renderDetailImageVersionsPanel() : '';
     const inspector = showMediaLibrary ? renderDetailMediaCanvasLibrary() : renderDetailViewerInspector(item, type, tags, rows, url);
     const originLabel = assetBoardById(detailViewerState.originTab)?.name || detailViewerTypeLabel(type);
-    overlay.innerHTML = `<div class="asset-detail-viewer-page" data-floating-content role="dialog" aria-modal="true" aria-label="${escapeAttr(item.name || '素材详情')}">
+    overlay.innerHTML = `<div class="asset-detail-viewer-page ${mediaCanvasMode ? 'is-media-canvas-mode' : ''}" data-floating-content role="dialog" aria-modal="true" aria-label="${escapeAttr(item.name || '素材详情')}">
         ${mediaCanvasMode ? '' : `<header class="asset-detail-viewer-head">
             <nav class="asset-detail-breadcrumb" aria-label="详情路径"><button type="button" data-detail-breadcrumb="home">资产中心</button><i data-lucide="chevron-right"></i><button type="button" data-detail-breadcrumb="origin">${escapeHtml(originLabel)}</button><i data-lucide="chevron-right"></i><strong>${escapeHtml(item.name || '未命名素材')}</strong></nav>
             <div class="asset-detail-head-actions">
@@ -16084,7 +16085,7 @@ function renderDetailViewer(){
         <div class="asset-detail-viewer-body ${type === 'audio' ? 'asset-detail-audio-layout' : ''} ${mediaCanvasMode ? 'asset-detail-media-canvas-layout' : ''} ${showMediaLibrary ? 'asset-detail-media-library-layout' : ''} ${showMediaLibrary && detailMediaCanvasLibraryCollapsed ? 'asset-detail-media-library-collapsed' : ''} ${showImageVersions ? 'asset-detail-has-image-versions' : ''} ${showImageVersions && detailViewerState.imageVersionPanelCollapsed ? 'asset-detail-image-versions-collapsed' : ''} ${detailViewerInspectorCollapsed && !showMediaLibrary ? 'asset-detail-inspector-collapsed' : ''}" ${showMediaLibrary ? `style="--media-library-width:${detailMediaCanvasLibraryWidth}px"` : ''}>
             ${imageVersionsPanel}
             <section class="asset-detail-stage ${type === 'audio' ? 'asset-detail-audio-stage' : ''} ${mediaCanvasMode ? 'asset-detail-media-canvas-stage' : ''}">
-                ${mediaCanvasMode ? renderDetailMediaCanvas(detailViewerState.source) : `
+                ${mediaCanvasMode ? renderDetailMediaCanvas(detailViewerState.source, item) : `
                     <button class="asset-detail-page-nav previous" type="button" data-detail-navigate="-1" ${detailViewerState.index <= 0 ? 'disabled' : ''} aria-label="上一个素材"><i data-lucide="chevron-left"></i></button>
                     <div class="asset-detail-stage-content">${renderDetailViewerMedia(detailViewerState.source, item, type)}</div>
                     <button class="asset-detail-page-nav next" type="button" data-detail-navigate="1" ${detailViewerState.index >= detailViewerState.items.length - 1 ? 'disabled' : ''} aria-label="下一个素材"><i data-lucide="chevron-right"></i></button>
@@ -20844,7 +20845,7 @@ document.addEventListener('click', event => {
     if(detailVideoAction){ handleDetailVideoControl(detailVideoAction).catch(err => { setStatus(err.message || '视频操作失败'); showAssetFailure('视频操作失败',err); }); return; }
     if(event.target.closest?.('[data-detail-media-coverflow-toggle]')){ setDetailMediaCanvasCoverflowVisible(!detailMediaCanvasCoverflowVisible); return; }
     if(event.target.closest?.('[data-detail-reference-share]')){
-        const currentItem = detailViewerItem();
+        const currentItem = detailViewerState.items[detailViewerState.index] || detailViewerItem(detailViewerState.source, detailViewerState.id);
         const shareUrl = window.location.href;
         const shareText = currentItem?.name ? `${currentItem.name} - ${shareUrl}` : shareUrl;
         navigator.clipboard?.writeText(shareText).then(() => {
