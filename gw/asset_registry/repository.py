@@ -2438,9 +2438,11 @@ def create_project_entity(project_id: str, name: str, entity_type: str, payload:
         clean = (name or "").strip()
         if not clean:
             raise CleanroomException(400, "INVALID_REQUEST", "实体名称不能为空")
+        code = str(payload.get("code") or "").strip()
         entity_id = _seq(raw, "ent_", raw["project_entities"].keys())
         record = {"entity_id": entity_id, "project_id": project_id, "name": clean,
-                  "entity_type": entity_type or "generic", "created_at": storage.now_iso()}
+                  "entity_type": entity_type or "generic", "asset_ids": [],
+                  "code": code or entity_id, "created_at": storage.now_iso()}
         raw["project_entities"][entity_id] = record
         revision = _bump(raw)
         return {"entity": record, "revision": revision, "data_status": DATA_STATUS_OK}
@@ -2454,6 +2456,8 @@ def update_project_entity(entity_id: str, payload: Dict[str, Any]) -> Dict[str, 
             raise CleanroomException(404, "ENTITY_NOT_FOUND", "项目实体不存在")
         _cas(raw, payload.get("expected_version"))
         for key, value in payload.items():
+            if key in {"entity_id", "project_id", "asset_ids"}:
+                continue
             if key != "expected_version" and value is not None:
                 record[key] = value
         record["updated_at"] = storage.now_iso()
@@ -2500,6 +2504,14 @@ def link_project_assets(project_id: str, asset_ids: List[str], payload: Dict[str
     """把已登记资产关联到项目；未登记的 asset_id 一律 404，不静默跳过。"""
     def mutate(raw: Dict[str, Any]) -> Any:
         _cas(raw, payload.get("expected_version"))
+        link_entity_id = str(payload.get("entity_id") or "").strip()
+        link_entity = None
+        if link_entity_id:
+            link_entity = raw["project_entities"].get(link_entity_id)
+            if link_entity is None:
+                raise CleanroomException(404, "ENTITY_NOT_FOUND", "项目实体不存在")
+            if link_entity.get("project_id") != project_id:
+                raise CleanroomException(400, "ENTITY_PROJECT_MISMATCH", "项目实体不属于该项目")
         linked = []
         for asset_id in asset_ids:
             item = _require(raw, asset_id)
@@ -2507,6 +2519,11 @@ def link_project_assets(project_id: str, asset_ids: List[str], payload: Dict[str
             if project_id not in item["project_ids"]:
                 item["project_ids"].append(project_id)
             linked.append(asset_id)
+        if link_entity is not None:
+            link_entity.setdefault("asset_ids", [])
+            for asset_id in linked:
+                if asset_id not in link_entity["asset_ids"]:
+                    link_entity["asset_ids"].append(asset_id)
         for name in payload.get("entity_names") or []:
             entity_id = _seq(raw, "ent_", raw["project_entities"].keys())
             raw["project_entities"][entity_id] = {
@@ -3396,6 +3413,128 @@ def project_entities(project_id: Optional[str] = None) -> Dict[str, Any]:
         items = [i for i in items if i.get("project_id") == project_id]
     items.sort(key=lambda x: x["entity_id"])
     return {"entities": items, "revision": raw["revision"], "data_status": DATA_STATUS_OK}
+
+
+# 项目制片条目类型显示名：剧集/场景/镜头/角色/任务为看板默认五类；
+# 数据中出现的其他类型按原值返回，保证分组诚实不丢项。
+_PROJECT_ENTITY_TYPE_NAMES = {
+    "episode": "剧集", "scene": "场景", "shot": "镜头", "character": "角色", "task": "任务",
+}
+
+
+def project_entities_view(project_id: str) -> Dict[str, Any]:
+    """项目制片条目视图（QIN-543 AC1）：条目按稳定 ID 掯序并附带已关联素材摘要，
+    同时返回剧集/场景/镜头/角色/任务等分组的条目数与已关联素材数。只读路径。"""
+    raw = state().read()
+    from gw.core.asset_visibility import asset_visible
+
+    removed_ids = _removed_root_ids()
+    groups: Dict[str, Dict[str, Any]] = {}
+
+    def _summary(asset_id: str) -> Optional[Dict[str, Any]]:
+        item = raw["assets"].get(asset_id)
+        if item is None or not asset_visible(item) or _is_removed_asset(item, removed_ids):
+            return None
+        return dict(item)
+
+    items = [dict(v) for v in raw["project_entities"].values() if v.get("project_id") == project_id]
+    items.sort(key=lambda x: x["entity_id"])
+    for record in items:
+        summaries: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for asset_id in record.get("asset_ids") or []:
+            if asset_id in seen:
+                continue
+            seen.add(asset_id)
+            summary = _summary(asset_id)
+            if summary is not None:
+                summaries.append(summary)
+        record["assets"] = summaries
+        record["asset_count"] = len(summaries)
+        # 与 _entity_view 同口径：补前端读取所需视图键 id/status/code。
+        record["id"] = record["entity_id"]
+        record["status"] = record.get("status") or record.get("state") or "pending"
+        record["code"] = record.get("code") or record["entity_id"]
+        etype = str(record.get("entity_type") or "generic")
+        group = groups.setdefault(etype, {
+            "entity_type": etype,
+            "name": _PROJECT_ENTITY_TYPE_NAMES.get(etype, etype),
+            "entity_count": 0, "asset_count": 0,
+            "entity_ids": [],
+        })
+        group["entity_count"] += 1
+        group["asset_count"] += len(summaries)
+        group["entity_ids"].append(record["entity_id"])
+
+    # 看板默认五类恒在：无条目时给出零值分组，分组口径与前端默认模板一致。
+    ordered_types = ["episode", "scene", "shot", "character", "task"]
+    ordered_types += sorted(t for t in groups if t not in _PROJECT_ENTITY_TYPE_NAMES)
+    group_list = []
+    for etype in ordered_types:
+        if etype in _PROJECT_ENTITY_TYPE_NAMES:
+            group_list.append(groups.get(etype) or {
+                "entity_type": etype, "name": _PROJECT_ENTITY_TYPE_NAMES[etype],
+                "entity_count": 0, "asset_count": 0, "entity_ids": [],
+            })
+        else:
+            group_list.append(groups[etype])
+    return {
+        "project_id": project_id, "entities": items,
+        "groups": group_list, "revision": raw["revision"],
+        "data_status": DATA_STATUS_OK, "data_gaps": [],
+    }
+
+
+def project_assets(
+    project_id: str,
+    entity_id: Optional[str] = None,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """项目已关联素材列表（QIN-543 AC2）：支持按条目筛选；可见性与回收/移除口径
+    与素材库列表一致，按稳定 ID 排序并分页，只读路径不回写状态。"""
+    raw = state().read()
+    from gw.core.asset_visibility import asset_visible
+
+    removed_ids = _removed_root_ids()
+    if entity_id:
+        entity = raw["project_entities"].get(entity_id)
+        if entity is None:
+            raise CleanroomException(404, "ENTITY_NOT_FOUND", "项目实体不存在")
+        if entity.get("project_id") != project_id:
+            raise CleanroomException(400, "ENTITY_PROJECT_MISMATCH", "项目实体不属于该项目")
+        wanted: Optional[set[str]] = set()
+        for asset_id in entity.get("asset_ids") or []:
+            wanted.add(str(asset_id))
+    else:
+        wanted = None
+
+    def _member(asset: Dict[str, Any]) -> bool:
+        pids = set(asset.get("project_ids") or [])
+        if asset.get("project_id"):
+            pids.add(str(asset.get("project_id")))
+        return project_id in pids
+
+    items: List[Dict[str, Any]] = []
+    for a in raw["assets"].values():
+        if not asset_visible(a) or _is_removed_asset(a, removed_ids):
+            continue
+        if wanted is None:
+            if not _member(a):
+                continue
+        elif str(a.get("asset_id")) not in wanted:
+            continue
+        items.append(dict(a))
+    items.sort(key=lambda a: a["asset_id"])
+    total = len(items)
+    page = items[offset:offset + limit]
+    page = annotate_asset_provenance(page, raw=raw)
+    return {
+        "project_id": project_id, "entity_id": entity_id or None,
+        "total": total, "assets": page,
+        "data_status": DATA_STATUS_OK, "data_gaps": [],
+    }
 
 
 def project_gates(

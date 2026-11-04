@@ -741,3 +741,95 @@ def test_qin_532_pagination_and_recycle_capability(client, assets, monkeypatch):
     counts = {item["path"]: item["count"] for item in folders["indexed_folders"]}
     assert counts == {"large": 1499, "small/sub": 1}
     assert client.get("/api/asset-registry/assets?limit=1501", headers=AUTH).status_code == 400
+
+
+def test_a2_qin543_project_board_entities_and_assets(client, assets):
+    """QIN-543：项目条目与项目素材下发（AC1/AC2/AC3）。
+
+    资产库「项目制片」看板从 GET /api/projects/{id} 读取 entities/gates；
+    修复前该响应不含条目，看板恒为 0 个条目。素材与项目经 asset.project_ids
+    关联，条目与素材的链接落在条目记录 asset_ids 上，读取与写入同源。
+    """
+    project = client.post("/api/asset-registry/projects", headers=AUTH,
+                          json={"name": "制片看板项目", "project_type": "film"})
+    assert project.status_code == 201, project.text
+    project_id = project.json()["project"]["project_id"]
+
+    # AC3：新建条目后马上就能读到（详情与独立条目接口同一真源）
+    created = client.post(f"/api/asset-registry/projects/{project_id}/entities", headers=AUTH,
+                          json={"name": "第一季", "entity_type": "episode", "code": "EP01"})
+    assert created.status_code == 200, created.text
+    episode_id = created.json()["entity"]["id"]
+    assert episode_id == "ent_0001"
+
+    detail = client.get(f"/api/projects/{project_id}", headers=AUTH).json()
+    assert [e["id"] for e in detail["entities"]] == ["ent_0001"]
+    ep = detail["entities"][0]
+    assert ep["name"] == "第一季" and ep["entity_type"] == "episode"
+    assert ep["code"] == "EP01" and ep["status"] == "pending"
+    assert ep["assets"] == [] and ep["asset_count"] == 0
+    assert [g["entity_type"] for g in detail["groups"]] == ["episode", "scene", "shot", "character", "task"]
+    assert detail["groups"][0]["entity_count"] == 1 and detail["groups"][0]["asset_count"] == 0
+    assert detail["gates"] == []
+    assert detail["data_status"] == "ok"
+
+    # AC1：分组素材数随链接增长；条目视图携带已关联素材摘要
+    second = client.post(f"/api/asset-registry/projects/{project_id}/entities", headers=AUTH,
+                         json={"name": "旧宅外景", "entity_type": "scene"})
+    assert second.status_code == 200, second.text
+    scene_id = second.json()["entity"]["id"]
+    linked = client.post(f"/api/asset-registry/projects/{project_id}/assets", headers=AUTH,
+                         json={"entity_id": episode_id, "asset_ids": assets[:2]})
+    assert linked.status_code == 200 and linked.json()["linked"] == 2
+    detail = client.get(f"/api/projects/{project_id}", headers=AUTH).json()
+    ep = next(e for e in detail["entities"] if e["id"] == episode_id)
+    assert ep["asset_count"] == 2 and [a["asset_id"] for a in ep["assets"]] == assets[:2]
+    assert detail["groups"][0]["asset_count"] == 2
+    scene = next(e for e in detail["entities"] if e["id"] == scene_id)
+    assert scene["assets"] == [] and scene["asset_count"] == 0
+
+    # 条目链接保持去重：重复关联不增加素材数
+    again = client.post(f"/api/asset-registry/projects/{project_id}/assets", headers=AUTH,
+                        json={"entity_id": episode_id, "asset_ids": assets[:1]})
+    assert again.status_code == 200 and again.json()["linked"] == 1
+    detail = client.get(f"/api/projects/{project_id}", headers=AUTH).json()
+    ep = next(e for e in detail["entities"] if e["id"] == episode_id)
+    assert ep["asset_count"] == 2
+
+    # AC2：项目已关联素材列表接口，支持按条目筛选
+    listing = client.get(f"/api/projects/{project_id}/assets", headers=AUTH)
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 2 and listing.json()["project_id"] == project_id
+    assert [a["asset_id"] for a in listing.json()["assets"]] == sorted(assets[:2])
+    filtered = client.get(f"/api/projects/{project_id}/assets", headers=AUTH,
+                          params={"entity_id": scene_id})
+    assert filtered.status_code == 200 and filtered.json()["total"] == 0
+    filtered_ep = client.get(f"/api/projects/{project_id}/assets", headers=AUTH,
+                             params={"entity_id": episode_id})
+    assert filtered_ep.status_code == 200 and filtered_ep.json()["total"] == 2
+
+    # 独立条目接口与详情同源
+    entities_resp = client.get(f"/api/projects/{project_id}/entities", headers=AUTH)
+    assert entities_resp.status_code == 200
+    assert [e["id"] for e in entities_resp.json()["entities"]] == ["ent_0001", "ent_0002"]
+    assert len(entities_resp.json()["groups"]) == 5
+
+    # 失败关闭：未知项目/条目与跨项目条目明确报错
+    assert client.get("/api/projects/prj-missing", headers=AUTH).status_code == 404
+    missing_proj_entities = client.get("/api/projects/prj-missing/entities", headers=AUTH)
+    assert missing_proj_entities.status_code == 404
+    missing_entity = client.get(f"/api/projects/{project_id}/assets", headers=AUTH,
+                                params={"entity_id": "ent_9999"})
+    assert missing_entity.status_code == 404
+    assert missing_entity.json()["detail"]["code"] == "ENTITY_NOT_FOUND"
+
+    other = client.post("/api/asset-registry/projects", headers=AUTH,
+                        json={"name": "另一个项目", "project_type": "film"}).json()["project"]["project_id"]
+    cross = client.post(f"/api/asset-registry/projects/{other}/assets", headers=AUTH,
+                        json={"entity_id": episode_id, "asset_ids": assets[:1]})
+    assert cross.status_code == 400
+    assert cross.json()["detail"]["code"] == "ENTITY_PROJECT_MISMATCH"
+
+    # 匿名读取拒绝
+    assert client.get(f"/api/projects/{project_id}/entities").status_code == 401
+    assert client.get(f"/api/projects/{project_id}/assets").status_code == 401
