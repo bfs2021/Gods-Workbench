@@ -585,9 +585,18 @@ def get_image_version_media(
     authorization: Optional[str] = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    _read_auth(authorization, x_user_role)
+    context = _read_auth(authorization, x_user_role)
     path = repo.media_file(asset_id, version_id)
     if path is None:
+        record = repo.get_asset(asset_id)
+        if record.get("metadata", {}).get("workflow_owner"):
+            from gw.god_workflow import registry as workflow_registry
+            resolved = workflow_registry.resolve_asset_file(context, asset_id)
+            if resolved:
+                private_path, asset = resolved
+                return _media_file_response(
+                    private_path, asset["content_type"], range_header
+                )
         repo._unavailable(
             "/api/asset-registry/assets/{asset_id}/image-versions/{version_id}/media",
             "MEDIA_NOT_AVAILABLE", "该版本没有可读取的媒体文件")

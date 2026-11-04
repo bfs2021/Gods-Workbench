@@ -1885,7 +1885,7 @@ def get_image_version_media(asset_id: str, version_id: str) -> Dict[str, Any]:
     record = state().read()["image_versions"].get(asset_id, {}).get(version_id)
     if record is None:
         raise CleanroomException(404, "VERSION_NOT_FOUND", "图片版本不存在")
-    if not record.get("display_path"):
+    if not record.get("display_path") and not record.get("edit"):
         _unavailable("/api/asset-registry/assets/{asset_id}/image-versions/{version_id}/media",
                      "MEDIA_NOT_AVAILABLE", "该版本没有可读取的媒体文件")
     return {"version": dict(record), "data_status": DATA_STATUS_OK}
@@ -3019,6 +3019,8 @@ def _media_file_in_state(raw: dict, asset_id: str, version_id: Optional[str] = N
         canonical_relpath = record.get("canonical_relpath") or asset_record.get(
             "canonical_relpath"
         )
+        if not display and record.get("edit"):
+            return _media_file_in_state(raw, asset_id, None)
     else:
         item = _require(raw, asset_id)
         display = item.get("display_path")
