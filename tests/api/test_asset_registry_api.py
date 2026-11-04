@@ -201,3 +201,74 @@ def test_image_version_auth_and_cas(asset_api_runtime):
         )
         assert conflict.status_code == 409
         assert conflict.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+
+def test_qin543_project_entities_assets_repository_roundtrip(asset_api_runtime):
+    """QIN-543：项目制片条目视图与项目素材列表的仓储层回环（AC1/AC2/AC3）。
+
+    写入与读取同走注册表状态仓：新建条目立即可读、条目-素材链接去重保序、
+    列表支持按条目筛选与分页、可见性与回收口径与素材库一致。
+    """
+    sample = asset_api_runtime / "qin543_ref.png"
+    sample.write_bytes(b"PNGFIXTURE" + bytes(16))
+
+    with TestClient(create_app()) as client:
+        imported = client.post(
+            f"{BASE}/assets/import",
+            headers=AUTH,
+            json={"items": [{"name": sample.name, "kind": "image"},
+                            {"name": "qin543_shot.mp4", "kind": "video"}]},
+        )
+        assert imported.status_code == 200, imported.text
+        asset_a, asset_b = imported.json()["asset_ids"]
+
+        project = client.post(f"{BASE}/projects", headers=AUTH,
+                              json={"name": "仓储回环项目", "project_type": "film"})
+        assert project.status_code == 201, project.text
+        project_id = project.json()["project"]["project_id"]
+
+        entity = client.post(f"{BASE}/projects/{project_id}/entities", headers=AUTH,
+                             json={"name": "第一季", "entity_type": "episode", "code": "EP01"})
+        assert entity.status_code == 200, entity.text
+        episode_id = entity.json()["entity"]["id"]
+
+        repo.create_project_entity(project_id, "补充类型", "asset_entity", {})
+        board = repo.project_entities_view(project_id)
+        assert [e["id"] for e in board["entities"]] == ["ent_0001", "ent_0002"]
+        assert [g["entity_type"] for g in board["groups"]] == ["episode", "scene", "shot", "character", "task", "asset_entity"]
+        assert board["groups"][-1]["entity_count"] == 1
+
+        linked = repo.link_project_assets(project_id, [asset_a, asset_b],
+                                          {"entity_id": episode_id})
+        assert linked["linked"] == 2
+        stored = repo.project_entities(project_id)["entities"][0]
+        assert stored["asset_ids"] == [asset_a, asset_b]
+
+        view = repo.project_entities_view(project_id)
+        ep = next(e for e in view["entities"] if e["id"] == episode_id)
+        assert ep["asset_count"] == 2 and [a["asset_id"] for a in ep["assets"]] == [asset_a, asset_b]
+
+        listing = repo.project_assets(project_id)
+        assert listing["total"] == 2
+        paged = repo.project_assets(project_id, limit=1)
+        assert paged["total"] == 2 and len(paged["assets"]) == 1
+        by_entity = repo.project_assets(project_id, entity_id=episode_id)
+        assert by_entity["total"] == 2 and [a["asset_id"] for a in by_entity["assets"]] == [asset_a, asset_b]
+        other = repo.create_project_entity(project_id, "空条目", "scene", {})
+        empty = repo.project_assets(project_id, entity_id=other["entity"]["entity_id"])
+        assert empty["total"] == 0
+
+        import pytest as _pytest
+        try:
+            repo.project_assets(project_id, entity_id="ent_9999")
+        except Exception as exc:
+            assert getattr(exc, "code", None) == "ENTITY_NOT_FOUND" or "ENTITY_NOT_FOUND" in str(exc)
+        else:
+            _pytest.fail("未知条目应报 ENTITY_NOT_FOUND")
+
+        patched = client.patch(f"{BASE}/project-entities/{episode_id}", headers=AUTH,
+                               json={"status": "approved", "asset_ids": ["ast_fake"]})
+        assert patched.status_code == 200
+        stored = repo.project_entities(project_id)["entities"][0]
+        assert stored["asset_ids"] == [asset_a, asset_b]
+        assert stored["status"] == "approved"

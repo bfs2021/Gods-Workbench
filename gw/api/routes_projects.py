@@ -253,16 +253,69 @@ def get_project_compat(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """读取项目详情；不存在返回标准 PROJECT_NOT_FOUND。"""
+    """读取项目详情；不存在返回标准 PROJECT_NOT_FOUND。
+
+    QIN-543：同步下发制片条目（含已关联素材摘要）、分组汇总与阶段门，
+    资产库「项目制片」看板一次读取即可渲染，不再恒为 0 个条目。
+    """
     context = require_authenticated(authorization, x_user_role)
     proj = default_projects_service.get_readable_project(project_id, context)
     try:
         from gw.asset_registry import repository as asset_repo
         asset_counts = asset_repo.project_asset_counts()
         proj.asset_count = asset_counts.get(proj.project_id, 0)
+        board = asset_repo.project_entities_view(project_id)
+        owner_key, role = _viewer(context)
+        gates = asset_repo.project_gates(project_id, owner_key=owner_key, role=role)["gates"]
+        return ProjectDetailResponse(
+            project=proj,
+            entities=board["entities"],
+            groups=board["groups"],
+            gates=gates,
+            data_status=board["data_status"],
+        )
+    except CleanroomException:
+        raise
     except Exception:
-        pass
-    return ProjectDetailResponse(project=proj)
+        # 注册表读失败不阻断项目详情主读取；条目键保持缺省，不伪造条目数据。
+        return ProjectDetailResponse(project=proj)
+
+
+@legacy_router.get(
+    "/api/projects/{project_id}/entities",
+    summary="读取项目制片条目",
+    status_code=status.HTTP_200_OK,
+)
+def list_project_entities_compat(
+    project_id: str,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """读取项目制片条目与分组汇总（QIN-543 AC1）；项目不可读按 404/403 失败关闭。"""
+    context = require_authenticated(authorization, x_user_role)
+    default_projects_service.get_readable_project(project_id, context)
+    from gw.asset_registry import repository as asset_repo
+    return asset_repo.project_entities_view(project_id)
+
+
+@legacy_router.get(
+    "/api/projects/{project_id}/assets",
+    summary="读取项目已关联素材列表",
+    status_code=status.HTTP_200_OK,
+)
+def list_project_assets_compat(
+    project_id: str,
+    entity_id: str | None = Query(None, description="按制片条目筛选"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """项目已关联素材列表，支持按条目筛选（QIN-543 AC2）；项目不可读按 404/403 失败关闭。"""
+    context = require_authenticated(authorization, x_user_role)
+    default_projects_service.get_readable_project(project_id, context)
+    from gw.asset_registry import repository as asset_repo
+    return asset_repo.project_assets(project_id, entity_id=entity_id, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------

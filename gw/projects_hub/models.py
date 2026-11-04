@@ -54,9 +54,17 @@ class ProjectItem(BaseModel):
 
 
 class ProjectDetailResponse(BaseModel):
-    """兼容路径单项目读取包装。"""
+    """兼容路径单项目读取包装。
+
+    QIN-543：可选下发项目制片条目、分组汇总、阶段门与数据状态；
+    旧调用方只读 project 字段，不感知新增可选键。
+    """
 
     project: ProjectItem
+    entities: list[dict[str, Any]] | None = Field(None, description="项目制片条目（含已关联素材摘要）")
+    groups: list[dict[str, Any]] | None = Field(None, description="分组汇总（按剧集/场景/镜头/角色/任务，含素材数）")
+    gates: list[dict[str, Any]] | None = Field(None, description="项目阶段门（按权限过滤）")
+    data_status: str | None = Field(None, description="数据状态标识")
 
 
 class ProjectListResponse(BaseModel):
