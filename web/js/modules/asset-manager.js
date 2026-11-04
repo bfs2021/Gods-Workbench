@@ -5737,11 +5737,15 @@ function renderRegistryStructureContextMenu(assetIds=[], options={}){
     const groupHint = groupStructure ? '移出该组结构，保留其余成员' : (imageOnly ? '叠放缩略图，双击进入组 Coverflow' : '仅支持图片素材');
     const relationLabel = related ? '解除关联结构' : '合并为关联结构';
     const relationHint = related ? '断开选中素材之间的关联' : '建立素材互相关联';
+    // 解除态统一用 unlink 图标，与底部批量栏的解除按钮保持同一视觉语言。
+    const versionIcon = versionStructure ? 'unlink' : 'git-branch';
+    const groupIcon = groupStructure ? 'unlink' : 'layers-2';
+    const relationIcon = related ? 'unlink' : 'link-2';
     return `<div class="registry-structure-context-menu" data-registry-structure-menu role="menu" aria-label="合并已选素材">
         <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span><b>${count}</b> 项素材</span></div>
-        <button type="button" role="menuitem" data-registry-structure-${versionStructure ? 'release' : 'create'}="version"${versionStructure ? '' : versionDisabled}><i data-lucide="git-branch"></i><span>${versionLabel}</span><small>${versionHint}</small></button>
-        <button type="button" role="menuitem" data-registry-structure-${related ? 'release' : 'create'}="relation"><i data-lucide="link-2"></i><span>${relationLabel}</span><small>${relationHint}</small></button>
-        <button type="button" role="menuitem" data-registry-structure-${groupStructure ? 'release' : 'create'}="group"${groupStructure ? '' : versionDisabled}><i data-lucide="layers-2"></i><span>${groupLabel}</span><small>${groupHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${versionStructure ? 'release' : 'create'}="version"${versionStructure ? '' : versionDisabled}><i data-lucide="${versionIcon}"></i><span>${versionLabel}</span><small>${versionHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${related ? 'release' : 'create'}="relation"><i data-lucide="${relationIcon}"></i><span>${relationLabel}</span><small>${relationHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${groupStructure ? 'release' : 'create'}="group"${groupStructure ? '' : versionDisabled}><i data-lucide="${groupIcon}"></i><span>${groupLabel}</span><small>${groupHint}</small></button>
     </div>`;
 }
 // 【QIN-534】触发修复：多选后右键点击「任意已选卡片」或「网格空白区」都要弹出同一套黑金菜单；
