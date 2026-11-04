@@ -312,7 +312,7 @@ test('AC2-反馈 4: 解除关联逐条删除，没有关联的对返回 404 时�
 test('AC2-反馈 4: 解除关联遇到非 404 错误必须上抛', async () => {
     const context = buildContext({
         assetManagerApi: {
-            deleteAssetStructure: async () => ({deleted_structure_id: 'strc_0001', revision: 2}),
+            deleteAssetStructure: async () => ({ok: true, status: 200, json: async () => ({revision: 2})}),
             removeRegistryAssetRelation: async () => {
                 const error = new Error('权限不足');
                 error.status = 403;
@@ -324,6 +324,25 @@ test('AC2-反馈 4: 解除关联遇到非 404 错误必须上抛', async () => {
     await assert.rejects(
         () => context.releaseRegistryRelations(['a1', 'a2']),
         /权限不足/
+    );
+});
+
+test('AC2-反馈 4: 只有 RELATION_NOT_FOUND 可跳过，其它 404 必须上抛', async () => {
+    const context = buildContext({
+        assetManagerApi: {
+            deleteAssetStructure: async () => ({ok: true, status: 200, json: async () => ({revision: 2})}),
+            removeRegistryAssetRelation: async () => {
+                // 素材本身已不存在：同样是 404，但不能被当成「本来就没关联」吞掉。
+                const error = new Error('素材不存在');
+                error.status = 404;
+                error.code = 'ASSET_NOT_FOUND';
+                throw error;
+            },
+        },
+    });
+    await assert.rejects(
+        () => context.releaseRegistryRelations(['a1', 'a2']),
+        /素材不存在/
     );
 });
 

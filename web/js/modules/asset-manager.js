@@ -5701,7 +5701,9 @@ async function releaseRegistryRelations(assetIds=[]){
                 await apiJsonResponse(assetManagerApi.removeRegistryAssetRelation(from, to));
                 removedPairs.push(`${from}->${to}`);
             } catch(err) {
-                if(err?.code === 'RELATION_NOT_FOUND' || err?.status === 404) continue;
+                // 只有「关系不存在」才是可跳过的正常情况；
+                // 素材已不存在等其它 404 必须上抛，不能被当成「本来就没关联」吞掉。
+                if(err?.code === 'RELATION_NOT_FOUND') continue;
                 throw err;
             }
         }
