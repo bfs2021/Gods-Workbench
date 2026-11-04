@@ -293,6 +293,12 @@ export function createAssetManagerApi(http) {
                 credentials: 'same-origin',
             });
         },
+        updateAssetStructure(structureId, payload, init = {}) {
+            return transport.request(`/api/asset-registry/asset-structures/${encodeURIComponent(structureId)}`, {
+                ...jsonInit(payload, {...init, method: 'PATCH'}),
+                credentials: 'same-origin',
+            });
+        },
         setAssetStructureCurrent(structureId, payload, init = {}) {
             return transport.request(`/api/asset-registry/asset-structures/${encodeURIComponent(structureId)}/current`, {
                 ...jsonInit(payload, {...init, method: 'PATCH'}),

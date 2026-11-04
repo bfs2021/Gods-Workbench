@@ -290,6 +290,61 @@ def _plain_asset(asset_id: str, name: str, kind: str, **extra: Any) -> Dict[str,
     return payload
 
 
+# 关联素材投影字段：只暴露前端渲染关联卡片所需的最小子集。
+# 不外泄磁盘绝对路径、存储根真实位置与内部元数据；缩略图 URL 由前端按 asset_id 拼接。
+_RELATED_ASSET_FIELDS = (
+    "id", "asset_id", "name", "kind", "status", "size", "size_bytes",
+    "mime_type", "storage_root_id", "public_url", "is_remote", "created_at",
+)
+
+
+def _relation_target_index(raw: Dict[str, Any]) -> Dict[str, List[str]]:
+    """按来源素材聚合出向关系的目标 id，保持登记顺序且去重。"""
+    index: Dict[str, List[str]] = {}
+    for relation in raw.get("relations", []):
+        from_id = str(relation.get("from_asset_id") or "")
+        to_id = str(relation.get("to_asset_id") or "")
+        if not from_id or not to_id or from_id == to_id:
+            continue
+        targets = index.setdefault(from_id, [])
+        if to_id not in targets:
+            targets.append(to_id)
+    return index
+
+
+def _related_assets_for(
+    raw: Dict[str, Any],
+    asset: Dict[str, Any],
+    index: Optional[Dict[str, List[str]]] = None,
+) -> List[Dict[str, Any]]:
+    """回填该素材已关联的素材摘要。
+
+    关系是单向登记（来源 → 目标），这里只给出来源素材可见的关联对象，
+    不反向补全，避免凭空造出对称关系。目标素材已被移除时跳过，不编造占位记录。
+    """
+    asset_id = str(asset.get("asset_id") or asset.get("id") or "")
+    if not asset_id:
+        return []
+    targets = (index if index is not None else _relation_target_index(raw)).get(asset_id, [])
+    if not targets:
+        return []
+    assets = raw.get("assets", {})
+    related: List[Dict[str, Any]] = []
+    for target_id in targets:
+        target = assets.get(target_id)
+        if target is None:
+            continue
+        summary = {
+            key: target.get(key)
+            for key in _RELATED_ASSET_FIELDS
+            if target.get(key) is not None
+        }
+        summary.setdefault("id", target_id)
+        summary.setdefault("asset_id", target_id)
+        related.append(summary)
+    return related
+
+
 def _asset_shot_text(asset: Dict[str, Any]) -> List[str]:
     """收集资产登记镜头的标签与摘要，供检索文档收录镜头文本（MVP1-T7/F2）。
 
@@ -790,7 +845,9 @@ def restore_asset(asset_id: str, context=None) -> Dict[str, Any]:
 
 def get_asset(asset_id: str) -> Dict[str, Any]:
     raw = state().read()
-    return annotate_asset_provenance([_require(raw, asset_id)], raw=raw)[0]
+    item = annotate_asset_provenance([_require(raw, asset_id)], raw=raw)[0]
+    # 详情同时回填已关联素材，前端据此渲染关联列表与「解除关联」入口。
+    return {**item, "related_assets": _related_assets_for(raw, item)}
 
 
 _ASSET_CATEGORY_EXTENSIONS = {
@@ -1138,6 +1195,12 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
     page = items[offset:offset + limit]
     # 只装饰当前页：来源名与文件修改时间按页下发，避免为全库逐条 stat。
     page = annotate_asset_provenance(page, raw=raw)
+    # 分页副本上补关联素材摘要：只读路径不回写状态，副本避免污染后续 mutate 的原始记录。
+    relation_index = _relation_target_index(raw)
+    page = [
+        {**asset, "related_assets": _related_assets_for(raw, asset, relation_index)}
+        for asset in page
+    ]
     has_more = offset + len(page) < total
     next_offset = offset + len(page) if has_more else None
     next_cursor = None
@@ -1624,7 +1687,10 @@ def _list_structured_assets(
 
     include_values = set(normalized["include"])
     projected = [
-        _structured_asset_projection(asset, include_preview="preview" in include_values)
+        {
+            **_structured_asset_projection(asset, include_preview="preview" in include_values),
+            "related_assets": _related_assets_for(raw, asset),
+        }
         for asset in page
     ]
     applied_filters: Dict[str, Any] = {"scope": normalized["scope"], "sort": normalized["sort"]}
@@ -1716,6 +1782,11 @@ def list_unassigned_assets(owner_key: str, limit: int = 100, offset: int = 0, *,
     total = len(items)
     page = items[offset:offset + limit]
     page = annotate_asset_provenance(page, raw=raw)
+    relation_index = _relation_target_index(raw)
+    page = [
+        {**asset, "related_assets": _related_assets_for(raw, asset, relation_index)}
+        for asset in page
+    ]
     return {"assets": page, "items": page, "total": total, "total_known": True,
             "limit": limit, "offset": offset, "has_more": offset + len(page) < total,
             "revision": raw["revision"], "data_status": DATA_STATUS_OK, "data_gaps": []}

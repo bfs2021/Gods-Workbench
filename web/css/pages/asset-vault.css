@@ -237,8 +237,12 @@ body.gw-signal.gw-page--asset-manager .registry-content .registry-card {
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card:not(.active):not(.selected) { background: linear-gradient(165deg,var(--vault-top),var(--vault-bottom)) !important; border: 1px solid var(--vault-line) !important; box-shadow: inset 0 1px rgb(255 255 255 / .05) !important; }
 body.gw-signal.gw-page--asset-manager .registry-content .registry-card:not(.active):not(.selected):hover { border-color: var(--vault-edge) !important; transform: translateY(-2px); }
 body.gw-signal.gw-page--asset-manager .registry-card::before { display: none !important; }
-body.gw-signal.gw-page--asset-manager .registry-content .registry-card:is(.active,.selected) { background: var(--vault-bottom) !important; border: 1px solid var(--vault-accent) !important; box-shadow: inset 0 1px rgb(255 255 255 / .05) !important; }
+/* 【QIN-534】金库壳选中态：暗金微光渐变 + 描边 + 外发光，取代旧的纯深底 + 内阴影。
+   【QIN-534 复验】用户实测后要求金色背景亮度提升 50%：两段金色叠层不透明度由 .16/.05 提到 .24/.075。 */
+body.gw-signal.gw-page--asset-manager .registry-content .registry-card:is(.active,.selected) { background: linear-gradient(165deg,rgba(223,195,132,.24),rgba(223,195,132,.075)),#0f1218 !important; border: 1px solid #dfc384 !important; box-shadow: 0 0 10px rgba(223,195,132,.22),inset 0 1px rgba(255,255,255,.1) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card .asset-thumb { border: 1px solid var(--vault-line); background: var(--vault-well); border-radius: 5px !important; }
+/* 缩略图不叠半透明遮罩，只加一道暗金内环，保证深色素材在选中态依然一眼可辨。 */
+body.gw-signal.gw-page--asset-manager .registry-card:is(.active,.selected) .asset-thumb { border-color: rgba(223,195,132,.5) !important; box-shadow: inset 0 0 0 1px rgba(223,195,132,.5) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card .asset-card-body { padding: 5px 1px 0; }
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card .asset-card-body { display: none !important; }
 body.gw-signal.gw-page--asset-manager .registry-card-caption { display: flex; align-items: center; gap: 5px; min-width: 0; }
@@ -248,7 +252,40 @@ body.gw-signal.gw-page--asset-manager .asset-type-video .registry-card-measure {
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card :is(.asset-card-meta,.registry-card-source) { display: none; }
 body.gw-signal.gw-page--asset-manager .registry-card .registry-card-format { top: 11px; left: 11px; min-width: 0; height: 16px; padding: 0 3px; border: 1px solid var(--vault-edge) !important; border-radius: 3px !important; font: var(--gw-type-label-md)/14px var(--gw-font-mono); letter-spacing: 0; background: color-mix(in hsl,var(--asset-type-color) 50%,#000 50%) !important; color: var(--vault-accent) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .registry-card-format { left: 21px; }
-body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle { top: 10px; right: 10px; height: 22px; width: 22px; }
+/* QIN-534：金库壳下的结构卡片右上角按钮次序（解组在最右，Coverflow 在左）与版本缩略图 strip 规范 */
+body.gw-signal.gw-page--asset-manager .registry-structure-card.registry-structure-group > .registry-structure-coverflow { right: 42px !important; }
+body.gw-signal.gw-page--asset-manager .registry-structure-card.registry-structure-group > .registry-structure-remove { right: 8px !important; }
+body.gw-signal.gw-page--asset-manager .registry-structure-version .registry-structure-member-strip {
+    position: absolute !important;
+    z-index: 3 !important;
+    left: 8px !important;
+    bottom: 8px !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle {
+    top: 10px;
+    right: 10px;
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;
+    border-radius: 4px !important;
+}
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle svg,
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle [data-lucide] {
+    width: 13px !important;
+    height: 13px !important;
+    display: block !important;
+    margin: auto !important;
+    flex-shrink: 0 !important;
+}
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .asset-thumb::before,
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .asset-thumb::after { width: 8px; background-color: transparent; background-image: radial-gradient(#05070a 38%,transparent 42%); background-size: 8px 8px; }
 body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex: 0 0 auto; min-height: 35px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--vault-line); background: var(--vault-well); color: var(--vault-muted); font: var(--gw-type-label-md)/18px var(--gw-font-mono); }
