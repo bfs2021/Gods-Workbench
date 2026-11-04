@@ -4709,7 +4709,7 @@ function assetPreviewUrl(url, w=256, item={}){
     }
     const params = new URLSearchParams({w:String(width)});
     params.set('rv', ASSET_PREVIEW_RENDER_VERSION);
-    if(item?.id && item?.storage_root_id && !item?.is_remote){
+    if(item?.id && (item?.storage_root_id || item?.stored_name) && !item?.is_remote){
         params.set('asset_id', String(item.id));
         // 【修复问题1】按资产粒度版本：仅 updated_at/indexed_at 变化的资产 URL 才变化，任务完成不再整片失效
         params.set('v', String(Number(item?.updated_at || item?.indexed_at || 0)));
@@ -4725,7 +4725,7 @@ function assetVideoUrl(url, item={}){
     const extension = assetFileExtension({...item, url:raw});
     if(!raw || ASSET_BROWSER_VIDEO_EXTENSIONS.has(extension)) return raw;
     const params = new URLSearchParams();
-    if(item?.id && item?.storage_root_id && !item?.is_remote){
+    if(item?.id && (item?.storage_root_id || item?.stored_name) && !item?.is_remote){
         params.set('asset_id', String(item.id));
         // 【修复问题1】转码地址同样按资产粒度版本
         params.set('v', String(Number(item?.updated_at || item?.indexed_at || 0)));
@@ -5405,7 +5405,9 @@ function normalizeRegistryAsset(item={}){
         ? metadata.classification
         : (metadata.classification === null ? {} : (metadata.classification || {}));
     const assetId = String(item.id || item.asset_id || '').trim();
-    const localMediaUrl = !item.is_remote && item.storage_root_id && assetId
+    // 上传素材（QIN-550）：无 storage_root_id 但登记了 stored_name 的条目同样可经
+    // /media 端点回读真实文件，构造回读地址，不再留空 src。
+    const localMediaUrl = !item.is_remote && assetId && (item.storage_root_id || item.stored_name)
         ? `/api/asset-registry/assets/${encodeURIComponent(assetId)}/media`
         : '';
     const size = Number(item.size ?? item.size_bytes ?? 0);

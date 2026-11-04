@@ -1188,3 +1188,27 @@ def test_qin_539_asset_provenance_files_are_registered(repo_root: Path):
         "tests/hygiene/fixtures/admissions/issue-592.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
+
+
+def test_qin_550_registry_upload_preview_files_are_registered(repo_root: Path):
+    """QIN-550 上传素材预览修复所涉文件按本票登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 610
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #610 (QIN-550), 2026-11-05"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/asset_registry/repository.py",
+        "gw/api/routes_asset_registry.py",
+        "web/js/modules/asset-manager.js",
+        "tests/api/test_asset_registry_api.py",
+        "tests/frontend/qin-550-registry-upload-preview.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-610.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }

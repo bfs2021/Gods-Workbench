@@ -1,0 +1,25 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 610,
+  "authorization_basis": "GitHub Issue #610 (QIN-550), 2026-11-05",
+  "files": [
+    "gw/asset_registry/repository.py",
+    "gw/api/routes_asset_registry.py",
+    "web/js/modules/asset-manager.js",
+    "tests/api/test_asset_registry_api.py",
+    "tests/frontend/qin-550-registry-upload-preview.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-610.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-550-registry-upload-preview.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #610 (QIN-550), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-550 修复上传素材（仅 stored_name 登记）「暂无预览」：媒体解析回退 registry_uploads 受管回读、新上传落盘名 ASCII 清洗、前端回读地址与 asset_id 预览/转码模式条件放宽。既有文件修改不新增登记，仅新前端窄测文件登记为 accepted。"
+}
