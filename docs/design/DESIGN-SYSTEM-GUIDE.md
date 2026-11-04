@@ -27,10 +27,10 @@
 | font | `--asset-type-font` | `#c7522a` |
 | model | `--asset-type-model` | `#ff6b6b` |
 | text | `--asset-type-text` | `#bd8bf0` |
-| document | `--asset-type-document` | `#e1f0e9` |
+| document | `--asset-type-document` | `#80c2c2` |
 | workflow | `--asset-type-workflow` | `#9381bb` |
 | project_file | `--asset-type-project_file` | `#c98675` |
-| other | `--asset-type-other` | `#80c2c2` |
+| other | `--asset-type-other` | `#008585` |
 
 **使用场景**：卡片顶部色条、统计项小色块、单色类型图标、选中态描边与淡底取色。
 
@@ -38,7 +38,7 @@
 
 **资产统计条例外**：资产库顶部概览统计条中，「资产总量」是系统汇总而非资产类型，其图标、加载条与选中态一律使用系统金色 `--vault-gold`；其余统计项的加载条取自身类型色，数字保持纯白、名称与占比保持中性灰。
 
-**选色要求**：类型色两两之间需在 Lab 空间保持足够色差（本次以 ≥ 20 为下限校核），并在深色卡片底色上保持可辨识；文档、其他原为两种相近的紫色并贴近文字色，已改用纸白与浅青拉开层次。
+**选色要求**：类型色两两之间需在 Lab 空间保持足够色差，并同时满足深色与浅色主题下的可辨识度——近白色值在浅色主题卡片上不可见，不得作为类型色。文档、其他原为两种相近的紫色并贴近文字色，已改用浅青与墨青拉开层次。
 
 ### 2.1 表面与品牌
 
