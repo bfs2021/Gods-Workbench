@@ -14713,7 +14713,9 @@ function renderDetailVideoSummary(item={},source=detailViewerState.source){
     const frameRate=Number(item.frame_rate || item.metadata?.frame_rate || 0);
     const versions=Array.isArray(item.versions) ? item.versions : [];
     const linkedBoardCount=registryAssetLinkedBoards(item).length;
-    const updated=item.updated_at || item.lastModified || item.canvas_updated_at || 0;
+    // 【QIN-539 口径 + 用户指示 2026-11-05】视频详情摘要时间行与详情一致：优先文件修改时间，
+    // 回退记录更新时间；确无数据时显示「—」，不再出现「未知」。
+    const updated=registryModifiedTime(item) || item.updated_at || item.canvas_updated_at || 0;
     const values=[
         ['稳定 ID',assetId ? assetId.slice(0,8) : '未关联',assetId],
         ['格式',assetFileExtension(item).toUpperCase() || 'VIDEO'],
@@ -14723,7 +14725,7 @@ function renderDetailVideoSummary(item={},source=detailViewerState.source){
         ['分辨率',width && height ? `${width} × ${height}` : '读取中'],
         ['帧率',frameRate ? `${Number.isInteger(frameRate) ? frameRate : frameRate.toFixed(2)} fps` : '读取中'],
         ['素材来源',detailViewerSourceLabel(source,item)],
-        ['更新时间',updated ? formatDate(updated) : '未知'],
+        ['修改时间',updated ? formatDate(updated) : '—'],
     ];
     return `<dl class="asset-video-summary">${values.map(([label,value,title=''])=>`<div><dt>${escapeHtml(label)}</dt><dd title="${escapeAttr(title || value)}">${escapeHtml(value)}</dd></div>`).join('')}</dl>`;
 }

@@ -110,6 +110,44 @@ test('AC4 卡片不显示修改时间', () => {
     assert.ok(!card.includes('修改时间'), '不出现修改时间文案');
 });
 
+test('用户指示 2026-11-05：视频详情摘要不再显示「未知」，时间行与详情口径一致', () => {
+    const videoSummary = new Function(
+        'detailViewerType', 'detailVideoStoryboardAssetId', 'registryAssetLinkedBoards', 'detailViewerSourceLabel',
+        'assetFileExtension', 'formatFileSize', 'formatDate', 'registryModifiedTime',
+        `${functionSource('renderDetailVideoSummary')}
+         return renderDetailVideoSummary;`
+    )(
+        () => 'video', () => '', () => [], () => '统一资产',
+        item => String(item?.name || '').split('.').pop() || '',
+        size => `${Number(size || 0)} B`,
+        value => String(value),
+        null
+    );
+    // registryModifiedTime 也注入真实函数源码，保证口径与详情一致。
+    const withRealModifiedTime = new Function(
+        'detailViewerType', 'detailVideoStoryboardAssetId', 'registryAssetLinkedBoards', 'detailViewerSourceLabel',
+        'assetFileExtension', 'formatFileSize', 'formatDate', 'registryModifiedTime', 'escapeHtml', 'escapeAttr',
+        `${functionSource('registryModifiedTime')}
+         ${functionSource('renderDetailVideoSummary')}
+         return renderDetailVideoSummary;`
+    )(
+        () => 'video', () => '', () => [], () => '统一资产',
+        item => String(item?.name || '').split('.').pop() || '',
+        size => `${Number(size || 0)} B`,
+        value => String(value),
+        undefined,
+        value => String(value ?? ''),
+        value => String(value ?? '')
+    );
+    const html = withRealModifiedTime({kind: 'video', name: 'a.mp4', modified_at: '2023-11-14T22:13:20Z'}, 'registry');
+    assert.ok(html.includes('修改时间'), '时间行改名为「修改时间」');
+    assert.ok(html.includes(String(Date.parse('2023-11-14T22:13:20Z'))), '优先显示文件修改时间');
+    assert.ok(!html.includes('未知'), '不再出现「未知」');
+    const empty = withRealModifiedTime({kind: 'video', name: 'a.mp4'}, 'registry');
+    assert.ok(empty.includes('>—</dd>'), '无数据回落「—」');
+    assert.ok(!empty.includes('未知'), '无数据也不出现「未知」');
+});
+
 test('AC5 来源默认隐藏：仅外来/URL/多库资产显示小图标', () => {
     // 单库资产：无多库/URL/外来特征，默认隐藏。
     assert.equal(sourceBadge({storage_root_name: '托管资产'}), '', '单库资产默认隐藏来源');
