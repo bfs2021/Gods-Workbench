@@ -413,50 +413,860 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-media-node .asset-detail-media-node-content { width:100%; height:100%; max-width:none; max-height:none; border-radius:0; object-fit:contain; display:block; pointer-events:none; }
 .asset-detail-media-node > .asset-detail-video-dock { top:calc(100% + 12px); right:auto; left:0; width:100%; max-width:none; transform:none !important; transform-origin:top left; visibility:visible; z-index:20; }
 .asset-detail-media-node:not(.is-selected):not(.is-selected-via-group):not(.is-active) > .asset-detail-video-dock { display:none; }
-.asset-detail-media-node-clip .asset-detail-video-center-play { position:absolute; z-index:4; left:50%; top:50%; width:64px; height:64px; padding:0; border:1px solid rgba(255,255,255,.55); border-radius:50%; background:rgba(210,216,212,.72); color:#27302a; display:grid; place-items:center; transform:translate(-50%,-50%); pointer-events:auto; cursor:pointer; }
-.asset-detail-media-node-clip .asset-detail-video-center-play:hover { background:rgba(238,242,239,.92); }
-.asset-detail-media-node.is-video-playing .asset-detail-video-center-play { display:none; }
-.asset-detail-media-node-clip .asset-detail-video-center-play svg { width:26px; height:26px; margin-left:2px; }
-.asset-detail-video-dock { position:absolute; z-index:20; top:14px; right:auto; left:14px; width:auto; min-width:0; max-width:calc(100% - 28px); padding:11px; border:1px solid #59655d; background:#151a17; color:#f4f6f2; display:block; pointer-events:auto; cursor:default; box-sizing:border-box; container-type:inline-size; will-change:transform,left,top; }
+
+/* AC1 & AC2: 视频视窗内凹金属框 (Viewport Bezel) 与 中央拟物播放微球 */
+.asset-detail-media-node.is-video .asset-detail-media-node-clip,
+.asset-detail-media-node-clip.viewport-bezel {
+    background: #000000;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-bottom: 1px solid rgba(223, 195, 132, 0.28);
+    box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.98), 0 1px 0 rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play-socket {
+    position: absolute;
+    z-index: 4;
+    left: 50%;
+    top: 50%;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, rgba(14, 16, 22, 0.9) 0%, rgba(5, 6, 8, 0.96) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.7);
+    display: grid;
+    place-items: center;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play {
+    position: relative;
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 45% 45%, #ffffff 0%, #fff2dc 25%, #f5cf92 55%, #dfac64 80%, #b8823f 100%);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-bottom-color: rgba(223, 195, 132, 0.4);
+    box-shadow: 
+        0 6px 16px 1px rgba(223, 195, 132, 0.65),
+        0 10px 22px 2px rgba(186, 147, 91, 0.38),
+        0 2px 4px rgba(0, 0, 0, 0.6),
+        inset 0 1px 1px rgba(255, 255, 255, 0.95),
+        inset 0 -1.5px 2px rgba(120, 80, 25, 0.35);
+    color: #171107;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play:hover {
+    filter: brightness(1.08);
+    transform: scale(1.05);
+    box-shadow: 
+        0 8px 24px 2px rgba(223, 195, 132, 0.85),
+        0 14px 30px 4px rgba(186, 147, 91, 0.5),
+        inset 0 1.5px 2px rgba(255, 255, 255, 0.98);
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play:active {
+    transform: scale(0.96);
+    box-shadow: 
+        0 3px 8px 1px rgba(223, 195, 132, 0.45),
+        0 1px 3px rgba(0, 0, 0, 0.8),
+        inset 0 1px 1px rgba(255, 255, 255, 0.85);
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play svg {
+    width: 22px;
+    height: 22px;
+    fill: #171107;
+    color: #171107;
+    filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.4));
+}
+.asset-detail-media-node-clip .asset-detail-video-center-play svg.asset-detail-video-icon-play {
+    margin-left: 2px;
+}
+.asset-detail-media-node.is-video-playing .asset-detail-video-center-play-socket {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.92);
+}
+.asset-detail-media-node.is-video-playing:hover .asset-detail-video-center-play-socket {
+    opacity: 0.88;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+}
+.asset-detail-media-node.is-video-playing .asset-detail-video-center-play .asset-detail-video-icon-play { display: none; }
+.asset-detail-media-node.is-video-playing .asset-detail-video-center-play .asset-detail-video-icon-pause { display: block; }
+.asset-detail-media-node:not(.is-video-playing) .asset-detail-video-center-play .asset-detail-video-icon-play { display: block; }
+.asset-detail-media-node:not(.is-video-playing) .asset-detail-video-center-play .asset-detail-video-icon-pause { display: none; }
+
+/* AC1: 播放器一体化黑金硬件机箱外壳 (Player Chassis) */
+.asset-detail-video-dock,
+.asset-detail-video-dock.player-chassis {
+    position: absolute;
+    z-index: 20;
+    /* QIN-537：机箱必须承接既有「位于素材节点下方、宽度铺满节点」的走带底座几何。
+       本规则的 .player-chassis 与 .asset-detail-media-node > .asset-detail-video-dock
+       同为 2 个类选择器且声明在后，会把 width:100% 覆盖成 width:auto；再叠加
+       container-type:inline-size 的行内尺寸抑制，宽度会塌成 padding 宽度（30px），
+       控制台被压成竖条并遮住画面。此处显式写回定宽与下方定位。 */
+    top: calc(100% + 12px);
+    right: auto;
+    left: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 10px 14px 12px;
+    background: linear-gradient(175deg, #181a22 0%, #101217 60%, #0a0b0e 100%);
+    border: 1px solid rgba(223, 195, 132, 0.28);
+    border-top: 1px solid rgba(250, 226, 200, 0.45);
+    border-left: 1px solid rgba(223, 195, 132, 0.35);
+    border-radius: 12px;
+    box-shadow: 
+        0 20px 48px rgba(0, 0, 0, 0.95),
+        0 4px 16px rgba(0, 0, 0, 0.7),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.6);
+    color: #eddab3;
+    display: block;
+    pointer-events: auto;
+    cursor: default;
+    box-sizing: border-box;
+    container-type: inline-size;
+    will-change: transform, left, top;
+}
 .asset-detail-video-dock.is-positioning { visibility:hidden; }
-.asset-detail-video-control-panel { min-width:0; display:grid; align-content:center; gap:10px; }
-.asset-detail-video-controls { position:static; min-width:0; display:flex; align-items:center; gap:10px; }
-.asset-detail-video-primary-controls { min-height:65px; }
-.asset-detail-video-edit-controls { min-height:54px; flex-wrap:wrap; }
-.asset-detail-video-controls button { flex:0 0 75px; width:75px; height:75px; padding:0; border:1px solid #69736c; border-radius:3px; background:#252b27; color:#f4f6f2; display:grid; place-items:center; cursor:pointer; }
-.asset-detail-video-controls button.is-labeled { flex:0 0 auto; width:auto; min-width:119px; padding:0 18px; grid-auto-flow:column; gap:10px; font-size: var(--gw-type-body-lg); font-weight:900; white-space:nowrap; }
-.asset-detail-video-controls button:hover:not(:disabled) { border-color:#fff; background:#343b36; }
-.asset-detail-video-controls button:disabled { opacity:.38; cursor:not-allowed; }
-.asset-detail-video-controls button:focus-visible,.asset-detail-video-controls input:focus-visible,.asset-detail-video-controls select:focus-visible,.asset-video-storyboard-panel button:focus-visible { outline:3px solid var(--sf-cyan); outline-offset:2px; }
-.asset-detail-video-controls button.asset-detail-video-play { border-color:var(--sf-cyan); background:var(--sf-cyan); }
-.asset-detail-video-controls button.asset-detail-video-play:hover { background:var(--sf-cyan-hover); }
-.asset-detail-video-controls svg { width:37px; height:37px; }
-.asset-detail-video-controls button.is-labeled svg { width:30px; height:30px; }
-.asset-detail-video-icon-pause,.asset-detail-video-icon-muted,.asset-detail-video-dock.is-playing .asset-detail-video-icon-play,.asset-detail-video-dock.is-muted .asset-detail-video-icon-volume { display:none; }
-.asset-detail-video-dock.is-playing .asset-detail-video-icon-pause,.asset-detail-video-dock.is-muted .asset-detail-video-icon-muted { display:block; }
-.asset-detail-video-time { flex:0 0 auto; min-width:210px; display:flex; align-items:center; justify-content:center; gap:12px; color:#fff; font: 900 var(--gw-type-headline-lg)/1 var(--gw-font-mono); font-variant-numeric:tabular-nums; }
-.asset-detail-video-time i { color:#9eaaa1; font-style:normal; }
-.asset-detail-video-progress-wrap { position:relative; flex:1 1 322px; min-width:161px; height:50px; display:flex; align-items:center; }
-.asset-detail-video-progress { width:100%; height:42px; margin:0; appearance:none; -webkit-appearance:none; background:transparent; cursor:pointer; }
-.asset-detail-video-progress::-webkit-slider-runnable-track,.asset-detail-video-volume input::-webkit-slider-runnable-track { height:8px; border:1px solid #758078; border-radius:0; background:#3e4741; }
-.asset-detail-video-progress::-moz-range-track,.asset-detail-video-volume input::-moz-range-track { height:8px; border:1px solid #758078; border-radius:0; background:#3e4741; }
-.asset-detail-video-progress::-webkit-slider-thumb,.asset-detail-video-volume input::-webkit-slider-thumb { width:22px; height:22px; margin-top:-8px; border:2px solid #fff; border-radius:50%; background:var(--sf-cyan); appearance:none; -webkit-appearance:none; }
-.asset-detail-video-progress::-moz-range-thumb,.asset-detail-video-volume input::-moz-range-thumb { width:18px; height:18px; border:2px solid #fff; border-radius:50%; background:var(--sf-cyan); }
+
+/* 四角机械内六角紧固螺钉装饰 (.chassis-screw) */
+.chassis-screw {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #2d3240 0%, #121419 70%, #06070a 100%);
+    border: 0.8px solid rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.08);
+    position: absolute;
+    pointer-events: none;
+}
+.chassis-screw::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 1px;
+    right: 1px;
+    height: 0.8px;
+    background: rgba(255, 255, 255, 0.4);
+    transform: translateY(-50%) rotate(40deg);
+}
+.chassis-screw-tl { top: 4px; left: 5px; }
+.chassis-screw-tr { top: 4px; right: 5px; transform: rotate(25deg); }
+.chassis-screw-bl { bottom: 4px; left: 5px; transform: rotate(70deg); }
+.chassis-screw-br { bottom: 4px; right: 5px; transform: rotate(-15deg); }
+
+/* 机架顶栏广播遥测标牌 */
+.asset-detail-video-telemetry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 5px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--gw-type-button-xs);
+    letter-spacing: 0.5px;
+}
+.asset-detail-video-telemetry .telemetry-deck {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    color: #dfc384;
+}
+.asset-detail-video-telemetry .telemetry-deck::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #dfc384;
+    box-shadow: 0 0 6px #dfc384;
+}
+.asset-detail-video-telemetry .telemetry-specs {
+    font-size: var(--gw-type-button-xs);
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* AC3: 沉降式黑金金属凹槽 (Transport Bar Trough) */
+.asset-detail-video-control-panel,
+.asset-detail-video-control-panel.transport-bar-trough {
+    min-width: 0;
+    display: grid;
+    align-content: center;
+    gap: 8px;
+    background: linear-gradient(180deg, #07080b 0%, #0b0d12 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid rgba(0, 0, 0, 0.9);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+
+/* 控制行布局 */
+.asset-detail-video-controls {
+    position: static;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.asset-detail-video-primary-controls {
+    min-height: 40px;
+}
+.asset-detail-video-edit-controls {
+    min-height: 32px;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* AC5: 走带播放/暂停大键 —— 金属双层倒角触感按键 (hw-tactile-btn)，金色仅作背光点缀。
+   票面 AC5 明确要求播放/暂停大键与上一帧/下一帧同为 hw-tactile-btn；AC2 的金色拟物
+   微球只属于画面中央悬停大键，两者不可混用。 */
+.asset-detail-video-controls button.asset-detail-video-play {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    /* 双层倒角：外环暗金属壳 + 内圈金属盘，金色仅做边缘背光 */
+    background: linear-gradient(180deg, #1b1f28 0%, #0b0d12 100%);
+    border: 1px solid rgba(250, 226, 200, 0.32);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.85),
+        0 0 10px rgba(223, 195, 132, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: #fae2c8;
+}
+.asset-detail-video-controls button.asset-detail-video-play .hw-play-tactile-inner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 35%, #2b3140 0%, #141821 62%, #0a0c11 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.9),
+        0 1px 2px rgba(0, 0, 0, 0.8);
+    color: #fae2c8;
+    transition: all 0.15s ease;
+}
+.asset-detail-video-controls button.asset-detail-video-play:hover {
+    border-color: rgba(250, 226, 200, 0.55);
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.9),
+        0 0 16px rgba(223, 195, 132, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.asset-detail-video-controls button.asset-detail-video-play:active {
+    transform: translateY(1px);
+    box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.9),
+        inset 0 2px 5px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-controls button.asset-detail-video-play:active .hw-play-tactile-inner {
+    background: #0c0e13;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-controls button.asset-detail-video-play svg {
+    width: 14px;
+    height: 14px;
+    fill: #fae2c8;
+    color: #fae2c8;
+}
+.asset-detail-video-controls button.asset-detail-video-play svg.asset-detail-video-icon-play {
+    margin-left: 1.5px;
+}
+
+/* AC2: 画面中央悬停播放微球 —— 香槟钛金光学微球（仅此一处使用金色球体材质） */
+.asset-detail-video-controls button.hw-play-capsule {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 45% 45%, #ffffff 0%, #fff2dc 25%, #f5cf92 55%, #dfac64 80%, #b8823f 100%);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    border-bottom-color: rgba(223, 195, 132, 0.4);
+    box-shadow: 
+        0 4px 14px 1px rgba(223, 195, 132, 0.65),
+        0 6px 18px 2px rgba(186, 147, 91, 0.38),
+        0 2px 4px rgba(0, 0, 0, 0.6),
+        inset 0 1px 1px rgba(255, 255, 255, 0.95),
+        inset 0 -1.5px 2px rgba(120, 80, 25, 0.35);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: #171107;
+}
+.asset-detail-video-controls button.hw-play-capsule:hover {
+    filter: brightness(1.08);
+    transform: translateY(-0.5px);
+    box-shadow: 
+        0 6px 18px 2px rgba(223, 195, 132, 0.75),
+        0 8px 22px 3px rgba(186, 147, 91, 0.45),
+        inset 0 1.5px 1.5px rgba(255, 255, 255, 0.98);
+}
+.asset-detail-video-controls button.hw-play-capsule:active {
+    transform: translateY(1px);
+    box-shadow: 
+        0 2px 6px 1px rgba(223, 195, 132, 0.45),
+        0 1px 3px rgba(0, 0, 0, 0.8),
+        inset 0 1px 1px rgba(255, 255, 255, 0.85);
+}
+.asset-detail-video-controls button.hw-play-capsule svg {
+    width: 15px;
+    height: 15px;
+    fill: #171107;
+    color: #171107;
+}
+.asset-detail-video-controls button.hw-play-capsule svg.asset-detail-video-icon-play {
+    margin-left: 1.5px;
+}
+
+/* AC5: 硬件金属双层倒角微动触感按键 (hw-tactile-btn) */
+.asset-detail-video-controls button.hw-tactile-btn,
+.asset-detail-video-controls button[data-detail-video-action="previous-frame"],
+.asset-detail-video-controls button[data-detail-video-action="next-frame"],
+.asset-detail-video-controls button[data-detail-video-action="mute"] {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: #090b0f;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(255, 255, 255, 0.05);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+.asset-detail-video-controls button.hw-tactile-btn .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="previous-frame"] .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="next-frame"] .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="mute"] .hw-tactile-btn-inner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #222632 0%, #12141a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 2px 4px rgba(0, 0, 0, 0.8);
+    display: grid;
+    place-items: center;
+    color: #94a3b8;
+    transition: all 0.12s ease;
+}
+.asset-detail-video-controls button.hw-tactile-btn:hover .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="previous-frame"]:hover .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="next-frame"]:hover .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="mute"]:hover .hw-tactile-btn-inner {
+    border-color: rgba(223, 195, 132, 0.5);
+    color: #fae2c8;
+    background: linear-gradient(180deg, #2a3040 0%, #161922 100%);
+}
+.asset-detail-video-controls button.hw-tactile-btn:active .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="previous-frame"]:active .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="next-frame"]:active .hw-tactile-btn-inner,
+.asset-detail-video-controls button[data-detail-video-action="mute"]:active .hw-tactile-btn-inner {
+    transform: translateY(1px);
+    background: #0c0e12;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+.asset-detail-video-controls button.hw-tactile-btn svg,
+.asset-detail-video-controls button[data-detail-video-action="previous-frame"] svg,
+.asset-detail-video-controls button[data-detail-video-action="next-frame"] svg,
+.asset-detail-video-controls button[data-detail-video-action="mute"] svg {
+    width: 13px;
+    height: 13px;
+}
+.asset-detail-video-icon-pause,
+.asset-detail-video-icon-muted,
+.asset-detail-video-dock.is-playing .asset-detail-video-icon-play,
+.asset-detail-video-dock.is-muted .asset-detail-video-icon-volume { display: none; }
+.asset-detail-video-dock.is-playing .asset-detail-video-icon-pause,
+.asset-detail-video-dock.is-muted .asset-detail-video-icon-muted { display: block; }
+
+/* AC5：走带播放/暂停大键在触感按键族里作为主键，比上一帧/下一帧大一号。
+   通用 .hw-tactile-btn 规则在本段之后声明，故此处用容器前缀提高优先级并写在其后，
+   避免主键尺寸被 28px 通用值吃掉（否则 34px 声明沦为死代码）。 */
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    color: #fae2c8;
+}
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play .hw-play-tactile-inner {
+    width: 28px;
+    height: 28px;
+    background: radial-gradient(circle at 50% 35%, #2b3140 0%, #141821 62%, #0a0c11 100%);
+    border-color: rgba(250, 226, 200, 0.22);
+    color: #fae2c8;
+}
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play svg {
+    width: 14px;
+    height: 14px;
+    fill: #fae2c8;
+    color: #fae2c8;
+}
+
+/* AC4: 阴刻凹陷式时间码铭牌 (timecode-recessed) */
+.asset-detail-video-time,
+.asset-detail-video-time.timecode-recessed {
+    flex: 0 0 auto;
+    min-width: 108px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 3px 8px;
+    background: #07080a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.95);
+    border-radius: 5px;
+    color: #fae2c8;
+    font: 700 var(--gw-type-body-sm)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+    text-shadow: 0 0 8px rgba(223, 195, 132, 0.35);
+}
+.asset-detail-video-time i {
+    color: rgba(223, 195, 132, 0.45);
+    font-style: normal;
+}
+
+/* AC3: 激光精密进度条 (Laser Scrubber) 与金属双环旋钮滑块 (scrubber-thumb) */
+.asset-detail-video-progress-wrap,
+.asset-detail-video-progress-wrap.scrubber-track {
+    position: relative;
+    flex: 1 1 220px;
+    min-width: 120px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+}
+.scrubber-track-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 6px;
+    background: #050608;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95);
+    overflow: hidden;
+    pointer-events: none;
+}
+.scrubber-loaded {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(223, 195, 132, 0.22);
+    border-radius: 9999px;
+    pointer-events: none;
+}
+.scrubber-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, #c9ad6e 0%, #dfc384 60%, #fae2c8 100%);
+    border-radius: 9999px;
+    pointer-events: none;
+}
+.asset-detail-video-progress {
+    position: relative;
+    z-index: 3;
+    width: 100%;
+    height: 20px;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    cursor: pointer;
+}
+.asset-detail-video-progress::-webkit-slider-runnable-track {
+    height: 6px;
+    background: transparent;
+    border: 0;
+}
+.asset-detail-video-progress::-moz-range-track {
+    height: 6px;
+    background: transparent;
+    border: 0;
+}
+
+/* QIN-537：走带滑块必须保持透明底，否则会盖住自绘的 scrubber 轨、缓冲条与高光填充。
+   base/theme.css 存在全局 `body.studio-theme-dark input { background: var(--soft) !important }`，
+   会把 range 输入整体涂成不透明面板色；此处按容器作用域提升优先级，只影响走带内滑块。 */
+body.studio-theme-dark .asset-detail-video-dock input.asset-detail-video-progress,
+body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input,
+.studio-theme-dark .asset-detail-video-dock input.asset-detail-video-progress,
+.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+.asset-detail-video-progress::-webkit-slider-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff 0%, #fae2c8 40%, #c9ad6e 100%);
+    border: 1.5px solid #ffffff;
+    box-shadow: 
+        0 0 10px rgba(223, 195, 132, 0.9),
+        0 2px 5px rgba(0, 0, 0, 0.8),
+        inset 0 1px 1px rgba(255, 255, 255, 0.9);
+    cursor: grab;
+    appearance: none;
+    -webkit-appearance: none;
+    margin-top: -4px;
+    transition: transform 0.1s ease;
+}
+.asset-detail-video-progress::-webkit-slider-thumb:hover {
+    transform: scale(1.18);
+}
+.asset-detail-video-progress::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(0.95);
+}
+.asset-detail-video-progress::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff 0%, #fae2c8 40%, #c9ad6e 100%);
+    border: 1.5px solid #ffffff;
+    box-shadow: 
+        0 0 10px rgba(223, 195, 132, 0.9),
+        0 2px 5px rgba(0, 0, 0, 0.8),
+        inset 0 1px 1px rgba(255, 255, 255, 0.9);
+    cursor: grab;
+}
 .asset-detail-video-progress:disabled { opacity:.45; cursor:wait; }
-.asset-detail-video-progress-wrap > i { position:absolute; z-index:2; top:5px; bottom:5px; width:4px; margin-left:-2px; background:var(--sf-cyan); pointer-events:none; }
-.asset-detail-video-progress-wrap > i[data-detail-video-out-marker] { background:#38a8ff; }
-.asset-detail-video-volume { flex:0 1 190px; min-width:127px; display:flex; align-items:center; gap:10px; color:#d6ddd7; font-size: var(--gw-type-body-lg); font-weight:850; }
-.asset-detail-video-volume span { flex:0 0 auto; }
-.asset-detail-video-volume input { min-width:77px; width:100%; height:40px; margin:0; appearance:none; -webkit-appearance:none; background:transparent; cursor:pointer; }
-.asset-detail-video-range { flex:0 0 auto; min-height:50px; padding:0 11px; border:1px solid #4f5a52; background:var(--panel); display:flex; align-items:center; gap:14px; color:#aeb8b0; font-size: var(--gw-type-body-md); font-weight:850; }
-.asset-detail-video-range span { display:flex; align-items:center; gap:6px; }
-.asset-detail-video-range b { min-width:54px; color:#fff; font: 900 var(--gw-type-body-lg)/1 var(--gw-font-mono); font-variant-numeric:tabular-nums; }
-.asset-detail-video-rate { flex:0 0 auto; height:50px; border:1px solid #4f5a52; display:flex; align-items:center; background:var(--panel); }
-.asset-detail-video-rate button { width:47px; height:47px; min-width:47px; border:0; border-radius:0; }
-.asset-detail-video-rate button:last-child { width:52px; min-width:52px; border-left:1px solid #4f5a52; font-size: var(--gw-type-body-lg); font-weight:900; }
-.asset-detail-video-rate output { min-width:54px; color:#fff; text-align:center; font: 900 var(--gw-type-body-lg)/1 var(--gw-font-mono); }
-.asset-detail-video-root { flex:1 1 203px; min-width:180px; height:50px; padding:0 9px; border:1px solid #4f5a52; background:var(--panel); display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:9px; color:#aeb8b0; font-size: var(--gw-type-body-sm); font-weight:850; }
-.asset-detail-video-root select { min-width:0; height:36px; border:1px solid #59655d; border-radius:2px; background:#242a26; color:#fff; padding:0 8px; font-size: var(--gw-type-body-md); font-weight:800; }
+.asset-detail-video-progress-wrap > i {
+    position: absolute;
+    z-index: 4;
+    top: 2px;
+    bottom: 2px;
+    width: 3px;
+    margin-left: -1.5px;
+    border-radius: 1px;
+    background: #fae2c8;
+    box-shadow: 0 0 6px rgba(250, 226, 200, 0.8);
+    pointer-events: none;
+}
+.asset-detail-video-progress-wrap > i[data-detail-video-out-marker] {
+    background: #dfc384;
+    box-shadow: 0 0 6px rgba(223, 195, 132, 0.8);
+}
+
+/* 音量推子滑道 */
+.asset-detail-video-volume {
+    flex: 0 1 110px;
+    min-width: 75px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #eddab3;
+    font-size: var(--gw-type-label-md);
+    font-weight: 600;
+}
+.asset-detail-video-volume span {
+    flex: 0 0 auto;
+    font-size: var(--gw-type-button-xs);
+    color: rgba(223, 195, 132, 0.7);
+}
+.asset-detail-video-volume input {
+    min-width: 45px;
+    width: 100%;
+    height: 18px;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    cursor: pointer;
+}
+.asset-detail-video-volume input::-webkit-slider-runnable-track {
+    height: 4px;
+    background: #050608;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-volume input::-moz-range-track {
+    height: 4px;
+    background: #050608;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.asset-detail-video-volume input::-webkit-slider-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff 0%, #eddab3 100%);
+    border: 1px solid #ffffff;
+    box-shadow: 0 0 6px rgba(223, 195, 132, 0.8), 0 1px 3px rgba(0, 0, 0, 0.8);
+    appearance: none;
+    -webkit-appearance: none;
+    margin-top: -3px;
+    cursor: grab;
+}
+.asset-detail-video-volume input::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, #ffffff 0%, #eddab3 100%);
+    border: 1px solid #ffffff;
+    box-shadow: 0 0 6px rgba(223, 195, 132, 0.8), 0 1px 3px rgba(0, 0, 0, 0.8);
+    cursor: grab;
+}
+
+/* AC4: 双声道动态 VU 峰值电平表 (Stereo Peak Meters) */
+.asset-detail-video-vu-meter {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font-size: var(--gw-icon-size-xs);
+    color: rgba(255, 255, 255, 0.4);
+}
+.asset-detail-video-vu-meter .vu-label {
+    font-weight: 700;
+    color: #947a57;
+}
+.asset-detail-video-vu-meter .vu-channels {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.asset-detail-video-vu-meter .vu-ch {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+.asset-detail-video-vu-meter .vu-ch-name {
+    width: 6px;
+    font-size: inherit;
+    color: #64748b;
+}
+.asset-detail-video-vu-meter .vu-bar-track {
+    width: 36px;
+    height: 3px;
+    background: #050608;
+    border-radius: 2px;
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+.asset-detail-video-vu-meter .vu-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #10b981 0%, #10b981 70%, #dfc384 88%, #f43f5e 100%);
+    border-radius: 2px;
+    transition: width 0.1s ease;
+}
+.asset-detail-video-dock.is-playing .asset-detail-video-vu-meter .vu-bar-left {
+    animation: vu-bounce-left 0.7s infinite alternate ease-in-out;
+}
+.asset-detail-video-dock.is-playing .asset-detail-video-vu-meter .vu-bar-right {
+    animation: vu-bounce-right 0.85s infinite alternate ease-in-out;
+}
+@keyframes vu-bounce-left {
+    0% { width: 45%; }
+    40% { width: 78%; }
+    70% { width: 62%; }
+    100% { width: 88%; }
+}
+@keyframes vu-bounce-right {
+    0% { width: 40%; }
+    30% { width: 82%; }
+    65% { width: 58%; }
+    100% { width: 84%; }
+}
+
+/* AC5: 下方剪辑工具栏黑金微胶囊按键 (hw-capsule-btn) */
+.asset-detail-video-controls button.is-labeled,
+.asset-detail-video-controls button.hw-capsule-btn {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    height: 28px;
+    padding: 0 10px;
+    grid-auto-flow: column;
+    gap: 5px;
+    font-size: var(--gw-type-label-md);
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #1f232d 0%, #12141a 100%);
+    border: 1px solid rgba(223, 195, 132, 0.24);
+    border-top: 1px solid rgba(250, 226, 200, 0.35);
+    color: #eddab3;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: all 0.12s ease;
+}
+.asset-detail-video-controls button.is-labeled:hover:not(:disabled),
+.asset-detail-video-controls button.hw-capsule-btn:hover:not(:disabled) {
+    border-color: rgba(223, 195, 132, 0.65);
+    background: linear-gradient(180deg, #2a3040 0%, #161922 100%);
+    color: #fae2c8;
+    box-shadow: 0 0 10px rgba(223, 195, 132, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.asset-detail-video-controls button.is-labeled:active:not(:disabled),
+.asset-detail-video-controls button.hw-capsule-btn:active:not(:disabled) {
+    transform: translateY(1px);
+    background: #0c0e12;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+.asset-detail-video-controls button.is-labeled:disabled,
+.asset-detail-video-controls button.hw-capsule-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+.asset-detail-video-controls button.is-labeled svg,
+.asset-detail-video-controls button.hw-capsule-btn svg {
+    width: 13px;
+    height: 13px;
+    color: #dfc384;
+}
+
+/* 焦点环 */
+.asset-detail-video-controls button:focus-visible,
+.asset-detail-video-controls input:focus-visible,
+.asset-detail-video-controls select:focus-visible {
+    outline: 2px solid rgba(223, 195, 132, 0.8);
+    outline-offset: 1px;
+}
+
+/* 入出点范围显示框 */
+.asset-detail-video-range {
+    flex: 0 0 auto;
+    min-height: 28px;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    background: #07080a;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.95);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #94a3b8;
+    font-size: var(--gw-type-label-md);
+    font-weight: 600;
+}
+.asset-detail-video-range span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.asset-detail-video-range b {
+    min-width: 38px;
+    color: #fae2c8;
+    font: 700 var(--gw-type-label-md)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 速度控制微调组 */
+.asset-detail-video-rate {
+    flex: 0 0 auto;
+    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    background: #07080a;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.95);
+    overflow: hidden;
+}
+.asset-detail-video-rate button {
+    width: 24px;
+    height: 26px;
+    min-width: 24px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #94a3b8;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.1s ease;
+}
+.asset-detail-video-rate button:hover {
+    background: rgba(223, 195, 132, 0.15);
+    color: #fae2c8;
+}
+.asset-detail-video-rate button svg {
+    width: 12px;
+    height: 12px;
+}
+.asset-detail-video-rate button:last-child {
+    width: 26px;
+    min-width: 26px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: var(--gw-type-button-xs);
+    font-weight: 700;
+    font-family: var(--gw-font-mono, 'JetBrains Mono', monospace);
+    color: #dfc384;
+}
+.asset-detail-video-rate output {
+    min-width: 34px;
+    color: #fae2c8;
+    text-align: center;
+    font: 700 var(--gw-type-label-md)/1 var(--gw-font-mono, 'JetBrains Mono', monospace);
+}
+
+/* 导出目标素材库下拉 */
+.asset-detail-video-root {
+    flex: 1 1 130px;
+    min-width: 110px;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    background: #07080a;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.95);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    color: rgba(223, 195, 132, 0.7);
+    font-size: var(--gw-type-button-xs);
+    font-weight: 600;
+}
+.asset-detail-video-root select {
+    min-width: 0;
+    height: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    background: #141720;
+    color: #fae2c8;
+    padding: 0 4px;
+    font-size: var(--gw-type-label-md);
+    font-weight: 600;
+}
+
 .asset-detail-video-dock.is-busy [data-detail-video-export] { cursor:wait; }
 @container (max-width:760px){
     .asset-detail-video-primary-controls { flex-wrap:wrap; align-content:center; }

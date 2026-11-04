@@ -14743,12 +14743,12 @@ function renderDetailMediaCanvasNode(source, item){
             ? `<video class="asset-detail-media-node-content asset-detail-player" src="${escapeAttr(videoSrcWithJump)}" playsinline preload="auto" data-detail-media-natural="${escapeAttr(item.id)}"></video>`
             : `<img class="asset-detail-media-node-content" src="${escapeAttr(url)}" data-detail-media-preview-fallback="${escapeAttr(previewFallback)}" data-preview-fallback="${escapeAttr(item.name || '图片')}" data-detail-media-natural="${escapeAttr(item.id)}" alt="${escapeAttr(item.name || '画布素材')}" draggable="false" loading="eager" decoding="async">`;
     const centerPlay = type === 'video'
-        ? `<button class="asset-detail-video-center-play" type="button" data-detail-video-action="toggle" data-detail-video-for="${escapeAttr(item.id)}" aria-label="Play video"><i data-lucide="play"></i></button>`
+        ? `<div class="asset-detail-video-center-play-socket" aria-hidden="true"><button class="asset-detail-video-center-play hw-play-capsule" type="button" data-detail-video-action="toggle" data-detail-video-for="${escapeAttr(item.id)}" aria-label="播放视频" title="播放 / 暂停（Space）"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></button></div>`
         : '';
     const videoControls = type === 'video' ? renderDetailMediaVideoControls(item) : '';
     const handles = ['nw','n','ne','e','se','s','sw','w'].map(direction => `<span class="asset-detail-media-resize-handle handle-${direction}" data-detail-media-resize="${direction}" aria-hidden="true"></span>`).join('');
-    return `<article class="asset-detail-media-node ${active ? 'is-active' : ''} ${selected ? 'is-selected' : ''} ${selectedViaGroup ? 'is-selected-via-group' : ''} ${grouped ? 'is-group-member' : ''}" data-detail-media-canvas-node="${escapeAttr(item.id)}" data-detail-media-object="${escapeAttr(objectId)}" ${grouped ? `data-detail-media-group-member="${escapeAttr(item.id)}"` : ''} style="left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px" tabindex="0" aria-label="选择 ${escapeAttr(item.name || '画布素材')}" aria-selected="${selected || selectedViaGroup}">
-        <div class="asset-detail-media-node-clip">${media}${centerPlay}</div>${videoControls}${handles}
+    return `<article class="asset-detail-media-node ${type === 'video' ? 'is-video' : ''} ${active ? 'is-active' : ''} ${selected ? 'is-selected' : ''} ${selectedViaGroup ? 'is-selected-via-group' : ''} ${grouped ? 'is-group-member' : ''}" data-detail-media-canvas-node="${escapeAttr(item.id)}" data-detail-media-object="${escapeAttr(objectId)}" ${grouped ? `data-detail-media-group-member="${escapeAttr(item.id)}"` : ''} style="left:${box.x}px;top:${box.y}px;width:${box.width}px;height:${box.height}px" tabindex="0" aria-label="选择 ${escapeAttr(item.name || '画布素材')}" aria-selected="${selected || selectedViaGroup}">
+        <div class="asset-detail-media-node-clip ${type === 'video' ? 'viewport-bezel' : ''}">${media}${centerPlay}</div>${videoControls}${handles}
     </article>`;
 }
 function preloadDetailViewerNeighbors(){
@@ -14783,29 +14783,52 @@ function renderDetailMediaVideoControls(item={}){
         detailViewerState.videoExportRootId = roots.find(root => String(root.id) === sourceRoot)?.id || roots[0]?.id || '';
     }
     const rootOptions = roots.map(root => `<option value="${escapeAttr(root.id)}" ${root.id === detailViewerState.videoExportRootId ? 'selected' : ''}>${escapeHtml(root.name || root.id)}</option>`).join('');
-    return `<div class="asset-detail-video-dock" data-detail-video-dock data-detail-video-controls data-detail-video-for="${escapeAttr(videoId)}" role="group" aria-label="视频播放与截取控制">
-        <div class="asset-detail-video-control-panel">
+    return `<div class="asset-detail-video-dock player-chassis" data-detail-video-dock data-detail-video-controls data-detail-video-for="${escapeAttr(videoId)}" role="group" aria-label="视频播放与截取控制">
+        <div class="chassis-screw chassis-screw-tl" aria-hidden="true"></div>
+        <div class="chassis-screw chassis-screw-tr" aria-hidden="true"></div>
+        <div class="chassis-screw chassis-screw-bl" aria-hidden="true"></div>
+        <div class="chassis-screw chassis-screw-br" aria-hidden="true"></div>
+        <div class="asset-detail-video-telemetry" aria-hidden="true">
+            <span class="telemetry-deck">GODS' WORKBENCH · AV-DECK</span>
+            <span class="telemetry-specs">SMPTE · ${duration ? formatDetailVideoTime(duration) : '00:00'} · 4K DCI</span>
+        </div>
+        <div class="asset-detail-video-control-panel transport-bar-trough">
             <div class="asset-detail-video-controls asset-detail-video-primary-controls">
-                <button class="asset-detail-video-play" type="button" data-detail-video-action="toggle" title="播放（Space）" aria-label="播放（Space）"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></button>
-                <button type="button" data-detail-video-action="previous-frame" title="上一帧（D）" aria-label="上一帧（D）"><i data-lucide="step-back"></i></button>
-                <button type="button" data-detail-video-action="next-frame" title="下一帧（F）" aria-label="下一帧（F）"><i data-lucide="step-forward"></i></button>
-                <output class="asset-detail-video-time" aria-live="off"><span data-detail-video-current>0:00</span><i>/</i><span data-detail-video-duration>${duration ? formatDetailVideoTime(duration) : '--:--'}</span></output>
-                <div class="asset-detail-video-progress-wrap"><input class="asset-detail-video-progress" type="range" min="0" max="${duration || 0}" step="any" value="0" ${duration ? '' : 'disabled'} data-detail-video-progress aria-label="播放进度" aria-valuetext="0:00 / ${duration ? formatDetailVideoTime(duration) : '时长读取中'}"><i data-detail-video-in-marker ${inPoint === null ? 'hidden' : ''}></i><i data-detail-video-out-marker ${outPoint === null ? 'hidden' : ''}></i></div>
-                <button class="asset-detail-video-mute" type="button" data-detail-video-action="mute" title="静音" aria-label="静音"><i class="asset-detail-video-icon-volume" data-lucide="volume-2"></i><i class="asset-detail-video-icon-muted" data-lucide="volume-x"></i></button>
+                <button class="asset-detail-video-play hw-tactile-btn" type="button" data-detail-video-action="toggle" title="播放（Space）" aria-label="播放（Space）"><div class="hw-tactile-btn-inner hw-play-tactile-inner"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></div></button>
+                <button class="hw-tactile-btn" type="button" data-detail-video-action="previous-frame" title="上一帧（D）" aria-label="上一帧（D）"><div class="hw-tactile-btn-inner"><i data-lucide="step-back"></i></div></button>
+                <button class="hw-tactile-btn" type="button" data-detail-video-action="next-frame" title="下一帧（F）" aria-label="下一帧（F）"><div class="hw-tactile-btn-inner"><i data-lucide="step-forward"></i></div></button>
+                <output class="asset-detail-video-time timecode-recessed" aria-live="off"><span data-detail-video-current>0:00</span><i>/</i><span data-detail-video-duration>${duration ? formatDetailVideoTime(duration) : '--:--'}</span></output>
+                <div class="asset-detail-video-progress-wrap scrubber-track">
+                    <div class="scrubber-track-bar">
+                        <div class="scrubber-loaded" style="width:100%;"></div>
+                        <div class="scrubber-fill" data-detail-video-fill style="width:0%;"></div>
+                    </div>
+                    <input class="asset-detail-video-progress" type="range" min="0" max="${duration || 0}" step="any" value="0" ${duration ? '' : 'disabled'} data-detail-video-progress aria-label="播放进度" aria-valuetext="0:00 / ${duration ? formatDetailVideoTime(duration) : '时长读取中'}">
+                    <i data-detail-video-in-marker ${inPoint === null ? 'hidden' : ''}></i>
+                    <i data-detail-video-out-marker ${outPoint === null ? 'hidden' : ''}></i>
+                </div>
+                <button class="asset-detail-video-mute hw-tactile-btn" type="button" data-detail-video-action="mute" title="静音" aria-label="静音"><div class="hw-tactile-btn-inner"><i class="asset-detail-video-icon-volume" data-lucide="volume-2"></i><i class="asset-detail-video-icon-muted" data-lucide="volume-x"></i></div></button>
                 <label class="asset-detail-video-volume" title="音量"><span>音量</span><input type="range" min="0" max="1" step="0.05" value="1" data-detail-video-volume aria-label="音量"></label>
+                <div class="asset-detail-video-vu-meter" aria-hidden="true" title="立体声动态电平">
+                    <span class="vu-label">VU</span>
+                    <div class="vu-channels">
+                        <div class="vu-ch"><span class="vu-ch-name">L</span><div class="vu-bar-track"><div class="vu-bar-fill vu-bar-left"></div></div></div>
+                        <div class="vu-ch"><span class="vu-ch-name">R</span><div class="vu-bar-track"><div class="vu-bar-fill vu-bar-right"></div></div></div>
+                    </div>
+                </div>
             </div>
             <div class="asset-detail-video-controls asset-detail-video-edit-controls">
-                <button class="is-labeled" type="button" data-detail-video-action="set-in" title="设置入点（I）"><i data-lucide="log-in"></i><span>入点 I</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="set-out" title="设置出点（O）"><i data-lucide="log-out"></i><span>出点 O</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="clear-range" title="清除入点和出点"><i data-lucide="eraser"></i><span>清除</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="set-in" title="设置入点（I）"><i data-lucide="log-in"></i><span>入点 I</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="set-out" title="设置出点（O）"><i data-lucide="log-out"></i><span>出点 O</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="clear-range" title="清除入点和出点"><i data-lucide="eraser"></i><span>清除</span></button>
                 <output class="asset-detail-video-range"><span>入 <b data-detail-video-in>${inPoint === null ? '--:--' : formatDetailVideoTime(inPoint)}</b></span><span>出 <b data-detail-video-out>${outPoint === null ? '--:--' : formatDetailVideoTime(outPoint)}</b></span></output>
                 <div class="asset-detail-video-rate" role="group" aria-label="播放速度"><button type="button" data-detail-video-action="rate-down" title="减速 0.1 倍（X）"><i data-lucide="minus"></i></button><output data-detail-video-rate>${state.rate.toFixed(1)}×</output><button type="button" data-detail-video-action="rate-up" title="加速 0.1 倍（C）"><i data-lucide="plus"></i></button><button type="button" data-detail-video-action="rate-reset" title="恢复原始速度（Z）">1×</button></div>
                 <label class="asset-detail-video-root"><span>导出到库</span><select data-detail-video-root aria-label="选择导出素材库" ${roots.length ? '' : 'disabled'}>${rootOptions || '<option value="">没有可写素材库</option>'}</select></label>
-                <button class="is-labeled" type="button" data-detail-video-action="clip-file" data-detail-video-export ${rangeReady ? '' : 'disabled'} title="导出入点到出点的视频到指定位置"><i data-lucide="scissors"></i><span>截取到文件</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="clip-library" data-detail-video-export ${rangeReady && roots.length ? '' : 'disabled'} title="导出入点到出点的视频到所选素材库"><i data-lucide="library-big"></i><span>截取到库</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="frame-file" data-detail-video-export title="导出当前帧到指定位置（Ctrl+Shift+C）"><i data-lucide="image-down"></i><span>单帧到文件</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="frame-library" data-detail-video-export ${roots.length ? '' : 'disabled'} title="导出当前帧到所选素材库"><i data-lucide="images"></i><span>单帧到库</span></button>
-                <button class="is-labeled" type="button" data-detail-video-action="frame-copy" title="复制当前帧（Ctrl+C）"><i data-lucide="copy"></i><span>复制帧</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="clip-file" data-detail-video-export ${rangeReady ? '' : 'disabled'} title="导出入点到出点的视频到指定位置"><i data-lucide="scissors"></i><span>截取到文件</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="clip-library" data-detail-video-export ${rangeReady && roots.length ? '' : 'disabled'} title="导出入点到出点的视频到所选素材库"><i data-lucide="library-big"></i><span>截取到库</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="frame-file" data-detail-video-export title="导出当前帧到指定位置（Ctrl+Shift+C）"><i data-lucide="image-down"></i><span>单帧到文件</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="frame-library" data-detail-video-export ${roots.length ? '' : 'disabled'} title="导出当前帧到所选素材库"><i data-lucide="images"></i><span>单帧到库</span></button>
+                <button class="is-labeled hw-capsule-btn" type="button" data-detail-video-action="frame-copy" title="复制当前帧（Ctrl+C）"><i data-lucide="copy"></i><span>复制帧</span></button>
             </div>
         </div>
     </div>`;
@@ -16920,6 +16943,11 @@ function syncDetailVideoControls(video){
         progress.max = String(duration || 0);
         progress.value = String(Math.min(duration || current, current));
         progress.setAttribute('aria-valuetext', `${formatDetailVideoTime(current)} / ${duration ? formatDetailVideoTime(duration) : '时长读取中'}`);
+    }
+    const fill = controls.querySelector('[data-detail-video-fill]');
+    if(fill){
+        const percent = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
+        fill.style.width = `${percent}%`;
     }
     if(volume) volume.value = String(Math.max(0, Math.min(1, Number(video.volume ?? 1))));
     const inPoint = detailVideoPoint(state.inPoint);
