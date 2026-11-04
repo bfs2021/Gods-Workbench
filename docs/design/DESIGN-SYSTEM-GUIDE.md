@@ -14,6 +14,38 @@
 
 ## 2. 视觉 token
 
+
+### 资产类型色
+
+类型色统一定义在 `web/css/base/hardware-tokens.css`；金色仅用于系统强调，不作为任何资产类型的颜色。
+
+| 类型 | 变量 | 色值 |
+|---|---|---|
+| image | `--asset-type-image` | `#20a35a` |
+| video | `--asset-type-video` | `#2878d0` |
+| audio | `--asset-type-audio` | `#24a38a` |
+| font | `--asset-type-font` | `#f5d7b0` |
+| model | `--asset-type-model` | `#ff6b6b` |
+| text | `--asset-type-text` | `#bd8bf0` |
+| document | `--asset-type-document` | `#80c2c2` |
+| workflow | `--asset-type-workflow` | `#9381bb` |
+| project_file | `--asset-type-project_file` | `#c98675` |
+| other | `--asset-type-other` | `#98bfff` |
+
+**使用场景**：卡片顶部色条、统计项小色块、单色类型图标、选中态描边与淡底取色。
+
+**禁用场景**：正文文字、数量数字、大面积背景填充；任何类型色都不得与系统金色混用。
+
+**资产统计条例外**：资产库顶部概览统计条中，「资产总量」是系统汇总而非资产类型，其图标、加载条与选中态一律使用系统金色 `--vault-gold`；其余统计项的加载条取自身类型色，数字保持纯白、名称与占比保持中性灰。
+
+**选色要求**：类型色两两之间需在 Lab 空间保持足够色差，并同时满足深色与浅色主题下的可辨识度。
+
+**已知紧凑配对**（按当前色值实测 Lab 色差，产品明确指定的取值，调整前须一并复核）：
+
+- font `#f5d7b0` ↔ 系统金 `#dfc384` 为 14.8，是全表最接近的一对；两者仅靠「色条/图标 vs 数字与选中态」的位置区分，字体色不得用于任何文字。
+- font 与白底对比度为 1.38，浅色主题下图标与色条偏淡，靠卡片边框与固定栏位辨识；若要提升辨识度需改深字体色或调整系统金色。
+- document `#80c2c2` ↔ audio `#24a38a` 为 25.3，other `#98bfff` ↔ workflow `#9381bb` 为 26.3，靠明度与色相偏差区分。
+
 ### 2.1 表面与品牌
 
 | Token | 值 | 用途 |

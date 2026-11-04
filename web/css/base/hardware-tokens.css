@@ -1,5 +1,17 @@
 /* 黑金硬件共享变量：字体、尺寸与颜色；布局/控件由页面样式负责。 */
 :root {
+  /* 资产类型色：唯一共享定义。 */
+  --asset-type-image: #20a35a;
+  --asset-type-video: #2878d0;
+  --asset-type-audio: #24a38a;
+  --asset-type-font: #f5d7b0;
+  --asset-type-model: #ff6b6b;
+  --asset-type-text: #bd8bf0;
+  --asset-type-document: #80c2c2;
+  --asset-type-workflow: #9381bb;
+  --asset-type-project_file: #c98675;
+  --asset-type-other: #98bfff;
+
 
   /* ========================================================================= */
   /* 字体族体系 (Font Families) - 角色分工，中文回退思源黑体 */

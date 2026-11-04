@@ -9743,7 +9743,7 @@ function renderRegistryOverviewStats(){
         const ratio = globalTotal ? Math.round(Number(stat.value || 0) / globalTotal * 100) : 0;
         const active = registryStatCategory === stat.id;
         // 双行结构：第 1 行名称 + 占比，第 2 行「图标 + 数量」与高光渐变进度条。
-        return `<button type="button" class="registry-stat-card ${stat.primary ? 'primary' : ''} ${active ? 'active' : ''}" data-registry-stat="${escapeAttr(stat.id)}" aria-pressed="${active}"><span class="registry-stat-icon"><i data-lucide="${stat.icon}"></i></span><span class="registry-stat-copy"><small>${stat.name}</small><strong>${Number(stat.value || 0).toLocaleString('zh-CN')}</strong></span><em>${stat.primary ? '统一资产索引' : `${ratio}%`}</em><span class="registry-stat-meter" aria-hidden="true"><span style="--vault-ratio:${Math.min(100, Math.max(0, ratio))}%"></span></span></button>`;
+        return `<button type="button" class="registry-stat-card ${stat.primary ? 'primary' : ''} ${active ? 'active' : ''} ${Number(stat.value || 0) === 0 ? 'is-empty' : ''}" data-registry-stat="${escapeAttr(stat.id)}" aria-pressed="${active}"><span class="registry-stat-icon"><i data-lucide="${stat.icon}"></i></span><span class="registry-stat-copy"><small>${stat.name}</small><strong>${Number(stat.value || 0).toLocaleString('zh-CN')}</strong></span><em>${stat.primary ? '统一资产索引' : `${ratio}%`}</em><span class="registry-stat-meter" aria-hidden="true"><span style="--vault-ratio:${Math.min(100, Math.max(0, ratio))}%"></span></span></button>`;
     }).join('')}</section>`;
 }
 async function toggleRegistryFeature(featureId){
