@@ -15055,7 +15055,10 @@ function renderDetailMediaCanvasNode(source, item){
     const url = type === 'image' && assetId && !explicitVersion
         ? `/api/asset-registry/assets/${encodeURIComponent(assetId)}/media`
         : String(item.assetUrl || item.asset_url || item.original_url || currentUrl || '');
-    const box = detailViewerState.mediaCanvasLayout?.[item.id] || {x:0,y:0,...detailMediaCanvasNaturalSize(item)};
+    if(!detailViewerState.mediaCanvasLayout[item.id]){
+        detailViewerState.mediaCanvasLayout[item.id] = {x:0,y:0,...detailMediaCanvasNaturalSize(item)};
+    }
+    const box = detailViewerState.mediaCanvasLayout[item.id];
     const active = item.id === detailViewerState.mediaCanvasActiveId;
     const group = detailMediaCanvasGroupForMember(item.id);
     const objectId = group?.id || item.id;
@@ -15332,10 +15335,35 @@ function captureDetailMediaCanvasNaturalSize(event){
     const item = detailMediaCanvasItems().find(value => value.id === id);
     const width = Number(media.naturalWidth || media.videoWidth || 0);
     const height = Number(media.naturalHeight || media.videoHeight || 0);
-    if(!item || !(width > 0) || !(height > 0) || (Number(item.natural_w) === width && Number(item.natural_h) === height)) return;
+    if(!item || !(width > 0) || !(height > 0)) return;
+    const naturalChanged = Number(item.natural_w) !== width || Number(item.natural_h) !== height;
     item.natural_w = width;
     item.natural_h = height;
-    if(detailViewerState.mediaCanvasLayout?.[id]?.auto){
+    const currentBox = detailViewerState.mediaCanvasLayout?.[id];
+    if(currentBox){
+        const naturalRatio = width / height;
+        const currentRatio = (Number(currentBox.width) || 1) / (Number(currentBox.height) || 1);
+        // 若未经用户手动缩放，或者宽高比与自然比例失真超过 3%，立即按真实自然比例重设宽高并贴合
+        if(!currentBox.userResized || Math.abs(currentRatio - naturalRatio) > 0.03){
+            const maxDim = Math.max(360, Math.min(1600, Math.max(Number(currentBox.width) || 0, Number(currentBox.height) || 0, 800)));
+            let newWidth, newHeight;
+            if(width >= height){
+                newWidth = snapDetailMediaCanvasValue(maxDim);
+                newHeight = snapDetailMediaCanvasValue(maxDim / naturalRatio);
+            } else {
+                newHeight = snapDetailMediaCanvasValue(maxDim);
+                newWidth = snapDetailMediaCanvasValue(maxDim * naturalRatio);
+            }
+            const centerX = Number(currentBox.x || 0) + (Number(currentBox.width) || 0) / 2;
+            const centerY = Number(currentBox.y || 0) + (Number(currentBox.height) || 0) / 2;
+            currentBox.x = snapDetailMediaCanvasValue(centerX - newWidth / 2);
+            currentBox.y = snapDetailMediaCanvasValue(centerY - newHeight / 2);
+            currentBox.width = Math.max(80, newWidth);
+            currentBox.height = Math.max(60, newHeight);
+            syncDetailMediaCanvasGeometryDom();
+        }
+    }
+    if(detailViewerState.mediaCanvasLayout?.[id]?.auto && naturalChanged){
         arrangeDetailMediaCanvasItems('grid', false);
         renderDetailViewer();
         requestAnimationFrame(fitDetailMediaCanvas);
@@ -18079,7 +18107,7 @@ function updateDetailMediaCanvasPan(event){
     } else if(state.mode === 'resize'){
         const snappedDx = detailViewerState.mediaCanvasSnap ? Math.round(dx/10)*10 : dx;
         const snappedDy = detailViewerState.mediaCanvasSnap ? Math.round(dy/10)*10 : dy;
-        setDetailMediaCanvasObjectBox(state.id,resizeDetailMediaCanvasBox(state.origin,state.handle,snappedDx,snappedDy,!detailMediaCanvasAnnotation(state.id)));
+        setDetailMediaCanvasObjectBox(state.id,{...resizeDetailMediaCanvasBox(state.origin,state.handle,snappedDx,snappedDy,!detailMediaCanvasAnnotation(state.id)),userResized:true});
         syncDetailMediaCanvasGeometryDom();
     } else if(state.mode === 'marquee'){
         const rect = state.viewport.getBoundingClientRect();
@@ -18721,6 +18749,17 @@ function addDetailMediaCanvasLibraryItem(id,clientX,clientY,candidateOverride=nu
     if(!target){
         target = detailViewerState.source === 'registry' ? candidate : {...candidate,asset_id:persistId};
         detailViewerState.mediaCanvasItems.push(target);
+    }
+    if(!target.natural_w || !target.natural_h){
+        const previewEl = document.querySelector(`.gw-coverflow-slide[data-gw-coverflow-id="${CSS.escape(stableId)}"] :is(img,video)`)
+            || document.querySelector(`[data-detail-media-canvas-node="${CSS.escape(stableId)}"] :is(img,video)`)
+            || document.querySelector(`img[src*="${CSS.escape(stableId)}"]`);
+        const nw = Number(previewEl?.naturalWidth || previewEl?.videoWidth || 0);
+        const nh = Number(previewEl?.naturalHeight || previewEl?.videoHeight || 0);
+        if(nw > 0 && nh > 0){
+            target.natural_w = nw;
+            target.natural_h = nh;
+        }
     }
     const natural = detailMediaCanvasNaturalSize(target);
     const nextBox = {

@@ -407,14 +407,14 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-media-canvas-grid { position:absolute; inset:0; pointer-events:none; background-color:#0a0c10; background-image:linear-gradient(rgba(223,195,132,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(223,195,132,.04) 1px,transparent 1px),linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px); background-size:80px 80px,80px 80px,20px 20px,20px 20px; }
 .asset-detail-media-canvas-grid.is-snap-off { background-image:none; }
 .asset-detail-media-canvas-world { position:absolute; z-index:1; left:0; top:0; transform-origin:0 0; will-change:transform; user-select:none; }
-.asset-detail-media-node { position:absolute; z-index:2; border:1px solid transparent; background:#0f1210; overflow:visible; cursor:move; }
+.asset-detail-media-node { position:absolute; z-index:2; border:1px solid transparent; background:transparent; overflow:visible; cursor:move; }
 .asset-detail-media-node:hover { border-color:rgba(255,255,255,.52); }
 .asset-detail-media-node.is-selected { z-index:3; border-color:var(--sf-cyan); outline:var(--media-outline-size,2px) solid var(--sf-cyan); outline-offset:0; }
 .asset-detail-media-node.is-selected-via-group { z-index:3; border-color:var(--sf-cyan); outline:var(--media-outline-size,2px) solid var(--sf-cyan); outline-offset:0; }
 .asset-detail-media-node:focus-visible { outline:3px solid var(--sf-cyan); outline-offset:3px; }
 .asset-detail-media-node.is-moving { cursor:grabbing; }
 .asset-detail-media-node.is-group-member:hover,.asset-detail-media-annotation.is-group-member:hover { border-color:transparent; }
-.asset-detail-media-node-clip { position:absolute; inset:0; min-width:0; min-height:0; overflow:hidden; background:#101311; pointer-events:none; }
+.asset-detail-media-node-clip { position:absolute; inset:0; min-width:0; min-height:0; overflow:hidden; background:transparent; pointer-events:none; }
 .asset-detail-media-node .asset-detail-media-node-content { width:100%; height:100%; max-width:none; max-height:none; border-radius:0; object-fit:contain; display:block; pointer-events:none; }
 .asset-detail-media-node > .asset-detail-video-dock { top:calc(100% + 12px); right:auto; left:0; width:100%; max-width:none; transform:none !important; transform-origin:top left; visibility:visible; z-index:20; }
 .asset-detail-media-node:not(.is-selected):not(.is-selected-via-group):not(.is-active) > .asset-detail-video-dock { display:none; }
