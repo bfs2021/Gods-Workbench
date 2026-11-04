@@ -621,6 +621,7 @@ let assetClassifyBusy = false;
 let localClassifyBusy = false;
 let lightboxPanState = null;
 let detailMediaCanvasPanState = null;
+let detailMediaCanvasSpacePressed = false;
 let detailMediaCanvasEditState = null;
 let detailMediaCanvasAnnotationSnapshot = null;
 let detailMediaCanvasColorSnapshot = null;
@@ -6047,23 +6048,28 @@ function mountDetailImageEditorCoverflow(state, shell){
 function detailReferenceCanvasCoverflowAssets(){
     const source = detailViewerState.source || 'registry';
     const seen = new Set();
-    // Keep existing canvas nodes first, then add current session items and visible library.
-    // Both surfaces resolve the same stable asset ID, so a Coverflow drag can add
-    // an image that is not on the canvas yet without creating a local shadow.
-    const values = [
-        ...detailMediaCanvasItems(),
+    const canvasNodeIds = new Set(
+        detailMediaCanvasItems().map(item => String(detailMediaCanvasPersistId(item, source) || item.id || '').trim()).filter(Boolean)
+    );
+    // 已经加入到画布里的图像，底部 Coverflow 里不再显示，仅保留候选库中尚未入画的素材
+    const candidatePool = [
         ...(detailViewerState.items || []),
         ...detailMediaCanvasLibraryItems(),
     ];
-    return values.filter(item => registryCoverflowSourceIsVisual(source, item)).map(item => {
+    return candidatePool.filter(item => {
+        if(!registryCoverflowSourceIsVisual(source, item)) return false;
+        const assetId = String(detailMediaCanvasPersistId(item, source) || item?.id || '').trim();
+        return assetId && !canvasNodeIds.has(assetId);
+    }).map(item => {
         const assetId = detailMediaCanvasPersistId(item, source);
         const id = String(assetId || item?.id || '').trim();
+        if(!id || canvasNodeIds.has(id) || seen.has(id)) return null;
         const currentUrl = String(detailViewerUrl(source, item) || '').trim();
         const explicitVersion = /\/image-versions\/[^/?#]+\/media(?:\?|#|$)/i.test(currentUrl);
         const rawUrl = assetId && !explicitVersion
             ? `/api/asset-registry/assets/${encodeURIComponent(assetId)}/media`
             : String(item.assetUrl || item.asset_url || item.original_url || currentUrl || '').trim();
-        if(!id || !rawUrl || seen.has(id)) return null;
+        if(!rawUrl) return null;
         seen.add(id);
         const preview = assetPreviewUrl(rawUrl, 512, item) || rawUrl;
         const mediaKind = registryCoverflowSourceMediaKind(source, item);
@@ -15290,7 +15296,7 @@ function renderDetailMediaCanvas(source, currentItem){
             </div>
             <div class="asset-detail-media-toolbar-tools">${renderDetailMediaCanvasToolButtons()}</div>
         </div>
-        <div class="asset-detail-media-canvas-viewport ${activeVideo ? 'has-video-dock' : ''}" data-detail-media-canvas-viewport tabindex="0" aria-label="无限画布，左键选择或框选，Shift 加选，中键拖动画布，滚轮缩放">
+        <div class="asset-detail-media-canvas-viewport ${activeVideo ? 'has-video-dock' : ''}" data-detail-media-canvas-viewport tabindex="0" aria-label="无限画布，左键选择或框选，Shift 加选，空格/中键拖动画布，滚轮缩放">
             <div class="asset-detail-media-canvas-grid ${detailViewerState.mediaCanvasSnap ? '' : 'is-snap-off'}" style="background-position:${x}px ${y}px,${x}px ${y}px,${x}px ${y}px,${x}px ${y}px;background-size:${80*scale}px ${80*scale}px,${80*scale}px ${80*scale}px,${20*scale}px ${20*scale}px,${20*scale}px ${20*scale}px" aria-hidden="true"></div>
             <div class="asset-detail-media-canvas-world" data-detail-media-canvas-world style="width:${metrics.width}px;height:${metrics.height}px;--media-handle-size:${10/scale}px;--media-handle-half:${-5/scale}px;--media-outline-size:${2/scale}px;transform:translate(${x}px,${y}px) scale(${scale})">
                 ${detailMediaCanvasGroups().map(renderDetailMediaCanvasGroup).join('')}
@@ -15299,7 +15305,7 @@ function renderDetailMediaCanvas(source, currentItem){
                 ${detailMediaCanvasDrawings().map(renderDetailMediaCanvasDrawing).join('')}
                 ${(detailViewerState.mediaCanvasAnnotations || []).map(renderDetailMediaCanvasAnnotation).join('')}
             </div>
-            <div class="asset-detail-media-canvas-help"><span>左键选择/框选</span><span><kbd>Shift</kbd> 加选</span><span>中键抓手</span><span><kbd>Ctrl+A</kbd> 全选</span><span><kbd>Ctrl+C/V</kbd> 复制/粘贴</span><span><kbd>Ctrl+Z</kbd> 撤销</span><b data-detail-media-canvas-scale>${Math.round(scale * 100)}%</b></div>
+            <div class="asset-detail-media-canvas-help"><span>左键选择/框选</span><span><kbd>Shift</kbd> 加选</span><span><kbd>Space</kbd>/中键抓手</span><span><kbd>Ctrl+A</kbd> 全选</span><span><kbd>Ctrl+C/V</kbd> 复制/粘贴</span><span><kbd>Ctrl+Z</kbd> 撤销</span><b data-detail-media-canvas-scale>${Math.round(scale * 100)}%</b></div>
             <aside class="asset-detail-media-minimap ${detailMediaCanvasMinimapVisible ? '' : 'is-hidden'}" aria-label="画布缩略图" aria-hidden="${!detailMediaCanvasMinimapVisible}">
                 <header><span>画布缩略图</span><b>${items.length}</b><button class="asset-detail-media-minimap-toggle is-active" type="button" data-detail-media-minimap-toggle aria-pressed="true" title="隐藏画布缩略图" aria-label="隐藏画布缩略图"><i data-lucide="eye-off"></i></button></header>
                 <div class="asset-detail-media-minimap-world" style="width:${Math.max(1,metrics.width * minimapScale)}px;height:${Math.max(1,metrics.height * minimapScale)}px">${items.map(value => {
@@ -17045,6 +17051,7 @@ function closeDetailPreview(force=false){
     document.body.classList.remove('asset-lightbox-open');
     lightboxPanState = null;
     detailMediaCanvasPanState = null;
+    detailMediaCanvasSpacePressed = false;
     detailMediaCanvasEditState = null;
     detailMediaCanvasAnnotationSnapshot = null;
     detailMediaCanvasColorSnapshot = null;
@@ -17994,7 +18001,7 @@ function finishDetailMediaCanvasAnnotationEdit(){
 function beginDetailMediaCanvasPan(event){
     const viewport = event.target.closest?.('[data-detail-media-canvas-viewport]');
     if(!viewport || event.target.closest?.('.asset-detail-media-minimap,.asset-detail-media-context-menu,.asset-detail-video-dock,.asset-detail-media-annotation-editor')) return;
-    if(event.button === 1){
+    if(event.button === 1 || (event.button === 0 && detailMediaCanvasSpacePressed)){
         event.preventDefault();
         closeDetailMediaCanvasContextMenu();
         detailMediaCanvasPanState = {
@@ -19716,7 +19723,7 @@ function beginDetailImageEditorPointer(event){
     const stage = event.target.closest?.('.asset-image-editor-stage');
     const canvas = event.target.closest?.('[data-image-editor-canvas]');
     if(!state || !stage) return;
-    if(event.button === 1){
+    if(event.button === 1 || (event.button === 0 && detailMediaCanvasSpacePressed)){
         event.preventDefault(); event.stopPropagation();
         detailImageEditorPointer={mode:'pan',pointerId:event.pointerId,target:stage,startClient:{x:event.clientX,y:event.clientY},startPan:{x:Number(state.panX||0),y:Number(state.panY||0)}};
         stage.setPointerCapture?.(event.pointerId); stage.classList.add('is-panning');
@@ -21246,16 +21253,23 @@ document.addEventListener('keydown', event => {
             else navigateDetailPreview(event.key === 'ArrowRight' ? 1 : -1);
             return;
         }
-        // 【修复问题3-增强】完全阻止空格键的默认行为，只在视频/音频播放时才响应空格键
+        // 空格键处理：画布模式下作为抓手快捷键；常规视频/音频详情模式下作为播放/暂停
         if((event.key === ' ' || event.code === 'Space') && !event.target.closest?.('button,a,input,textarea,select')){
             event.preventDefault(); // 始终阻止默认滚动行为
+            const canvasViewport = document.querySelector('[data-detail-media-canvas-viewport]');
+            if(canvasViewport){
+                if(!detailMediaCanvasSpacePressed){
+                    detailMediaCanvasSpacePressed = true;
+                    canvasViewport.classList.add('is-space-panning');
+                }
+                return;
+            }
             const item = detailViewerState.items[detailViewerState.index] || {};
             const type = detailViewerType(detailViewerState.source, item);
-            // 只有视频或音频类型才执行播放/暂停操作
+            // 只有普通视频或音频查看器才执行播放/暂停操作
             if(type === 'video' || type === 'audio'){
                 toggleDetailPreviewPlayback();
             }
-            // 其他类型不执行任何操作，空格键被完全禁用
             return;
         }
     }
@@ -21329,6 +21343,20 @@ document.addEventListener('keydown', event => {
     if(event.target?.id === 'promptTreeEditInput'){
         if(event.key === 'Enter'){ event.preventDefault(); savePromptTreeEdit().catch(err => setStatus(err.message || '保存失败')); }
         if(event.key === 'Escape'){ event.preventDefault(); promptTreeEdit = null; render(); }
+    }
+});
+document.addEventListener('keyup', event => {
+    if(event.code === 'Space' || event.key === ' '){
+        if(detailMediaCanvasSpacePressed){
+            detailMediaCanvasSpacePressed = false;
+            document.querySelector('[data-detail-media-canvas-viewport]')?.classList.remove('is-space-panning');
+        }
+    }
+});
+window.addEventListener('blur', () => {
+    if(detailMediaCanvasSpacePressed){
+        detailMediaCanvasSpacePressed = false;
+        document.querySelector('[data-detail-media-canvas-viewport]')?.classList.remove('is-space-panning');
     }
 });
 document.addEventListener('wheel', navigateDetailPreviewWheel, {passive:false});
