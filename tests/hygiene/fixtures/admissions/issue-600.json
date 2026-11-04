@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 600,
+  "authorization_basis": "GitHub Issue #600 (QIN-544), 2026-11-05",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "tests/frontend/qin-544-asset-tree-panel.test.mjs",
+    "tests/frontend/qin-527-custom-library-rack.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-600.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-544-asset-tree-panel.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #600 (QIN-544), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-544：资产库左侧单栏树重构（系统/我的两棵树、去中栏机架、项目›分组›条目层级、管线样式、面包屑、键盘导航）。qin-527 旧断言按票面预授权更新为树面板新行为。分片按票号命名规则取 issue-600.json。"
+}

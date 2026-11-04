@@ -62,10 +62,11 @@ function functionSource(name){
 
 test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与冗长灰字下线', () => {
     const library = functionSource('renderCustomAssetLibrary');
+    // 【QIN-544】中栏由左栏单栏树替代：自定义看板与总览共用同一棵树面板
     assert.match(
         library,
-        /renderAssetRack\('', 'library-board-nav'\)/,
-        '自定义看板中栏必须复用总览同一套机架，并保留看板中栏定位类'
+        /renderAssetTreePanel\(\)/,
+        '自定义看板左栏必须复用同一棵单栏树面板'
     );
     for(const legacy of ['asset-smart-filter-scroll', 'library-board-summary', 'library-rule-row', 'nav-hint']){
         assert.ok(!library.includes(legacy), `看板中栏不得再输出旧版堆叠导航节点：${legacy}`);
@@ -105,9 +106,10 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
         /const SYSTEM_BOARD_RACK_TABS = \['scripts','projects','assets','workflows','prompts','canvas-assets','local'\];/,
         '系统看板必须登记进机架外壳覆盖清单'
     );
+    // 【QIN-544】中栏机架由左栏单栏树替代：系统看板视图统一接入树面板
     for(const render of ['renderScriptAssetsManager','renderProjectManager','renderAssetManager','renderWorkflowManager','renderPromptManager','renderCanvasAssetsManager','renderLocalManager']){
         const source = functionSource(render);
-        assert.match(source, /renderSystemBoardRack\(/, `${render} 中栏必须接入机架外壳`);
+        assert.match(source, /renderAssetTreePanel\(\)/, `${render} 左栏必须接入单栏树面板`);
         assert.ok(!source.includes('asset-smart-filter-scroll'), `${render} 不得再输出旧版智能筛选滚动容器`);
     }
     assert.match(

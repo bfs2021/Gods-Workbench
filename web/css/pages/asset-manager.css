@@ -3816,3 +3816,49 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
     background: #090c10 !important;
     border-top: 1px solid rgba(223, 195, 132, 0.2) !important;
 }
+
+/* ---------------------------------------------------------------------------
+   QIN-544 资产库左栏单栏树：系统资源/我的资源、管线样式、面包屑
+   ------------------------------------------------------------------------- */
+.asset-manager-root.asset-tree-layout { grid-template-columns:240px minmax(0,1fr) var(--registry-detail-width,360px); }
+.asset-manager-root.asset-tree-layout > .asset-content { grid-column:2; }
+.asset-manager-root.asset-tree-layout.registry-detail-collapsed { grid-template-columns:240px minmax(0,1fr) 44px; }
+.asset-manager-root.asset-tree-layout.asset-manager-root-registry { grid-template-columns:240px minmax(0,1fr); }
+.asset-manager-root.asset-tree-layout.asset-manager-root-library { grid-template-columns:240px minmax(0,1fr) var(--registry-detail-width,360px); }
+.asset-manager-root.asset-tree-layout.asset-manager-root-library.registry-detail-collapsed { grid-template-columns:240px minmax(0,1fr) 41px; }
+.asset-tree-panel { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.asset-tree-tabs { flex:0 0 auto; display:flex; gap:4px; padding:10px 10px 8px; border-bottom:1px solid var(--line); }
+.asset-tree-tab { flex:1; height:32px; border:0; border-radius:9px; background:transparent; color:var(--muted); font-size:var(--gw-type-label-md); font-weight:800; letter-spacing:.03em; transition:background .16s ease, color .16s ease; }
+.asset-tree-tab:hover { background:var(--strong); color:var(--strong-text); }
+.asset-tree-tab.active { background:linear-gradient(180deg, rgba(201,168,88,.18), rgba(201,168,88,.08)); color:var(--gold-text, var(--text)); box-shadow:inset 0 0 0 1px rgba(201,168,88,.35); }
+.asset-tree-scroll { flex:1 1 auto; min-height:0; overflow:auto; padding:8px 6px 12px; }
+.asset-tree-node { position:relative; }
+.asset-tree-row { width:100%; height:34px; border:0; background:transparent; color:var(--text); display:flex; align-items:center; gap:6px; padding:0 8px 0 0; text-align:left; }
+.asset-tree-row:hover { background:var(--strong); }
+.asset-tree-row:focus-visible { outline:1px solid rgba(201,168,88,.55); outline-offset:-1px; }
+.asset-tree-twisty { width:18px; height:18px; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; border:0; background:transparent; color:var(--faint); }
+.asset-tree-twisty svg { width:12px; height:12px; }
+.asset-tree-dot { width:5px; height:5px; flex:0 0 auto; border-radius:50%; background:var(--faint); box-shadow:0 0 0 3px transparent; }
+.asset-tree-icon { width:14px; height:14px; flex:0 0 auto; color:var(--muted); }
+.asset-tree-icon svg { width:14px; height:14px; }
+.asset-tree-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--gw-type-body-sm); font-weight:600; }
+.asset-tree-count { flex:0 0 auto; color:var(--faint); font-size:var(--gw-type-label-md); font-variant-numeric:tabular-nums; }
+.asset-tree-group-label { padding:10px 10px 4px; color:var(--faint); font-size:var(--gw-type-label-md); font-weight:700; letter-spacing:.05em; }
+.asset-tree-footer { flex:0 0 auto; padding:8px 10px; border-top:1px solid var(--line); display:flex; }
+.asset-tree-footer .hw-btn { width:100%; }
+
+/* QIN-544 管线样式：竖线+节点圆点默认暗灰，根到选中支路点亮金色；选中淡金底；空目录变暗 */
+.asset-tree-node::before { content:""; position:absolute; top:0; bottom:0; left:calc(13px + var(--tree-depth, 0) * 16px); width:1px; background:var(--line); }
+.asset-tree-node.is-path::before { background:linear-gradient(180deg, rgba(201,168,88,.65), rgba(201,168,88,.28)); }
+.asset-tree-row { padding-left:calc(20px + var(--tree-depth, 0) * 16px); }
+.asset-tree-node.is-path .asset-tree-dot { background:var(--gold-dot, #c9a858); box-shadow:0 0 6px rgba(201,168,88,.6); }
+.asset-tree-node.is-path .asset-tree-icon { color:#c9a858; }
+.asset-tree-node.is-path > .asset-tree-row .asset-tree-name { color:var(--text); }
+.asset-tree-node.is-selected > .asset-tree-row { background:linear-gradient(90deg, rgba(201,168,88,.16), rgba(201,168,88,.04)); box-shadow:inset 0 0 0 1px rgba(201,168,88,.22); }
+.asset-tree-node.is-empty { opacity:.45; }
+.asset-tree-node.is-empty > .asset-tree-row:hover { opacity:1; }
+/* QIN-544 面包屑：右侧顶部，每级可点击 */
+.asset-tree-crumb { border:0; background:transparent; color:var(--muted); font-size:var(--gw-type-body-sm); font-weight:700; padding:2px 4px; border-radius:7px; }
+.asset-tree-crumb:hover { color:var(--text); background:var(--strong); }
+.asset-tree-crumb.is-current { color:var(--text); cursor:default; }
+.asset-breadcrumbs .asset-tree-crumb:not(:first-child)::before { content:"/"; margin-right:9px; color:var(--faint); }
