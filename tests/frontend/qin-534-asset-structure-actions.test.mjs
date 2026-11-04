@@ -456,3 +456,40 @@ test('AC2-反馈 9: 删除卡片弹窗与硬件滑动开关按黑金设计规范
     assert.match(css, /\.registry-feature-switch\.is-on\s+i[^{]*\{[^}]*translateX\(20px\)/);
 });
 
+test('AC2-反馈 10: 版本与组结构卡片对齐普通卡片设计（去badge、缩略图左下角缩小30%、按钮互换、标准信息栏）', () => {
+    const managerCss = readFileSync(
+        new URL('../../web/css/pages/asset-manager.css', import.meta.url),
+        'utf8'
+    );
+    const vaultCss = readFileSync(
+        new URL('../../web/css/pages/asset-vault.css', import.meta.url),
+        'utf8'
+    );
+
+    // 1. 版本卡片：删除左上角“最终版本”badge，组结构卡片：删除“组结构”badge
+    const versionCardFn = functionSource('renderRegistryVersionStructureCard');
+    const groupStackFn = functionSource('renderRegistryGroupStructureStack');
+    assert.doesNotMatch(versionCardFn, /registry-structure-badge/);
+    assert.doesNotMatch(groupStackFn, /registry-structure-badge/);
+    assert.doesNotMatch(versionCardFn, /最终版本/);
+    assert.doesNotMatch(groupStackFn, /组结构/);
+
+    // 2. 版本缩略图：缩小约 30%（由 42px 降至 29px），位置置于图像内左下角，彻底去除黑底
+    assert.match(managerCss, /\.registry-structure-version\s+\.registry-structure-member-strip\s*\{[^}]*position:\s*absolute/);
+    assert.match(managerCss, /\.registry-structure-version\s+\.registry-structure-member-strip\s*\{[^}]*left:\s*8px/);
+    assert.match(managerCss, /\.registry-structure-version\s+\.registry-structure-member-strip\s*\{[^}]*bottom:\s*8px/);
+    assert.match(managerCss, /\.registry-structure-version\s+\.registry-structure-member-strip\s*\{[^}]*background:\s*transparent/);
+    assert.match(managerCss, /\.registry-structure-version\s+\.registry-structure-member-control\s*\{[^}]*width:\s*29px/);
+
+    // 3. 组结构卡片：右上角解组和 Coverflow 按钮位置互换（最右为解组，左侧为 Coverflow）
+    assert.match(managerCss, /\.registry-structure-card\.registry-structure-group\s*>\s*\.registry-structure-coverflow\s*\{[^}]*right:\s*42px/);
+    assert.match(vaultCss, /\.registry-structure-card\.registry-structure-group\s*>\s*\.registry-structure-coverflow\s*\{[^}]*right:\s*42px/);
+
+    // 4. 底部采用标准 asset-card-body 结构，方格与简洁模式同普通图片一致收起或展示
+    assert.match(MANAGER, /renderRegistryVersionStructureCard[\s\S]*?<div class="asset-card-body">/);
+    assert.match(MANAGER, /renderRegistryGroupStructureCard[\s\S]*?<div class="asset-card-body">/);
+    assert.doesNotMatch(MANAGER, /renderRegistryVersionStructureCard[\s\S]*?<span class="registry-structure-copy">/);
+    assert.doesNotMatch(MANAGER, /renderRegistryGroupStructureCard[\s\S]*?<div class="registry-structure-copy">/);
+});
+
+

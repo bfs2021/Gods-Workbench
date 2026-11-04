@@ -252,6 +252,18 @@ body.gw-signal.gw-page--asset-manager .asset-type-video .registry-card-measure {
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card :is(.asset-card-meta,.registry-card-source) { display: none; }
 body.gw-signal.gw-page--asset-manager .registry-card .registry-card-format { top: 11px; left: 11px; min-width: 0; height: 16px; padding: 0 3px; border: 1px solid var(--vault-edge) !important; border-radius: 3px !important; font: var(--gw-type-label-md)/14px var(--gw-font-mono); letter-spacing: 0; background: color-mix(in hsl,var(--asset-type-color) 50%,#000 50%) !important; color: var(--vault-accent) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .registry-card-format { left: 21px; }
+/* QIN-534：金库壳下的结构卡片右上角按钮次序（解组在最右，Coverflow 在左）与版本缩略图 strip 规范 */
+body.gw-signal.gw-page--asset-manager .registry-structure-card.registry-structure-group > .registry-structure-coverflow { right: 42px !important; }
+body.gw-signal.gw-page--asset-manager .registry-structure-card.registry-structure-group > .registry-structure-remove { right: 8px !important; }
+body.gw-signal.gw-page--asset-manager .registry-structure-version .registry-structure-member-strip {
+    position: absolute !important;
+    z-index: 3 !important;
+    left: 8px !important;
+    bottom: 8px !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
 body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle {
     top: 10px;
     right: 10px;

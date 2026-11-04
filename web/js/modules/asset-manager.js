@@ -10253,7 +10253,7 @@ function renderRegistryGroupStructureStack(structure){
         const rotation = (index - Math.min(2, members.length - 1) / 2) * 3;
         return `<span class="registry-structure-group-layer" style="--group-layer-index:${index};--group-layer-offset:${offset}px;--group-layer-rotation:${rotation.toFixed(2)}deg">${deferRegistryPreviewThumb(assetThumb(asset))}</span>`;
     }).join('');
-    return `<button type="button" class="registry-structure-group-main" data-registry-structure-group-select="${escapeAttr(structure.id)}" aria-label="选择组结构，共 ${members.length} 张图片"><span class="registry-structure-group-stack" aria-hidden="true">${layers}<span class="registry-structure-badge"><i data-lucide="layers-2"></i>组结构</span></span></button>`;
+    return `<button type="button" class="registry-structure-group-main" data-registry-structure-group-select="${escapeAttr(structure.id)}" aria-label="选择图片组，共 ${members.length} 张图片"><span class="registry-structure-group-stack" aria-hidden="true">${layers}</span></button>`;
 }
 function renderRegistryVersionStructureCard(item){
     const structure = item.__registry_asset_structure;
@@ -10261,15 +10261,24 @@ function renderRegistryVersionStructureCard(item){
     if(!current) return '';
     const selected = current.id === selectedRegistryAssetId || structure.members.some(member => registrySelectedIds.has(member.asset_id));
     const mediaAspectStyle = registryMediaAspectStyle(current);
+    const memberStrip = `<div class="registry-structure-member-strip" role="group" aria-label="切换版本">${structure.members.map(member => registryVersionStructureMemberControl(structure, member)).join('')}</div>`;
     return `<section class="asset-card registry-card registry-structure-card registry-structure-version asset-type-image ${selected ? 'active' : ''}" data-registry-structure-card="${escapeAttr(structure.id)}" data-registry-structure-type="version" data-registry-card="structure:${escapeAttr(structure.id)}" tabindex="0" role="group" aria-label="版本结构：${escapeAttr(current.name || '未命名图片')}">
-        <button type="button" class="registry-structure-main" data-registry-structure-open="${escapeAttr(structure.id)}" aria-label="查看当前最终版本：${escapeAttr(current.name || '未命名图片')}">
-            <div class="asset-thumb"${mediaAspectStyle ? ` style="${mediaAspectStyle}"` : ''}>${deferRegistryPreviewThumb(assetThumb(current))}</div>
-            <span class="registry-structure-badge"><i data-lucide="git-branch"></i>最终版本</span>
-            <span class="registry-structure-copy"><strong title="${escapeAttr(current.name || '')}">${escapeHtml(current.name || '未命名图片')}</strong><small>${structure.members.length} 个候选版本</small></span>
-        </button>
+        <div class="registry-structure-main" data-registry-structure-open="${escapeAttr(structure.id)}" role="button" tabindex="0" aria-label="查看当前版本：${escapeAttr(current.name || '未命名图片')}">
+            <div class="asset-thumb"${mediaAspectStyle ? ` style="${mediaAspectStyle}"` : ''}>
+                ${deferRegistryPreviewThumb(assetThumb(current))}
+                ${memberStrip}
+            </div>
+        </div>
         ${renderRegistryVersionStructureRemoveButton(structure, current)}
         ${renderRegistryStructureCoverflowButton(structure, 'registry-structure-version-coverflow')}
-        <div class="registry-structure-member-strip" role="group" aria-label="切换最终版本">${structure.members.map(member => registryVersionStructureMemberControl(structure, member)).join('')}</div>
+        <div class="asset-card-body">
+            <div class="registry-card-caption">
+                <div class="asset-card-name" data-registry-card-name title="${escapeAttr(current.name || '')}">${escapeHtml(current.name || '未命名图片')}</div>
+                <span class="registry-card-measure">${escapeHtml(formatFileSize(current.size || 0))}</span>
+            </div>
+            <div class="asset-card-meta"><span>${structure.members.length} 个版本</span><span>${escapeHtml(formatDate(current.created_at))}</span></div>
+            <div class="registry-card-source" title="${escapeAttr(registrySourceNames(current).join(' · '))}"><i data-lucide="${registrySourceNames(current).length > 1 ? 'database-zap' : 'database'}"></i><span>${escapeHtml(registrySourceNames(current).join(' · '))}${registryRootIsOffline(current) ? ' · 离线' : ''}</span>${registrySourceNames(current).length > 1 ? `<em>${registrySourceNames(current).length} 库</em>` : ''}</div>
+        </div>
     </section>`;
 }
 function renderRegistryGroupStructureCard(item){
@@ -10281,9 +10290,16 @@ function renderRegistryGroupStructureCard(item){
     const name = cover.name || '图片组';
     return `<section class="asset-card registry-card registry-structure-card registry-structure-group asset-type-image ${selected ? 'selected' : ''}" data-registry-structure-card="${escapeAttr(structure.id)}" data-registry-structure-type="group" data-registry-card="structure:${escapeAttr(structure.id)}" tabindex="0" role="group" aria-label="组结构：${escapeAttr(name)}，共 ${members.length} 张图片">
         ${renderRegistryGroupStructureStack(structure)}
-        ${renderRegistryStructureCoverflowButton(structure, 'registry-structure-group-coverflow')}
         ${renderRegistryGroupStructureRemoveButton(structure, cover, 'registry-structure-group-remove-card')}
-        <div class="registry-structure-copy"><strong title="${escapeAttr(name)}">${escapeHtml(name)}</strong><small>${members.length} 张图片 · 双击打开 Coverflow</small></div>
+        ${renderRegistryStructureCoverflowButton(structure, 'registry-structure-group-coverflow')}
+        <div class="asset-card-body">
+            <div class="registry-card-caption">
+                <div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div>
+                <span class="registry-card-measure">${members.length} 张图片</span>
+            </div>
+            <div class="asset-card-meta"><span>图片组</span><span>${escapeHtml(formatDate(cover.created_at))}</span></div>
+            <div class="registry-card-source" title="${escapeAttr(registrySourceNames(cover).join(' · '))}"><i data-lucide="${registrySourceNames(cover).length > 1 ? 'database-zap' : 'database'}"></i><span>${escapeHtml(registrySourceNames(cover).join(' · '))}${registryRootIsOffline(cover) ? ' · 离线' : ''}</span>${registrySourceNames(cover).length > 1 ? `<em>${registrySourceNames(cover).length} 库</em>` : ''}</div>
+        </div>
     </section>`;
 }
 function renderRegistryVersionStructureListRow(item){
