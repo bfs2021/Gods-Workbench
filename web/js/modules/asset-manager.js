@@ -14794,7 +14794,7 @@ function renderDetailMediaVideoControls(item={}){
         </div>
         <div class="asset-detail-video-control-panel transport-bar-trough">
             <div class="asset-detail-video-controls asset-detail-video-primary-controls">
-                <button class="asset-detail-video-play hw-play-capsule" type="button" data-detail-video-action="toggle" title="播放（Space）" aria-label="播放（Space）"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></button>
+                <button class="asset-detail-video-play hw-tactile-btn" type="button" data-detail-video-action="toggle" title="播放（Space）" aria-label="播放（Space）"><div class="hw-tactile-btn-inner hw-play-tactile-inner"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></div></button>
                 <button class="hw-tactile-btn" type="button" data-detail-video-action="previous-frame" title="上一帧（D）" aria-label="上一帧（D）"><div class="hw-tactile-btn-inner"><i data-lucide="step-back"></i></div></button>
                 <button class="hw-tactile-btn" type="button" data-detail-video-action="next-frame" title="下一帧（F）" aria-label="下一帧（F）"><div class="hw-tactile-btn-inner"><i data-lucide="step-forward"></i></div></button>
                 <output class="asset-detail-video-time timecode-recessed" aria-live="off"><span data-detail-video-current>0:00</span><i>/</i><span data-detail-video-duration>${duration ? formatDetailVideoTime(duration) : '--:--'}</span></output>

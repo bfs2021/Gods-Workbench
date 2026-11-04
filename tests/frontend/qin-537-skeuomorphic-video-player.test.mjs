@@ -76,7 +76,12 @@ assert.match(managerCss, /vu-bounce-left/, '样式表必须定义播放状态下
 // =========================================================================
 // AC5: 硬件金属微动按键 (hw-tactile-btn) 与微胶囊剪辑工具栏 (hw-capsule-btn)
 // =========================================================================
-assert.match(js, /class="asset-detail-video-play hw-play-capsule"/, '走带播放键必须具备 hw-play-capsule 类');
+// 票面 AC5 明确要求「播放/暂停大键与上一帧/下一帧」同为 hw-tactile-btn；
+// AC2 的金色拟物微球只属于画面中央悬停键，两者不得混用。
+assert.match(js, /class="asset-detail-video-play hw-tactile-btn"/, '走带播放键必须具备 hw-tactile-btn 类（票面 AC5）');
+assert.match(js, /class="hw-tactile-btn-inner hw-play-tactile-inner"/, '走带播放键必须具备双层倒角内核');
+assert.doesNotMatch(js, /class="asset-detail-video-play hw-play-capsule"/, '走带播放键不得改用中央微球的金色材质');
+assert.match(js, /class="asset-detail-video-center-play hw-play-capsule"/, '画面中央悬停播放键保留香槟钛金微球材质（AC2）');
 assert.match(js, /class="hw-tactile-btn"[^>]*data-detail-video-action="previous-frame"/, '上一帧按键必须具备 hw-tactile-btn 类');
 assert.match(js, /class="hw-tactile-btn"[^>]*data-detail-video-action="next-frame"/, '下一帧按键必须具备 hw-tactile-btn 类');
 assert.match(js, /class="asset-detail-video-mute hw-tactile-btn"/, '静音按键必须具备 hw-tactile-btn 类');
@@ -84,5 +89,24 @@ assert.match(js, /class="hw-tactile-btn-inner"/, '微动按键必须具有双层
 assert.match(js, /class="is-labeled hw-capsule-btn"/, '剪辑工具栏操作按键必须具备 hw-capsule-btn 微胶囊规范');
 assert.match(managerCss, /\.hw-tactile-btn/, '样式表必须定义 hw-tactile-btn 触感微动按键');
 assert.match(managerCss, /\.hw-capsule-btn/, '样式表必须定义 hw-capsule-btn 微胶囊按键');
+
+// =========================================================================
+// 回归防线：真实渲染中已修的两处塌陷（静态契约 + 浏览器复验双覆盖）
+// =========================================================================
+// 1) 机箱必须承接既有「位于素材节点下方、宽度铺满节点」的走带几何。
+//    新机箱规则与 `.asset-detail-media-node > .asset-detail-video-dock` 同为 2 个类选择器，
+//    若写成 width:auto，再叠加 container-type:inline-size，宽度会塌成 padding 宽度（30px）。
+assert.match(
+    managerCss,
+    /\.asset-detail-video-dock\.player-chassis\s*\{[^}]*top:\s*calc\(100%\s*\+\s*12px\)[^}]*width:\s*100%/s,
+    '机箱必须显式写回 top:calc(100% + 12px) 与 width:100%，避免宽度塌成 padding 宽'
+);
+// 2) 走带滑块必须保持透明底，否则 base/theme.css 的
+//    `body.studio-theme-dark input{background:var(--soft)!important}` 会盖住自绘轨与高光填充。
+assert.match(
+    managerCss,
+    /\.studio-theme-dark\s+\.asset-detail-video-dock\s+input\.asset-detail-video-progress[^{]*\{[^}]*background:\s*transparent\s*!important/s,
+    '走带滑块必须按容器作用域覆盖为透明底，保证 scrubber 轨与高光填充可见'
+);
 
 console.log('✔ QIN-537 所有验收标准 (AC1 ~ AC5) 静态契约与断言验证通过！');
