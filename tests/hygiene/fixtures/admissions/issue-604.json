@@ -1,0 +1,29 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 604,
+  "authorization_basis": "GitHub Issue #604 (QIN-548), 2026-11-05",
+  "files": [
+    "gw/api/routes_local_assets.py",
+    "web/js/modules/asset-manager.js",
+    "tests/api/test_qin_548_local_assets_contract.py",
+    "tests/frontend/qin-548-local-assets-contract.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-604.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/api/test_qin_548_local_assets_contract.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #604 (QIN-548), 2026-11-05",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-548-local-assets-contract.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #604 (QIN-548), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "补齐 multipart 上传、完整分页目录树与文件夹改名请求体回归；仅覆盖 QIN-548，未合并 QIN-547 收集箱。"
+}

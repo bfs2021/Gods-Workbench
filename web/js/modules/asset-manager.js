@@ -12920,6 +12920,7 @@ async function uploadLocalAssets(files){
     const list = [...files].filter(f => isLocalMediaFile(f));
     if(!list.length){ setStatus('没有可上传的受支持文件'); return; }
     const form = new FormData();
+    form.append('path', activeLocalLibraryPath());
     form.append('folder', activeLocalUploadFolder || '');
     form.append('kind', activeLocalLibraryKind());
     list.forEach(file => form.append('files', file));
@@ -13042,7 +13043,8 @@ async function renameLocalUploadFolder(){
     const name = window.prompt('重命名文件夹', current);
     if(!String(name || '').trim() || name === current) return;
     try {
-        const data = await apiJsonResponse(assetManagerApi.updateLocalAssetFolder({kind:activeLocalLibraryKind(), path:activeLocalUploadFolder, name}));
+        const currentFolderName = String(activeLocalUploadFolder).replace(/\\/g, '/').split('/').filter(Boolean).pop() || activeLocalUploadFolder;
+        const data = await apiJsonResponse(assetManagerApi.updateLocalAssetFolder({kind:activeLocalLibraryKind(), name:currentFolderName, new_name:name}));
         localAssets = Array.isArray(data.items) ? data.items : localAssets;
         localUploadTree = data.tree || localUploadTree;
         activeLocalUploadFolder = data.folder?.path || activeLocalUploadFolder;
@@ -19116,6 +19118,7 @@ async function pasteImageBlobToDetailMediaCanvas(blob,sourceName=''){
     const baseName = String(sourceName || '').replace(/\.[^.]+$/,'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').trim() || '粘贴图片';
     const filename = `${baseName}-${new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14)}.${extension}`;
     const form = new FormData();
+    form.append('path',activeLocalLibraryPath());
     form.append('files',new File([blob],filename,{type:blob.type || 'image/png'}));
     form.append('folder','god-images');
     form.append('kind','local');
