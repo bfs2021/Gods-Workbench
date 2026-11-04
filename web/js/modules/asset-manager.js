@@ -6218,6 +6218,7 @@ window.addEventListener('gw:asset-coverflow-status', event => {
     if(message) setStatus(message);
 });
 window.addEventListener('gw:asset-coverflow-closed', event => {
+    if(event.detail?.mode === 'editor'){ setDetailMediaCanvasCoverflowVisible(false); }
     if(String(event.detail?.mode || '') === 'fullscreen') registryCoverflowBoardId = '';
 });
 function registryGroupStructureMembers(structure){
@@ -15266,16 +15267,20 @@ function renderDetailMediaCanvas(source){
     return `<div class="asset-detail-media-canvas-shell ${activeVideo ? 'has-video-controls' : ''}" data-detail-media-canvas-shell>
         <div class="asset-detail-media-canvas-toolbar">
             <div class="asset-detail-media-toolbar-primary">
-                <label><i data-lucide="map"></i><input type="text" data-detail-reference-title value="${escapeAttr(detailViewerState.referenceCanvasTitle || '参考画布')}" maxlength="80" aria-label="参考画布名称"></label>
+                <label><i data-lucide="map"></i><input type="text" data-detail-reference-title value="${escapeAttr(detailViewerState.referenceCanvasTitle || '参考画布')}" maxlength="80" aria-label="参考画布"></label>
+                <span class="asset-detail-media-canvas-filename" title="${escapeAttr(item.name || '')}"><strong>${escapeHtml(item.name || '未命名素材')}</strong></span>
                 <span><b>${items.length}</b> 个素材</span>
                 <div>
                 <button class="hw-btn" type="button" data-detail-reference-add-selection title="将当前多选图片或视频加入画布"><i data-lucide="images"></i><span>加选</span></button>
                 <button class="hw-btn" type="button" data-detail-media-canvas-remove="${escapeAttr(activeId)}" ${!detailMediaCanvasSelectedIds().size ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>移除选中</span></button>
                 <button class="hw-btn" type="button" data-detail-media-canvas-zoom="0"><i data-lucide="scan"></i><span>自适应</span></button>
+                <button class="hw-btn asset-detail-media-coverflow-toggle ${detailViewerState.mediaCanvasCoverflowVisible ? 'is-active' : ''}" type="button" data-detail-media-coverflow-toggle aria-pressed="${Boolean(detailViewerState.mediaCanvasCoverflowVisible)}" title="${detailViewerState.mediaCanvasCoverflowVisible ? '隐藏 Coverflow 预览' : '显示 Coverflow 预览'}"><i data-lucide="gallery-horizontal"></i><span>Coverflow</span></button>
                 <button class="hw-btn asset-detail-media-minimap-toggle ${detailMediaCanvasMinimapVisible ? 'is-active' : ''}" type="button" data-detail-media-minimap-toggle aria-pressed="${detailMediaCanvasMinimapVisible}" title="${detailMediaCanvasMinimapVisible ? '隐藏小地图' : '显示小地图'}"><i class="asset-detail-minimap-visible" data-lucide="map"></i><i class="asset-detail-minimap-hidden" data-lucide="map-off"></i><span class="asset-detail-minimap-visible">小地图</span><span class="asset-detail-minimap-hidden">显示小地图</span></button>
                 <button class="hw-btn hw-btn-gold" type="button" data-detail-reference-save ${!canPersist || detailViewerState.referenceCanvasSaving ? 'disabled' : ''}><i data-lucide="${detailViewerState.referenceCanvasSaving ? 'loader-2' : 'save'}"></i><span>${detailViewerState.referenceCanvasId ? '更新参考画布' : '保存参考画布'}</span></button>
+                <button class="hw-btn" type="button" data-detail-reference-share title="分享素材 / 复制链接" aria-label="分享素材"><i data-lucide="share-2"></i><span>分享</span></button>
+                <button class="hw-btn" type="button" data-detail-viewer-close title="关闭 (Esc)" aria-label="关闭详情"><i data-lucide="x"></i><span>关闭</span></button>
                 </div>
-            </div>
+            </div> </div>
             <div class="asset-detail-media-toolbar-tools">${renderDetailMediaCanvasToolButtons()}</div>
         </div>
         <div class="asset-detail-media-canvas-viewport ${activeVideo ? 'has-video-dock' : ''}" data-detail-media-canvas-viewport tabindex="0" aria-label="无限画布，左键选择或框选，Shift 加选，中键拖动画布，滚轮缩放">
@@ -15287,7 +15292,7 @@ function renderDetailMediaCanvas(source){
                 ${detailMediaCanvasDrawings().map(renderDetailMediaCanvasDrawing).join('')}
                 ${(detailViewerState.mediaCanvasAnnotations || []).map(renderDetailMediaCanvasAnnotation).join('')}
             </div>
-            <div class="asset-detail-media-canvas-help"><span>左键选择/框选</span><span><b>Shift</b> 加选</span><span>中键抓手</span><span>Ctrl+A 全选</span><span>Ctrl+C/V 复制/粘贴</span><span>Ctrl+Z 撤销</span><b data-detail-media-canvas-scale>${Math.round(scale * 100)}%</b></div>
+            <div class="asset-detail-media-canvas-help"><span>左键选择/框选</span><span><kbd>Shift</kbd> 加选</span><span>中键抓手</span><span><kbd>Ctrl+A</kbd> 全选</span><span><kbd>Ctrl+C/V</kbd> 复制/粘贴</span><span><kbd>Ctrl+Z</kbd> 撤销</span><b data-detail-media-canvas-scale>${Math.round(scale * 100)}%</b></div>
             <aside class="asset-detail-media-minimap ${detailMediaCanvasMinimapVisible ? '' : 'is-hidden'}" aria-label="画布缩略图" aria-hidden="${!detailMediaCanvasMinimapVisible}">
                 <header><span>画布缩略图</span><b>${items.length}</b><button class="asset-detail-media-minimap-toggle is-active" type="button" data-detail-media-minimap-toggle aria-pressed="true" title="隐藏画布缩略图" aria-label="隐藏画布缩略图"><i data-lucide="eye-off"></i></button></header>
                 <div class="asset-detail-media-minimap-world" style="width:${Math.max(1,metrics.width * minimapScale)}px;height:${Math.max(1,metrics.height * minimapScale)}px">${items.map(value => {
@@ -16066,7 +16071,7 @@ function renderDetailViewer(){
     const inspector = showMediaLibrary ? renderDetailMediaCanvasLibrary() : renderDetailViewerInspector(item, type, tags, rows, url);
     const originLabel = assetBoardById(detailViewerState.originTab)?.name || detailViewerTypeLabel(type);
     overlay.innerHTML = `<div class="asset-detail-viewer-page" data-floating-content role="dialog" aria-modal="true" aria-label="${escapeAttr(item.name || '素材详情')}">
-        <header class="asset-detail-viewer-head">
+        ${mediaCanvasMode ? '' : `<header class="asset-detail-viewer-head">
             <nav class="asset-detail-breadcrumb" aria-label="详情路径"><button type="button" data-detail-breadcrumb="home">资产中心</button><i data-lucide="chevron-right"></i><button type="button" data-detail-breadcrumb="origin">${escapeHtml(originLabel)}</button><i data-lucide="chevron-right"></i><strong>${escapeHtml(item.name || '未命名素材')}</strong></nav>
             <div class="asset-detail-head-actions">
                 <span data-detail-position-label>${detailPositionLabel}</span>
@@ -16075,7 +16080,7 @@ function renderDetailViewer(){
                 ${url ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener" title="打开原文件"><i data-lucide="external-link"></i></a>` : ''}
                 <button type="button" data-detail-viewer-close aria-label="关闭详情"><i data-lucide="x"></i></button>
             </div>
-        </header>
+        </header>`}
         <div class="asset-detail-viewer-body ${type === 'audio' ? 'asset-detail-audio-layout' : ''} ${mediaCanvasMode ? 'asset-detail-media-canvas-layout' : ''} ${showMediaLibrary ? 'asset-detail-media-library-layout' : ''} ${showMediaLibrary && detailMediaCanvasLibraryCollapsed ? 'asset-detail-media-library-collapsed' : ''} ${showImageVersions ? 'asset-detail-has-image-versions' : ''} ${showImageVersions && detailViewerState.imageVersionPanelCollapsed ? 'asset-detail-image-versions-collapsed' : ''} ${detailViewerInspectorCollapsed && !showMediaLibrary ? 'asset-detail-inspector-collapsed' : ''}" ${showMediaLibrary ? `style="--media-library-width:${detailMediaCanvasLibraryWidth}px"` : ''}>
             ${imageVersionsPanel}
             <section class="asset-detail-stage ${type === 'audio' ? 'asset-detail-audio-stage' : ''} ${mediaCanvasMode ? 'asset-detail-media-canvas-stage' : ''}">
@@ -16106,8 +16111,10 @@ function renderDetailViewer(){
     if(type === 'video') hydrateVideoStoryboardImages(overlay);
     if(type === 'font') initializeDetailFontPreview(overlay, url);
     else clearDetailViewerFontFace();
-    if(mediaCanvasMode && detailViewerState.referenceCanvasMode){
-        mountDetailReferenceCanvasCoverflow(overlay.querySelector('.asset-detail-media-canvas-shell'));
+    if(mediaCanvasMode && detailViewerState.referenceCanvasMode && detailMediaCanvasCoverflowVisible){
+        const refShell = overlay.querySelector('.asset-detail-media-canvas-shell');
+        refShell?.classList.add('gw-coverflow-embedded-host');
+        mountDetailReferenceCanvasCoverflow(refShell);
     }
     applyLightboxTransform(overlay);
     if(mediaCanvasMode) requestAnimationFrame(() => {
@@ -17552,6 +17559,36 @@ async function openDetailVideoStoryboard(button){
         if(target) target.innerHTML = `<span class="asset-video-storyboard-placeholder is-error">九宫格读取失败：${escapeHtml(err?.message || '未知错误')}</span>`;
     }
 }
+
+const ASSET_DETAIL_MEDIA_COVERFLOW_VISIBLE_KEY = 'gw:asset-detail-media-coverflow-visible';
+let detailMediaCanvasCoverflowVisible = false;
+try {
+    detailMediaCanvasCoverflowVisible = localStorage.getItem(ASSET_DETAIL_MEDIA_COVERFLOW_VISIBLE_KEY) === 'true';
+} catch(_) {}
+
+function setDetailMediaCanvasCoverflowVisible(visible){
+    detailMediaCanvasCoverflowVisible = Boolean(visible);
+    detailViewerState.mediaCanvasCoverflowVisible = detailMediaCanvasCoverflowVisible;
+    try { localStorage.setItem(ASSET_DETAIL_MEDIA_COVERFLOW_VISIBLE_KEY, String(detailMediaCanvasCoverflowVisible)); } catch(_) {}
+    const shell = document.querySelector('.asset-detail-viewer .asset-detail-media-canvas-shell');
+    if(shell){
+        if(detailMediaCanvasCoverflowVisible){
+            shell.classList.add('gw-coverflow-embedded-host');
+            mountDetailReferenceCanvasCoverflow(shell);
+        } else {
+            shell.classList.remove('gw-coverflow-embedded-host');
+            shell.querySelector('.gw-coverflow--embedded')?.remove();
+            window.dispatchEvent(new CustomEvent('gw:asset-coverflow-close', {detail:{mode:'editor'}}));
+        }
+    }
+    document.querySelectorAll('.asset-detail-viewer [data-detail-media-coverflow-toggle]').forEach(button => {
+        button.classList.toggle('is-active', detailMediaCanvasCoverflowVisible);
+        button.setAttribute('aria-pressed', String(detailMediaCanvasCoverflowVisible));
+        button.title = detailMediaCanvasCoverflowVisible ? '隐藏 Coverflow 预览' : '显示 Coverflow 预览';
+        button.setAttribute('aria-label', button.title);
+    });
+}
+
 function setDetailMediaCanvasMinimapVisible(visible){
     detailMediaCanvasMinimapVisible = Boolean(visible);
     try { localStorage.setItem(ASSET_DETAIL_MEDIA_MINIMAP_VISIBLE_KEY,String(detailMediaCanvasMinimapVisible)); } catch(_) {}
@@ -20805,6 +20842,18 @@ document.addEventListener('click', event => {
     if(mediaCanvasContextAction){ handleDetailMediaCanvasContextAction(mediaCanvasContextAction.dataset.detailMediaContextAction || ''); return; }
     const detailVideoAction = event.target.closest?.('[data-detail-video-action]');
     if(detailVideoAction){ handleDetailVideoControl(detailVideoAction).catch(err => { setStatus(err.message || '视频操作失败'); showAssetFailure('视频操作失败',err); }); return; }
+    if(event.target.closest?.('[data-detail-media-coverflow-toggle]')){ setDetailMediaCanvasCoverflowVisible(!detailMediaCanvasCoverflowVisible); return; }
+    if(event.target.closest?.('[data-detail-reference-share]')){
+        const currentItem = detailViewerItem();
+        const shareUrl = window.location.href;
+        const shareText = currentItem?.name ? `${currentItem.name} - ${shareUrl}` : shareUrl;
+        navigator.clipboard?.writeText(shareText).then(() => {
+            setStatus('已复制素材链接到剪贴板');
+        }).catch(() => {
+            setStatus('已生成素材链接');
+        });
+        return;
+    }
     if(event.target.closest?.('[data-detail-media-minimap-toggle]')){ setDetailMediaCanvasMinimapVisible(!detailMediaCanvasMinimapVisible); return; }
     const mediaCanvasRemove = event.target.closest?.('[data-detail-media-canvas-remove]');
     if(mediaCanvasRemove){ deleteDetailMediaCanvasSelection(); return; }

@@ -389,8 +389,8 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-media-canvas-toolbar button,.asset-detail-media-canvas-toolbar a { min-height:30px; padding:0 9px; border:1px solid #58645b; background:transparent; color:#e4e9e3; display:inline-flex; align-items:center; justify-content:center; gap:5px; font-size: var(--gw-type-label-md); font-weight:850; white-space:nowrap; }
 .asset-detail-media-canvas-toolbar button:hover:not(:disabled),.asset-detail-media-canvas-toolbar a:hover { border-color:rgba(223, 195, 132, 0.4); background:#1a1e28; color:#dfc384; }
 .asset-detail-media-canvas-toolbar button:focus-visible,.asset-detail-media-canvas-toolbar a:focus-visible { outline:2px solid var(--sf-cyan); outline-offset:1px; }
-.asset-detail-media-canvas-toolbar button.primary,.asset-detail-media-canvas-toolbar button.hw-btn-gold { border-color:#dfc384; background:linear-gradient(180deg, #d8ac5a 0%, #b88628 100%); color:#121008; font-weight:900; box-shadow:0 2px 6px rgba(0,0,0,0.45); }
-.asset-detail-media-canvas-toolbar button.primary:hover:not(:disabled),.asset-detail-media-canvas-toolbar button.hw-btn-gold:hover:not(:disabled) { border-color:#f3dc9f; background:linear-gradient(180deg, #e6c070 0%, #c99732 100%); color:#0b0a06; }
+.asset-detail-media-canvas-toolbar button.primary,.asset-detail-media-canvas-toolbar button.hw-btn-gold { border:1px solid var(--gw-keycap-flare, #fae2c8) !important; border-bottom-color:#8c6828 !important; background:linear-gradient(180deg, var(--gw-keycap-gold, #dfc384) 0%, #b89354 100%) !important; color:var(--gw-engraved-text, #171107) !important; font-weight:700 !important; box-shadow:0 4px 6px rgb(0 0 0 / .75), inset 0 1px 0 rgb(255 255 255 / .9), inset 0 -2px 3px rgb(140 104 40 / .6) !important; }
+.asset-detail-media-canvas-toolbar button.primary:hover:not(:disabled),.asset-detail-media-canvas-toolbar button.hw-btn-gold:hover:not(:disabled) { filter:brightness(1.12) !important; transform:translateY(-1px) !important; box-shadow:0 7px 14px rgb(0 0 0 / .85), inset 0 1.5px 0 #fff, inset 0 -1px 2px rgb(140 104 40 / .5) !important; }
 .asset-detail-media-canvas-toolbar button:disabled { opacity:.38; cursor:not-allowed; }
 .asset-detail-media-canvas-toolbar svg { width:13px; height:13px; }
 .asset-detail-media-canvas-toolbar button.primary svg[data-lucide="loader-2"] { animation:asset-spin 1s linear infinite; }
@@ -1694,16 +1694,18 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .asset-detail-actions a,.asset-detail-actions button { width:100%; min-height:38px; padding:0 12px; border:1px solid var(--text); border-radius:8px; background:transparent; color:var(--text); display:flex; align-items:center; justify-content:center; gap:8px; font-size: var(--gw-type-label-md); font-weight:900; }
 .asset-detail-actions .primary,
 .asset-detail-actions .hw-btn-gold {
-    background: linear-gradient(180deg, #d8ac5a 0%, #b88628 100%);
-    border: 1px solid #dfc384;
-    color: #121008;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+    background: linear-gradient(180deg, var(--gw-keycap-gold, #dfc384) 0%, #b89354 100%) !important;
+    border: 1px solid var(--gw-keycap-flare, #fae2c8) !important;
+    border-bottom-color: #8c6828 !important;
+    color: var(--gw-engraved-text, #171107) !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 6px rgb(0 0 0 / .75), inset 0 1px 0 rgb(255 255 255 / .9), inset 0 -2px 3px rgb(140 104 40 / .6) !important;
 }
 .asset-detail-actions .primary:hover,
 .asset-detail-actions .hw-btn-gold:hover {
-    background: linear-gradient(180deg, #e6c070 0%, #c99732 100%);
-    border-color: #f3dc9f;
-    color: #0b0a06;
+    filter: brightness(1.12) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 7px 14px rgb(0 0 0 / .85), inset 0 1.5px 0 #fff, inset 0 -1px 2px rgb(140 104 40 / .5) !important;
 }
 .asset-detail-actions a:hover,.asset-detail-actions button:hover { background:var(--strong); color:var(--strong-text); }
 .asset-detail-actions svg { width:14px; height:14px; }
@@ -3549,4 +3551,272 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
     display: block;
     overflow: hidden;
     pointer-events: none;
+}
+
+
+/* === Gods-Workbench Reference Canvas Black-Gold Design Enhancements (QIN-536) === */
+
+/* 1. Fullscreen compact mode for reference canvas */
+.asset-detail-viewer-page.is-media-canvas-mode {
+    grid-template-rows: minmax(0, 1fr) !important;
+}
+.asset-detail-viewer-page.is-media-canvas-mode > .asset-detail-viewer-head {
+    display: none !important;
+}
+.asset-detail-media-canvas-filename {
+    min-width: 0;
+    max-width: 260px;
+    padding: 0 10px;
+    color: #e2e6f0;
+    font-size: var(--gw-type-label-md);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 1px solid rgba(223, 195, 132, 0.2);
+}
+.asset-detail-media-canvas-filename strong {
+    font-weight: 700;
+}
+
+/* 2. Left side image versions panel black-gold alignment */
+.asset-detail-image-versions {
+    min-width: 220px;
+    max-width: 260px;
+    border-right: 1px solid rgba(223, 195, 132, 0.18) !important;
+    background: #0d1016 !important;
+    color: #edf1eb;
+}
+.asset-detail-image-versions > header {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(223, 195, 132, 0.15) !important;
+    background: #090c10 !important;
+}
+.asset-detail-image-versions > header strong {
+    color: #e4e8f2 !important;
+    font-weight: 700;
+}
+.asset-detail-image-versions > header span {
+    color: #8a94a6 !important;
+}
+.asset-detail-image-versions.is-collapsed {
+    border-right: 1px solid rgba(223, 195, 132, 0.18) !important;
+    background: #0d1016 !important;
+}
+.asset-detail-image-versions.is-collapsed > button {
+    background: #0d1016 !important;
+    color: #cbd3cc !important;
+}
+.asset-detail-image-versions.is-collapsed > button:hover {
+    background: #161b24 !important;
+    color: #dfc384 !important;
+}
+.asset-detail-image-version-list {
+    padding: 10px !important;
+    gap: 8px !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+.asset-detail-image-version-list article {
+    border: 1px solid rgba(223, 195, 132, 0.15) !important;
+    border-radius: 6px !important;
+    background: #11141c !important;
+    padding: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.asset-detail-image-version-list article:hover {
+    border-color: rgba(223, 195, 132, 0.4) !important;
+    background: #161b26 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.asset-detail-image-version-list article.is-selected {
+    border-color: #dfc384 !important;
+    background: #181f2c !important;
+    box-shadow: 0 0 10px rgba(223, 195, 132, 0.25), inset 0 0 0 1px rgba(223, 195, 132, 0.3) !important;
+}
+.asset-detail-image-version-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+    cursor: pointer;
+    text-align: left;
+}
+.asset-detail-image-version-main img,
+.asset-detail-image-version-main svg {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #080a0e;
+    object-fit: cover;
+}
+.asset-detail-image-version-main span {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.asset-detail-image-version-main strong {
+    color: #e2e6f0;
+    font-size: var(--gw-type-label-md);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.asset-detail-image-version-list article.is-selected .asset-detail-image-version-main strong {
+    color: #dfc384;
+}
+.asset-detail-image-version-main small {
+    color: #7e8796;
+    font-size: var(--gw-type-label-sm);
+}
+
+/* 3. Right side inspector panel black-gold alignment */
+.asset-detail-inspector {
+    border-left: 1px solid rgba(223, 195, 132, 0.18) !important;
+    background: #0d1016 !important;
+    color: #edf1eb;
+}
+.asset-detail-inspector-toggle {
+    background: #11141c !important;
+    border-right: 1px solid rgba(223, 195, 132, 0.15) !important;
+    border-bottom: 1px solid rgba(223, 195, 132, 0.15) !important;
+    color: #8c95a6 !important;
+}
+.asset-detail-inspector-toggle:hover {
+    background: #181d26 !important;
+    color: #dfc384 !important;
+}
+.asset-detail-title {
+    border-bottom: 1px solid rgba(223, 195, 132, 0.15) !important;
+}
+.asset-detail-title h2 {
+    color: #f0f3fa !important;
+}
+.asset-detail-title p {
+    color: #8a94a6 !important;
+}
+.asset-detail-facts > div {
+    border-bottom: 1px solid rgba(223, 195, 132, 0.1) !important;
+}
+.asset-detail-facts dt {
+    color: #8892a4 !important;
+}
+.asset-detail-facts dd {
+    color: #e0e4f0 !important;
+}
+.asset-detail-tags span {
+    border: 1px solid rgba(223, 195, 132, 0.2) !important;
+    background: #11141c !important;
+    color: #dfc384 !important;
+    border-radius: 4px;
+}
+.asset-detail-versions {
+    border-bottom: 1px solid rgba(223, 195, 132, 0.15) !important;
+}
+.asset-detail-version-row {
+    border-bottom: 1px solid rgba(223, 195, 132, 0.1) !important;
+}
+.asset-detail-version-row.is-active {
+    background: rgba(223, 195, 132, 0.08) !important;
+    box-shadow: inset 3px 0 0 #dfc384 !important;
+}
+.asset-detail-actions a,
+.asset-detail-actions button {
+    border: 1px solid rgba(223, 195, 132, 0.25) !important;
+    background: #12151e !important;
+    color: #e0e4f0 !important;
+    border-radius: 6px !important;
+}
+.asset-detail-actions a:hover,
+.asset-detail-actions button:hover {
+    border-color: rgba(223, 195, 132, 0.5) !important;
+    background: #1a1f2b !important;
+    color: #dfc384 !important;
+}
+
+/* 4. Canvas help bar floating black-gold status pill */
+.asset-detail-media-canvas-help {
+    position: absolute;
+    z-index: 3;
+    left: 14px;
+    bottom: 14px;
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid rgba(223, 195, 132, 0.2) !important;
+    border-radius: 6px !important;
+    background: rgba(13, 16, 22, 0.88) !important;
+    backdrop-filter: blur(8px);
+    color: #9aa3b2 !important;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    pointer-events: none;
+}
+.asset-detail-media-canvas-help span + span {
+    padding-left: 8px;
+    border-left: 1px solid rgba(223, 195, 132, 0.15) !important;
+}
+.asset-detail-media-canvas-help b,
+.asset-detail-media-canvas-help kbd {
+    color: #dfc384 !important;
+    background: #181d26;
+    border: 1px solid rgba(223, 195, 132, 0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: var(--gw-font-mono);
+    font-weight: 700;
+}
+.asset-detail-media-canvas-help b[data-detail-media-canvas-scale] {
+    color: #dfc384 !important;
+    background: rgba(223, 195, 132, 0.12) !important;
+    border: 1px solid rgba(223, 195, 132, 0.35) !important;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
+/* 5. Canvas node selection and resize handles precision engineering */
+.asset-detail-media-node.is-selected,
+.asset-detail-media-node.is-selected-via-group {
+    border-color: #dfc384 !important;
+    outline: var(--media-outline-size, 1.5px) solid #dfc384 !important;
+    outline-offset: 0;
+    box-shadow: 0 0 10px rgba(223, 195, 132, 0.28) !important;
+}
+.asset-detail-media-resize-handle {
+    width: var(--media-handle-size, 9px) !important;
+    height: var(--media-handle-size, 9px) !important;
+    border: var(--media-outline-size, 1.5px) solid #dfc384 !important;
+    border-radius: 2px !important;
+    background: #0d1016 !important;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.9), 0 0 2px rgba(223, 195, 132, 0.4) !important;
+    transition: background 0.15s, transform 0.15s;
+}
+.asset-detail-media-resize-handle:hover {
+    background: #dfc384 !important;
+    border-color: #fae2c8 !important;
+    transform: scale(1.25);
+    box-shadow: 0 0 6px rgba(223, 195, 132, 0.8) !important;
+}
+
+/* 6. Embedded Coverflow preview layout */
+.asset-detail-media-canvas-shell.gw-coverflow-embedded-host {
+    grid-template-rows: auto minmax(0, 1fr) 260px !important;
+}
+.asset-detail-media-canvas-shell.gw-coverflow-embedded-host > .gw-coverflow--embedded {
+    grid-row: 3;
+    height: 260px;
+    background: #090c10 !important;
+    border-top: 1px solid rgba(223, 195, 132, 0.2) !important;
 }
