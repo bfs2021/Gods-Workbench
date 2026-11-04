@@ -50,6 +50,8 @@ function functionSource(name){
 }
 
 const SLICES = [
+    'isRegistryStructureImage',
+    'isRegistryStructureActiveImage',
     'registryRelatedAssetIds',
     'registrySelectedAssetMap',
     'registrySelectionRelationState',
@@ -64,6 +66,7 @@ function buildContext(overrides = {}){
         registryAssets: [],
         registryAssetStructures: new Map(),
         registryStructureMutationId: '',
+        registryVisualType: (item = {}) => String(item?.visual_type || item?.kind || 'image').trim().toLowerCase(),
         detailViewerState: {open: false, source: 'registry'},
         renderDetailViewer(){},
         setStatus(){},
@@ -188,6 +191,28 @@ test('AC2-反馈 4: 只有成员覆盖全部选中项的结构才算可解除', 
     // 选中项分属不同结构时没有可整体解除的结构
     assert.equal(context.registryOwningStructures(['a2', 'a3']).version, null);
     assert.equal(context.registryOwningStructures(['a2', 'a3']).group, null);
+    // 部分选中结构成员（3 项中选 2 项）时亦能正确识别归属结构以支持移出
+    context.registryAssetStructures.set('strc_0003', {
+        id: 'strc_0003',
+        structure_type: 'version',
+        members: [{asset_id: 'm1'}, {asset_id: 'm2'}, {asset_id: 'm3'}],
+    });
+    assert.equal(context.registryOwningStructures(['m1', 'm2']).version.id, 'strc_0003');
+});
+
+test('AC2-反馈 6: 普通本地未归档素材缺失 status 字段时仍正确识别为 active 图片', () => {
+    const context = buildContext();
+    // 显式 active
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image', status: 'active'}), true);
+    // 本地索引素材 status 缺失，但未归档、未隐藏
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image'}), true);
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image', archived: false, hidden: false}), true);
+    // 已归档或已隐藏的素材不能作为结构有效活跃图片
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image', archived: true}), false);
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image', hidden: true}), false);
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'image', status: 'archived'}), false);
+    // 非图片类型
+    assert.equal(context.isRegistryStructureActiveImage({kind: 'video', status: 'active'}), false);
 });
 
 test('AC2-反馈 4: 关联状态由素材的 related_assets 判定', () => {

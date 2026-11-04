@@ -5476,7 +5476,10 @@ function isRegistryStructureImage(item={}){
     return registryVisualType(item) === 'image';
 }
 function isRegistryStructureActiveImage(item={}){
-    return isRegistryStructureImage(item) && String(item?.status || '').trim().toLowerCase() === 'active';
+    if(!isRegistryStructureImage(item)) return false;
+    const status = String(item?.status || '').trim().toLowerCase();
+    if(status) return status === 'active';
+    return !item?.archived && !item?.hidden;
 }
 function registryStructureIsRenderable(structure){
     return Boolean(structure?.id)
@@ -5643,12 +5646,16 @@ function registrySelectionRelationState(assetIds=[]){
     const items = registrySelectedAssetMap(ids);
     return ids.some(id => registryRelatedAssetIds(items.get(id) || {}).some(targetId => selected.has(targetId)));
 }
-// 找到覆盖全部选中项的同类型结构：只有它才能被整批解除。
+// 找到选中的素材共同所属的同类型结构：全选或部分选中该结构成员时均可移出/解除。
 function registryOwningStructures(assetIds=[]){
-    const ids = new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean));
+    const ids = [...new Set((assetIds || []).map(value => String(value || '').trim()).filter(Boolean))];
+    if(ids.length < 2) return {version:null, group:null};
     const pick = (type) => [...registryAssetStructures.values()]
-        .filter(structure => structure.structure_type === type && structure.members.length >= 2)
-        .find(structure => structure.members.every(member => ids.has(member.asset_id))) || null;
+        .filter(structure => structure.structure_type === type && Array.isArray(structure.members) && structure.members.length >= 2)
+        .find(structure => {
+            const memberIds = new Set(structure.members.map(member => String(member.asset_id || '').trim()));
+            return ids.every(id => memberIds.has(id));
+        }) || null;
     return {version:pick('version'), group:pick('group')};
 }
 // 【QIN-534 反馈 4】解除结构只把选中素材移出结构，其余成员保留；
@@ -5664,10 +5671,13 @@ async function releaseRegistryStructureMembers(structure, assetIds=[]){
             const payload = {asset_ids:remaining, expected_version:structure.version};
             // 当前代表素材被移出时必须改指剩余成员，否则服务端按非法成员拒绝。
             if(!remaining.includes(structure.current_asset_id)) payload.current_asset_id = remaining[0];
-            const data = await apiJsonResponse(assetManagerHttp.request(
-                `/api/asset-registry/asset-structures/${encodeURIComponent(structure.id)}`,
-                {method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
-            ));
+            const patchRequest = typeof assetManagerApi?.updateAssetStructure === 'function'
+                ? assetManagerApi.updateAssetStructure(structure.id, payload)
+                : assetManagerHttp.request(
+                    `/api/asset-registry/asset-structures/${encodeURIComponent(structure.id)}`,
+                    {method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
+                );
+            const data = await apiJsonResponse(patchRequest);
             const updated = normalizeRegistryAssetStructure(data?.structure || {});
             if(updated.id) registryAssetStructures.set(updated.id, updated);
             setStatus(`已移出 ${removing.size} 项素材，${isGroup ? '组结构' : '版本结构'}保留 ${remaining.length} 项`);
@@ -5714,7 +5724,10 @@ async function releaseRegistryRelations(assetIds=[]){
         registryAssets.forEach(item => {
             if(!Array.isArray(item.related_assets)) return;
             const id = String(item.id || '');
-            item.related_assets = item.related_assets.filter(asset => !removed.has(`${id}->${String(asset?.id || '')}`));
+            item.related_assets = item.related_assets.filter(asset => {
+                const targetId = String(asset?.id || asset?.asset_id || '');
+                return !removed.has(`${id}->${targetId}`) && !removed.has(`${targetId}->${id}`);
+            });
         });
     }
     setStatus(removedPairs.length ? `已解除 ${removedPairs.length} 条素材关联` : '选中素材之间没有可解除的关联');
@@ -8194,6 +8207,19 @@ async function relateSelectedRegistryAssets(assetIds=[]){
                 });
             if(summaries.length) anchorItem.related_assets = [...(anchorItem.related_assets || []), ...summaries];
         }
+        // 双向同步：让被关联的目标素材也记录与 anchor 的关联，避免右键反向选择时出现判定盲区
+        relatedTargets.forEach(targetId => {
+            const targetItem = registryAssets.find(item => String(item.id || '') === targetId);
+            if(targetItem){
+                const existing = new Set(registryRelatedAssetIds(targetItem));
+                if(!existing.has(anchor)){
+                    const summary = anchorItem
+                        ? {id:anchorItem.id, asset_id:anchorItem.id, name:anchorItem.name, kind:anchorItem.kind}
+                        : {id:anchor, asset_id:anchor};
+                    targetItem.related_assets = [...(targetItem.related_assets || []), summary];
+                }
+            }
+        });
     }
     if(detailViewerState.open && detailViewerState.source === 'registry') renderDetailViewer();
     else render();
@@ -10233,9 +10259,9 @@ function renderRegistryVersionStructureCard(item){
     const structure = item.__registry_asset_structure;
     const current = registryStructureMemberAsset(structure, structure.current_asset_id);
     if(!current) return '';
-    const selected = current.id === selectedRegistryAssetId;
+    const selected = current.id === selectedRegistryAssetId || structure.members.some(member => registrySelectedIds.has(member.asset_id));
     const mediaAspectStyle = registryMediaAspectStyle(current);
-    return `<section class="asset-card registry-card registry-structure-card registry-structure-version asset-type-image ${selected ? 'active' : ''}" data-registry-structure-card="${escapeAttr(structure.id)}" data-registry-structure-type="version" tabindex="0" role="group" aria-label="版本结构：${escapeAttr(current.name || '未命名图片')}">
+    return `<section class="asset-card registry-card registry-structure-card registry-structure-version asset-type-image ${selected ? 'active' : ''}" data-registry-structure-card="${escapeAttr(structure.id)}" data-registry-structure-type="version" data-registry-card="structure:${escapeAttr(structure.id)}" tabindex="0" role="group" aria-label="版本结构：${escapeAttr(current.name || '未命名图片')}">
         <button type="button" class="registry-structure-main" data-registry-structure-open="${escapeAttr(structure.id)}" aria-label="查看当前最终版本：${escapeAttr(current.name || '未命名图片')}">
             <div class="asset-thumb"${mediaAspectStyle ? ` style="${mediaAspectStyle}"` : ''}>${deferRegistryPreviewThumb(assetThumb(current))}</div>
             <span class="registry-structure-badge"><i data-lucide="git-branch"></i>最终版本</span>
