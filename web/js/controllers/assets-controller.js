@@ -671,7 +671,9 @@ window.WorkbenchAssets = (() => {
       else browseSession?.saveForRoute?.();
     } catch (_) {}
   }
-  if (!window.__gwAssetBrowseRouteSaveBound) {
+  if (!window.__gwAssetBrowseRouteSaveBound
+      && typeof document.addEventListener === 'function'
+      && typeof window.addEventListener === 'function') {
     document.addEventListener('click', saveBrowseStateBeforeRoute, true);
     window.addEventListener('popstate', saveBrowseStateBeforeRoute, true);
     window.addEventListener('pagehide', saveBrowseStateBeforeRoute);

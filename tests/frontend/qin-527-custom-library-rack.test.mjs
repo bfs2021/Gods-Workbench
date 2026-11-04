@@ -333,6 +333,7 @@ test('QIN-532 AC3: 路由离开前同步保存，并恢复任一资产看板', (
 
     assert.match(ASSETS_CONTROLLER, /document\.addEventListener\('click', saveBrowseStateBeforeRoute, true\)/, '宿主导航点击捕获阶段必须先保存 iframe 状态');
     assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('popstate', saveBrowseStateBeforeRoute, true\)/, '浏览器前进/后退必须先保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /typeof document\.addEventListener === 'function'[\s\S]*?typeof window\.addEventListener === 'function'/, '非浏览器轻量宿主中不可假定 DOM 事件 API 存在');
     assert.match(ASSETS_CONTROLLER, /browseSession\?\.saveForRoute\?\.\(\)/, '工作台路由离开必须同步保存并标记恢复');
     assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('pagehide', saveBrowseStateBeforeRoute\)/, '整页离开时必须保存 iframe 状态');
     assert.match(ASSETS_CONTROLLER, /browseSession\?\.save\?\.\(\)/, '整页刷新只保存状态，不标记为工作台路由');
