@@ -2,7 +2,8 @@
  * QIN-539（GitHub #592）：资产卡来源名与修改时间未下发。
  *
  * 断言面覆盖票面 AC2～AC5 的前端部分：
- * - AC2 卡片来源行优先使用后端下发的真实来源库名，多来源仍渲染「N 库」；
+ * - AC2 卡片来源行优先使用后端下发的真实来源库名（QIN-541 重排后标准卡来源
+ *   收敛为按需小图标，来源检测函数行为不变）；
  * - AC3 资产详情「更新时间」改名「修改时间」，取文件修改时间，无数据回落「—」；
  * - AC4 卡片不显示修改时间（不引用 modified_at / registryModifiedTime）；
  * - AC5 测试登记到 node-files.txt 并完成卫生准入分片。
@@ -86,15 +87,14 @@ test('AC2 卡片来源行使用后端下发的真实来源库名', () => {
     assert.deepEqual(sourceNames({}), ['统一资产']);
 });
 
-test('AC2 多来源保留「N 库」标记', () => {
+test('AC2 多来源检测保留，卡片来源收敛为按需小图标（QIN-541 重排后）', () => {
     const names = sourceNames({source_names: ['托管资产', '项目资产']});
     assert.equal(names.length, 2);
     const card = functionSource('renderRegistryCard');
-    assert.match(
-        card,
-        /registrySourceNames\(item\)\.length > 1 \? `<em>\$\{registrySourceNames\(item\)\.length\} 库<\/em>`/
-    );
-    assert.match(card, /<span>\$\{escapeHtml\(registrySourceNames\(item\)\.join\(' · '\)\)\}/);
+    assert.ok(card.includes('registryCardSourceBadge(item, assetBoardById(activeTab))'), '标准卡来源收敛为按需小图标');
+    // 模板串内 ${...} 为字面文本，includes 探测即可，无需正则。
+    assert.ok(!card.includes("<span>${escapeHtml(registrySourceNames(item).join(' · '))}</span>"), '来源文字行已收敛为小图标');
+    assert.ok(!card.includes('N 库</em>'), '「N 库」标记不再出现在标准卡');
 });
 
 test('AC3 详情行改名为「修改时间」并取文件修改时间', () => {
