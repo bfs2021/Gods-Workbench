@@ -2010,38 +2010,152 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .thumbnail-cache-switch-notes { margin:0; padding-left:18px; color:var(--muted); font-size: var(--gw-type-label-md); line-height:1.7; }
 .thumbnail-cache-switch-notes strong { color:var(--text); }
 .registry-recycle-overlay { z-index:92; }
-.registry-recycle-dialog { width:min(520px,calc(100vw - 28px)); border:1px solid var(--text); background:var(--panel); color:var(--text); box-shadow:0 18px 42px rgba(20,24,21,.24); }
-.registry-recycle-dialog > header { min-height:68px; padding:12px 14px; border-bottom:1px solid var(--line-2); display:grid; grid-template-columns:38px minmax(0,1fr) 32px; align-items:center; gap:10px; }
-.registry-recycle-dialog > header > span { width:38px; height:38px; background:rgba(207,61,50,.1); color:var(--danger); display:grid; place-items:center; }
-.registry-recycle-dialog > header > span svg { width:18px; height:18px; }
-.registry-recycle-dialog > header > div { min-width:0; }
-.registry-recycle-dialog > header strong,.registry-recycle-dialog > header small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.registry-recycle-dialog > header strong { font-size: var(--gw-type-body-lg); font-weight:950; }
-.registry-recycle-dialog > header small { margin-top:4px; color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
-.registry-recycle-dialog > header > button { width:32px; height:32px; border:1px solid var(--line); background:var(--soft); color:var(--muted); display:grid; place-items:center; }
-.registry-recycle-dialog > header > button:hover:not(:disabled) { color:var(--text); border-color:var(--text); }
-.registry-recycle-dialog > header > button svg { width:14px; height:14px; }
-.registry-recycle-body { padding:18px; }
-.registry-recycle-body p { margin:0 0 9px; color:var(--text); font-size: var(--gw-type-label-md); line-height:1.55; font-weight:800; }
-.registry-recycle-body code { display:block; max-height:76px; padding:10px; overflow:auto; border:1px solid var(--line-2); background:var(--soft); color:var(--text); font: 800 var(--gw-type-label-md)/1.5 var(--gw-font-mono); overflow-wrap:anywhere; }
-.registry-recycle-note { margin-top:12px; padding:10px; background:rgba(230,170,34,.1); color:var(--text); display:flex; align-items:flex-start; gap:8px; font-size: var(--gw-type-label-md); line-height:1.5; font-weight:750; }
-.registry-recycle-note svg { width:14px; height:14px; margin-top:1px; color:#9a6a00; flex:0 0 auto; }
-.registry-recycle-error { margin-top:10px; padding:9px 10px; border:1px solid var(--danger); color:var(--danger); font-size: var(--gw-type-label-md); font-weight:850; }
+.registry-recycle-dialog {
+    width: min(520px, calc(100vw - 28px));
+    border: 1px solid rgba(223, 195, 132, 0.25);
+    border-radius: 10px;
+    background: #0d0f14;
+    color: #e5e7eb;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+}
+.registry-recycle-dialog > header {
+    min-height: 66px;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, #141720 0%, #0d0f14 100%);
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) 30px;
+    align-items: center;
+    gap: 12px;
+}
+.registry-recycle-dialog > header > span {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid rgb(140 0 0 / .55);
+    background: linear-gradient(180deg, #1c1214 0%, #0f0a0c 100%);
+    color: rgb(229 163 163);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.registry-recycle-dialog > header > span svg {
+    width: 17px;
+    height: 17px;
+    display: block;
+}
+.registry-recycle-dialog > header > div { min-width: 0; }
+.registry-recycle-dialog > header strong, .registry-recycle-dialog > header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.registry-recycle-dialog > header strong { font-size: var(--gw-type-body-lg); font-weight: 700; color: #f8fafc; }
+.registry-recycle-dialog > header small { margin-top: 4px; color: #94a3b8; font-size: var(--gw-type-label-md); font-weight: 500; }
+.registry-recycle-dialog > header > button {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: #131620;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+.registry-recycle-dialog > header > button:hover:not(:disabled) { border-color: rgba(223, 195, 132, 0.5); background: #1a202c; color: #dfc384; }
+.registry-recycle-dialog > header > button svg { width: 14px; height: 14px; display: block; }
+.registry-recycle-body { padding: 16px 18px; }
+.registry-recycle-body p { margin: 0 0 10px; color: #cbd5e1; font-size: var(--gw-type-body-sm, 13px); line-height: 1.5; font-weight: 600; }
+.registry-recycle-body code {
+    display: block;
+    max-height: 76px;
+    padding: 10px 12px;
+    overflow: auto;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    background: #08090d;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.85);
+    color: #d1d5db;
+    font: 600 var(--gw-type-label-md)/1.5 var(--gw-font-mono);
+    overflow-wrap: anywhere;
+}
+.registry-recycle-note {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(223, 195, 132, 0.22);
+    border-radius: 6px;
+    background: rgba(223, 195, 132, 0.06);
+    color: #eddab3;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: var(--gw-type-label-md);
+    line-height: 1.5;
+    font-weight: 500;
+}
+.registry-recycle-note svg { width: 14px; height: 14px; margin-top: 2px; color: #dfc384; flex: 0 0 auto; }
+.registry-recycle-error { margin-top: 10px; padding: 9px 12px; border: 1px solid rgb(140 0 0 / .55); border-radius: 6px; background: #181113; color: rgb(229 163 163); font-size: var(--gw-type-label-md); font-weight: 700; }
 .registry-recycler-setup-overlay { z-index:94; }
 .registry-recycler-setup-options { display:grid; gap:8px; margin-top:14px; }
-.registry-recycler-setup-options > button { min-height:58px; display:grid; justify-items:start; gap:3px; padding:10px 12px; text-align:left; }
-.registry-recycler-setup-options > button strong { font-size:var(--gw-type-label-md); font-weight:950; }
-.registry-recycler-setup-options > button small { color:inherit; opacity:.72; font-size:var(--gw-type-label-sm); font-weight:700; }
-.registry-recycle-skip { min-height:58px; padding:10px 18px; border-top:1px solid var(--line); display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:11px; cursor:pointer; }
-.registry-recycle-skip > input { position:absolute; opacity:0; pointer-events:none; }
-.registry-recycle-skip > input:focus-visible + .registry-feature-switch { outline:2px solid #f05a32; outline-offset:2px; }
-.registry-recycle-skip > input:checked + .registry-feature-switch { border-color:#f05a32; background:#f05a32; }
-.registry-recycle-skip > input:checked + .registry-feature-switch i { transform:translateX(17px); }
-.registry-recycle-skip > span:last-child strong,.registry-recycle-skip > span:last-child small { display:block; }
-.registry-recycle-skip > span:last-child strong { font-size: var(--gw-type-label-md); font-weight:900; }
-.registry-recycle-skip > span:last-child small { margin-top:3px; color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
-.registry-recycle-dialog > footer { min-height:58px; padding:10px 14px; border-top:1px solid var(--line-2); display:flex; justify-content:flex-end; gap:8px; }
-.registry-recycle-dialog > footer .hw-btn { min-width:94px; height:36px; }
+.registry-recycler-setup-options > button { min-height:54px; display:grid; justify-items:start; gap:3px; padding:10px 14px; text-align:left; border-radius:6px; }
+.registry-recycler-setup-options > button strong { font-size:var(--gw-type-label-md); font-weight:700; }
+.registry-recycler-setup-options > button small { color:inherit; opacity:.72; font-size:var(--gw-type-label-sm); font-weight:500; }
+.registry-recycle-skip {
+    min-height: 54px;
+    padding: 10px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0b0d12;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+.registry-recycle-skip > input { position: absolute; opacity: 0; pointer-events: none; }
+.registry-recycle-skip > input:focus-visible + .registry-feature-switch { outline: 2px solid rgba(223, 195, 132, 0.8); outline-offset: 2px; }
+.registry-recycle-skip > span:last-child strong, .registry-recycle-skip > span:last-child small { display: block; }
+.registry-recycle-skip > span:last-child strong { font-size: var(--gw-type-label-md); font-weight: 600; color: #e5e7eb; }
+.registry-recycle-skip > span:last-child small { margin-top: 2px; color: #94a3b8; font-size: var(--gw-type-label-sm, 12px); }
+.registry-recycle-dialog > footer {
+    min-height: 56px;
+    padding: 10px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, #0d0f14 0%, #0a0b0f 100%);
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+}
+.registry-recycle-dialog > footer .hw-btn { min-width: 92px; height: 34px; border-radius: 6px; }
+/* QIN-534：对齐退出登录与危险按钮黑金硬件质感 */
+.registry-recycle-confirm {
+    background: linear-gradient(180deg, #181113 0%, #0d0a0b 100%) !important;
+    border: 1px solid rgb(140 0 0 / .55) !important;
+    color: rgb(229 163 163) !important;
+    text-shadow: none;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 2px 5px rgb(0 0 0 / .7);
+    border-radius: 6px !important;
+}
+.registry-recycle-confirm:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: linear-gradient(180deg, #241315 0%, #150a0c 100%) !important;
+    border-color: var(--gw-danger-cap, #ff4d4d) !important;
+    color: #ffcccc !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 0 10px rgb(140 0 0 / .35);
+}
+.registry-recycle-confirm:active:not(:disabled):not([aria-disabled="true"]) {
+    background: #0d0a0b !important;
+    border-color: rgb(140 0 0 / .75) !important;
+    color: rgb(229 163 163) !important;
+    transform: translateY(1.5px);
+}
+.registry-recycle-confirm:is(:disabled, [aria-disabled="true"]) {
+    background: var(--gw-button-disabled-danger-bg, #241619) !important;
+    border-color: var(--gw-border-disabled-danger, #4a1c22) !important;
+    color: var(--gw-text-disabled-danger, #855359) !important;
+    cursor: wait;
+    opacity: 0.7;
+}
 .registry-recycle-confirm [data-lucide="loader-2"] { animation:asset-spin 1s linear infinite; }
 .registry-recycle-bin-overlay { z-index:126; }
 .registry-recycle-bin-modal { width:min(920px,96vw); max-height:min(780px,92vh); border-radius:18px; background:var(--panel); box-shadow:0 28px 80px rgba(15,23,42,.3); display:flex; flex-direction:column; overflow:hidden; }
@@ -2344,13 +2458,42 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card-segment-badge:hover { background:rgba(20,24,32,.98); border-color:#f59e0b; color:#fef3c7; transform:scale(1.02); }
 .registry-card-segment-badge svg { width:13px; height:13px; color:#dfc384; flex-shrink:0; }
 .registry-card-segment-badge strong { font-weight:800; }
-.registry-card-recycle { position:absolute; z-index:6; top:9px; right:8px; width:28px; height:28px; border:1px solid rgba(255,255,255,.32); border-radius:4px; background:rgba(20,24,21,.88); color:#fff; display:grid; place-items:center; opacity:0; pointer-events:none; transition:opacity .14s ease,background .14s ease,border-color .14s ease; }
-.registry-card:hover > .registry-card-recycle,.registry-card:focus-within > .registry-card-recycle { opacity:1; pointer-events:auto; }
-.registry-card-recycle:hover:not(:disabled) { border-color:var(--gw-danger-cap); background:linear-gradient(180deg,#241315 0%,#150a0c 100%); color:#ffcccc; }
-.registry-card-recycle:focus-visible { opacity:1; pointer-events:auto; outline:2px solid #fff; outline-offset:1px; }
-.registry-card-recycle:disabled { opacity:0; cursor:not-allowed; }
-.registry-card:hover > .registry-card-recycle:disabled { opacity:.34; pointer-events:auto; }
-.registry-card-recycle svg { width:14px; height:14px; }
+/* QIN-534：卡片悬浮删除按钮绝对居中对齐、黑金微倒角与硬件危险态 */
+.registry-card-recycle {
+    position: absolute;
+    z-index: 6;
+    top: 9px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 4px;
+    background: rgba(13, 16, 21, 0.88);
+    color: #fff;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .14s ease, background .14s ease, border-color .14s ease;
+}
+.registry-card:hover > .registry-card-recycle, .registry-card:focus-within > .registry-card-recycle { opacity: 1; pointer-events: auto; }
+.registry-card-recycle:hover:not(:disabled) { border-color: var(--gw-danger-cap, #ff4d4d); background: linear-gradient(180deg, #241315 0%, #150a0c 100%); color: #ffcccc; }
+.registry-card-recycle:focus-visible { opacity: 1; pointer-events: auto; outline: 2px solid #dfc384; outline-offset: 1px; }
+.registry-card-recycle:disabled { opacity: 0; cursor: not-allowed; }
+.registry-card:hover > .registry-card-recycle:disabled { opacity: .34; pointer-events: auto; }
+.registry-card-recycle svg,
+.registry-card-recycle [data-lucide] {
+    width: 13px !important;
+    height: 13px !important;
+    display: block !important;
+    margin: auto !important;
+    flex-shrink: 0 !important;
+}
 .registry-card .asset-card-name { min-height:2.5em; white-space:normal; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .registry-card .asset-card-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; }
 .registry-card .asset-card-meta span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -2771,13 +2914,58 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .theme-dark .registry-stat-card { border-color:#3a443b; background:#242c25; }
 .theme-dark .registry-stat-card:hover { background:#2b342c; }
 .theme-dark .registry-stat-card.primary { border-color:#536054; background:#303a31; }
-.registry-feature-switch { position:relative; flex:0 0 auto; width:40px; height:23px; margin:0; border:1px solid #7e897f; background:#c5cec4; display:block; transition:background .16s ease,border-color .16s ease; }
-.registry-feature-switch i { position:absolute; top:3px; left:3px; width:15px; height:15px; background:#fff; box-shadow:0 1px 3px rgba(20,24,21,.24); transition:transform .16s ease; }
-.registry-feature-switch.is-on { border-color:#f05a32; background:#f05a32; }
-.registry-feature-switch.is-on i { transform:translateX(17px); }
-.registry-feature-label { min-width:0; margin:0; display:flex; align-items:center; gap:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: var(--gw-type-label-md); font-weight:850; }
-.registry-feature-label svg { width:14px; height:14px; flex:0 0 auto; }
-.theme-dark .registry-feature-switch { border-color:#59645b; background:#3b463d; }
+/* QIN-534：黑金硬件统一滑动开关（Slide Toggle）——胶囊凹槽与香槟金发光金属拨栓 */
+.registry-feature-switch {
+    position: relative;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 22px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    background: #050608;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(255, 255, 255, 0.05);
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    transition: all .2s cubic-bezier(.4, 0, .2, 1);
+}
+.registry-feature-switch i {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 50%;
+    background: linear-gradient(180deg, #475569 0%, #1e293b 100%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+    display: block;
+    transform: translateX(0);
+    transition: transform .2s cubic-bezier(.34, 1.25, .64, 1), background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.registry-feature-switch.is-on,
+.registry-recycle-skip > input:checked + .registry-feature-switch {
+    background: #090a10;
+    border-color: rgba(223, 195, 132, 0.45);
+}
+.registry-feature-switch.is-on i,
+.registry-recycle-skip > input:checked + .registry-feature-switch i {
+    transform: translateX(20px);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    background: linear-gradient(180deg, #ffffff 0%, #eddab3 50%, #baa27a 100%);
+    box-shadow: 0 0 12px rgba(223, 195, 132, 0.85), 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 1px 0 #fff;
+}
+.theme-dark .registry-feature-switch {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #050608;
+}
+.theme-dark .registry-feature-switch.is-on {
+    border-color: rgba(223, 195, 132, 0.45);
+    background: #090a10;
+}
 .library-source-section { display:flex; flex-direction:column; gap:7px; }
 .library-source-list { display:flex; flex-direction:column; gap:4px; }
 .library-source-row { width:100%; min-height:34px; padding:5px 7px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); display:grid; grid-template-columns:22px minmax(0,1fr) auto; align-items:center; gap:7px; text-align:left; }

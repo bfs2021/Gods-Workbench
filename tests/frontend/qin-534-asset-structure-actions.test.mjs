@@ -410,3 +410,49 @@ test('AC2-反馈 7: 解开版本和解开组弹窗确认按钮采用退出登录
     assert.match(css, /\.registry-structure-remove-confirm\s*\{[^}]*rgb\(140 0 0/);
     assert.match(css, /\.registry-structure-remove-confirm\s*\{[^}]*rgb\(229 163 163\)/);
 });
+
+test('AC2-反馈 8: 素材卡片悬浮删除按钮图标与暗底绝对居中', () => {
+    const managerCss = readFileSync(
+        new URL('../../web/css/pages/asset-manager.css', import.meta.url),
+        'utf8'
+    );
+    const vaultCss = readFileSync(
+        new URL('../../web/css/pages/asset-vault.css', import.meta.url),
+        'utf8'
+    );
+    // asset-manager.css 中删除按钮重置原生 padding，inline-flex 居中
+    assert.match(managerCss, /\.registry-card-recycle\s*\{[^}]*padding:\s*0\s*!important/);
+    assert.match(managerCss, /\.registry-card-recycle\s*\{[^}]*display:\s*inline-flex\s*!important/);
+    assert.match(managerCss, /\.registry-card-recycle\s*svg[^{]*\{[^}]*margin:\s*auto\s*!important/);
+
+    // asset-vault.css 在 24px 微尺寸下同样强制重置 padding 与 inline-flex 居中
+    assert.match(vaultCss, /\.registry-card\s+\.registry-card-recycle\s*\{[^}]*padding:\s*0\s*!important/);
+    assert.match(vaultCss, /\.registry-card\s+\.registry-card-recycle\s*\{[^}]*display:\s*inline-flex\s*!important/);
+    assert.match(vaultCss, /\.registry-card\s+\.registry-card-recycle\s+svg[^{]*\{[^}]*margin:\s*auto\s*!important/);
+});
+
+test('AC2-反馈 9: 删除卡片弹窗与硬件滑动开关按黑金设计规范对齐', () => {
+    const css = readFileSync(
+        new URL('../../web/css/pages/asset-manager.css', import.meta.url),
+        'utf8'
+    );
+    // 弹窗机箱圆角 10px，暗金微透发光边框，深黑底
+    assert.match(css, /\.registry-recycle-dialog\s*\{[^}]*border-radius:\s*10px/);
+    assert.match(css, /\.registry-recycle-dialog\s*\{[^}]*background:\s*#0d0f14/);
+    assert.match(css, /\.registry-recycle-dialog\s*\{[^}]*border:\s*1px solid rgba\(223,\s*195,\s*132/);
+
+    // 提示条废除原黄色土底（rgba(230,170,34,.1)），改暗金微透
+    assert.doesNotMatch(css, /\.registry-recycle-note\s*\{[^}]*rgba\(230,\s*170,\s*34/);
+    assert.match(css, /\.registry-recycle-note\s*\{[^}]*background:\s*rgba\(223,\s*195,\s*132,\s*0\.06\)/);
+
+    // 确认移入回收站按钮对齐退出登录黑曜石危险按钮质感
+    assert.match(css, /\.registry-recycle-confirm\s*\{[^}]*linear-gradient\(180deg,\s*#181113/);
+    assert.match(css, /\.registry-recycle-confirm\s*\{[^}]*rgb\(140 0 0/);
+
+    // 开关升级为黑金硬件滑动开关（Slide Toggle），废除旧墨绿色方块
+    assert.doesNotMatch(css, /\.theme-dark\s+\.registry-feature-switch\s*\{[^}]*#3b463d/);
+    assert.match(css, /\.registry-feature-switch\s*\{[^}]*border-radius:\s*9999px/);
+    assert.match(css, /\.registry-feature-switch\s+i\s*\{[^}]*border-radius:\s*50%/);
+    assert.match(css, /\.registry-feature-switch\.is-on\s+i[^{]*\{[^}]*translateX\(20px\)/);
+});
+

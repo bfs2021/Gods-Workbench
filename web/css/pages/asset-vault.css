@@ -252,7 +252,28 @@ body.gw-signal.gw-page--asset-manager .asset-type-video .registry-card-measure {
 body.gw-signal.gw-page--asset-manager .registry-simple .registry-card :is(.asset-card-meta,.registry-card-source) { display: none; }
 body.gw-signal.gw-page--asset-manager .registry-card .registry-card-format { top: 11px; left: 11px; min-width: 0; height: 16px; padding: 0 3px; border: 1px solid var(--vault-edge) !important; border-radius: 3px !important; font: var(--gw-type-label-md)/14px var(--gw-font-mono); letter-spacing: 0; background: color-mix(in hsl,var(--asset-type-color) 50%,#000 50%) !important; color: var(--vault-accent) !important; }
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .registry-card-format { left: 21px; }
-body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle { top: 10px; right: 10px; height: 22px; width: 22px; }
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle {
+    top: 10px;
+    right: 10px;
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;
+    border-radius: 4px !important;
+}
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle svg,
+body.gw-signal.gw-page--asset-manager .registry-card .registry-card-recycle [data-lucide] {
+    width: 13px !important;
+    height: 13px !important;
+    display: block !important;
+    margin: auto !important;
+    flex-shrink: 0 !important;
+}
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .asset-thumb::before,
 body.gw-signal.gw-page--asset-manager .registry-card.asset-type-video .asset-thumb::after { width: 8px; background-color: transparent; background-image: radial-gradient(#05070a 38%,transparent 42%); background-size: 8px 8px; }
 body.gw-signal.gw-page--asset-manager .registry-vault-footer { flex: 0 0 auto; min-height: 35px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--vault-line); background: var(--vault-well); color: var(--vault-muted); font: var(--gw-type-label-md)/18px var(--gw-font-mono); }
