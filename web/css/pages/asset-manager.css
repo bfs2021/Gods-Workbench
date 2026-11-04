@@ -2315,8 +2315,11 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card.asset-type-other { --asset-type-color:var(--asset-type-other); }
 .registry-card:focus-visible { box-shadow:0 0 0 2px var(--strong); }
 .registry-card .asset-card-check { top:43px; left:9px; z-index:5; accent-color:var(--asset-type-color); }
-.registry-card.active,.registry-card.selected { --asset-type-ink:var(--text); border-color:var(--strong); background:var(--card); box-shadow:none; }
+/* 【QIN-534】选中态升级为黑金微光高亮：缩略图本身不加任何半透明变色遮罩（保持原色原貌），
+   只把卡片容器外框换成暗金渐变 + 描边 + 呼吸光晕，确保深色素材一眼可辨。 */
+.registry-card.active,.registry-card.selected { --asset-type-ink:var(--text); border-color:#dfc384; background:linear-gradient(165deg,rgba(223,195,132,.16),rgba(223,195,132,.05)),#0f1218; box-shadow:0 0 10px rgba(223,195,132,.22),inset 0 1px rgba(255,255,255,.1); }
 .registry-card.active::before,.registry-card.selected::before { height:5px; }
+.registry-card.active .asset-thumb,.registry-card.selected .asset-thumb { box-shadow:inset 0 0 0 1px rgba(223,195,132,.55); }
 .registry-card-selection-overlay { position:absolute; z-index:2; inset:0; background:var(--asset-type-color); opacity:0; pointer-events:none; transition:opacity .14s ease; }
 .registry-card.active .registry-card-selection-overlay,.registry-card.selected .registry-card-selection-overlay { display:none; }
 .registry-card.active .asset-card-body,.registry-card.selected .asset-card-body { background:transparent; color:var(--asset-type-ink); }
@@ -2357,14 +2360,18 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card-source em { flex:0 0 auto; padding:2px 4px; background:color-mix(in srgb,var(--asset-type-color) 18%,transparent); color:inherit; font-size: var(--gw-type-label-md); line-height:1; font-style:normal; font-weight:950; }
 
 /* 服务端 asset-structures 的只读卡片投影。成员关系和当前版本始终由 structure_id 返回。 */
-.registry-structure-context-menu { position:fixed; z-index:110; width:min(252px,calc(100vw - 20px)); border:1px solid var(--sf-line-strong,var(--line-2)); border-radius:6px; background:var(--sf-raised,var(--panel)); color:var(--sf-text,var(--text)); box-shadow:0 8px 18px rgba(0,0,0,.22); overflow:hidden; }
-.registry-structure-context-title { min-height:32px; padding:0 10px; border-bottom:1px solid var(--sf-line,var(--line)); display:flex; align-items:center; gap:7px; color:var(--sf-muted,var(--muted)); font-size: var(--gw-type-label-md); font-weight:800; }
-.registry-structure-context-title svg { width:13px; height:13px; color:var(--sf-cyan,var(--strong)); }
+/* 【QIN-534】右键上下文菜单改黑金硬件语言：深黑微透毛玻璃容器 + 暗金描边与图标，
+   禁用态明确降级，不再用 --sf-cyan 这类与金库壳不一致的强调色。 */
+.registry-structure-context-menu { position:fixed; z-index:110; width:min(252px,calc(100vw - 20px)); border:1px solid rgba(223,195,132,.3); border-radius:10px; background:rgba(11,13,19,.96); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:var(--text); box-shadow:0 14px 34px rgba(0,0,0,.66),inset 0 1px rgba(255,255,255,.08); overflow:hidden; }
+.registry-structure-context-title { min-height:32px; padding:0 10px; border-bottom:1px solid rgba(223,195,132,.22); display:flex; align-items:center; gap:7px; color:#dfc384; font-size: var(--gw-type-label-md); font-weight:800; }
+.registry-structure-context-title svg { width:13px; height:13px; color:#dfc384; }
 .registry-structure-context-menu > button { width:100%; min-height:50px; padding:8px 10px; border:0; background:transparent; color:inherit; display:grid; grid-template-columns:16px minmax(0,1fr); grid-template-rows:auto auto; column-gap:8px; align-items:center; text-align:left; cursor:pointer; }
-.registry-structure-context-menu > button > svg { grid-row:1 / 3; width:15px; height:15px; color:var(--sf-cyan,var(--strong)); }
+.registry-structure-context-menu > button > svg { grid-row:1 / 3; width:15px; height:15px; color:#dfc384; }
 .registry-structure-context-menu > button > span { min-width:0; font-size: var(--gw-type-label-md); font-weight:850; }
-.registry-structure-context-menu > button > small { margin-top:2px; color:var(--sf-muted,var(--muted)); font-size: var(--gw-type-label-md); font-weight:750; }
-.registry-structure-context-menu > button:hover,.registry-structure-context-menu > button:focus-visible { background:color-mix(in srgb,var(--sf-cyan,var(--strong)) 14%,transparent); outline:none; }
+.registry-structure-context-menu > button > small { margin-top:2px; color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
+.registry-structure-context-menu > button:hover,.registry-structure-context-menu > button:focus-visible { background:rgba(223,195,132,.14); outline:none; }
+.registry-structure-context-menu > button:disabled { cursor:not-allowed; opacity:.45; }
+.registry-structure-context-menu > button:disabled > svg { color:var(--muted); }
 
 .registry-structure-card { --asset-type-color:var(--asset-type-image); position:relative; overflow:hidden; background:var(--card); }
 .registry-structure-card::before { background:var(--sf-cyan,var(--asset-type-color)); }
@@ -2638,21 +2645,27 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-list-row:hover .registry-list-recycle,.registry-list-row:focus-within .registry-list-recycle { opacity:1; pointer-events:auto; }
 .registry-list-path .registry-list-recycle:disabled { opacity:.34; }
 .registry-layout-list .registry-assets-scroll { overflow-x:auto; }
-.registry-selection-dock { position:absolute; z-index:18; right:10px; bottom:10px; left:10px; filter:drop-shadow(0 12px 30px rgba(15,23,42,.2)); }
-.registry-selection-bar { min-height:58px; border:1px solid #000; background:var(--strong); color:var(--strong-text); display:grid; grid-template-columns:auto minmax(0,1fr) 34px; align-items:center; }
-.registry-selection-summary { min-width:174px; height:100%; padding:0 14px; border-right:1px solid rgba(255,255,255,.18); display:grid; grid-template-columns:auto auto; grid-template-rows:auto auto; align-content:center; justify-content:start; gap:2px 8px; }
-.registry-selection-summary > span { grid-row:1/3; color:#f05a32; font-size: var(--gw-type-metric-md); line-height:1; font-weight:950; }
-.registry-selection-summary strong { font-size: var(--gw-type-label-md); }
-.registry-selection-summary small { color:color-mix(in srgb, var(--strong-text) 65%, transparent); font-size: var(--gw-type-label-md); }
-.registry-selection-actions { min-width:0; display:flex; align-items:stretch; overflow-x:auto; }
-.registry-selection-actions button { flex:0 0 auto; min-width:92px; height:58px; padding:0 13px; border-right:1px solid rgba(255,255,255,.16); background:transparent; color:var(--strong-text); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size: var(--gw-type-label-md); font-weight:900; }
-.registry-selection-actions button:hover,.registry-selection-actions button.is-active { background:#f05a32; color:#fff; }
-.registry-selection-actions button:disabled { opacity:.35; cursor:not-allowed; background:transparent; }
+/* 【QIN-534】底部批量抽屉黑金硬件重构：彻底移除 var(--strong) 亮黄实底与橙红点缀，
+   改为深黑微透金属毛玻璃容器 + 暗金描边，按钮组走标准黑金硬件微胶囊（hw-btn）。 */
+.registry-selection-dock { position:absolute; z-index:18; right:10px; bottom:10px; left:10px; display:flex; flex-direction:column; gap:8px; filter:drop-shadow(0 12px 30px rgba(0,0,0,.55)); }
+.registry-selection-bar { min-height:58px; border:1px solid rgba(223,195,132,.3); border-radius:10px; background:rgba(11,13,19,.95); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:var(--text); display:grid; grid-template-columns:auto minmax(0,1fr) 40px; align-items:center; box-shadow:inset 0 1px rgba(255,255,255,.08),0 10px 28px rgba(0,0,0,.6); }
+.registry-selection-summary { min-width:174px; height:100%; padding:0 14px; border-right:1px solid rgba(223,195,132,.22); display:grid; grid-template-columns:auto auto; grid-template-rows:auto auto; align-content:center; justify-content:start; gap:2px 8px; }
+.registry-selection-summary strong { color:#dfc384; font-size: var(--gw-type-label-md); }
+.registry-selection-summary small { color:rgba(223,195,132,.72); font-size: var(--gw-type-label-md); }
+.registry-selection-badge { grid-row:1/3; min-width:42px; height:42px; padding:0 9px; border:1px solid rgba(223,195,132,.45); border-radius:9px; background:linear-gradient(165deg,rgba(223,195,132,.22),rgba(223,195,132,.06)),#0f1218; color:#dfc384; display:inline-flex; align-items:center; justify-content:center; gap:5px; font-family: var(--gw-font-mono); font-size: var(--gw-type-metric-md); line-height:1; font-weight:950; box-shadow:inset 0 1px rgba(255,255,255,.12),0 0 10px rgba(223,195,132,.18); }
+.registry-selection-badge svg { width:13px; height:13px; color:#dfc384; }
+.registry-selection-actions { min-width:0; padding:8px 10px; display:flex; align-items:stretch; gap:8px; overflow-x:auto; }
+.registry-selection-actions .hw-btn { flex:0 0 auto; min-width:92px; height:42px; min-height:42px; padding:0 13px; border-radius:9px; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size: var(--gw-type-label-md); font-weight:900; }
+.registry-selection-actions .hw-btn > span { height:auto; }
+.registry-selection-actions .hw-btn:hover:not(:disabled):not([aria-disabled="true"]) { border-color:rgba(223,195,132,.7); background:linear-gradient(180deg,rgba(223,195,132,.16),rgba(223,195,132,.04)),#12151c; color:#f3dfb6; }
+.registry-selection-actions .hw-btn:active:not(:disabled):not([aria-disabled="true"]) { background:linear-gradient(180deg,#101217 0%,#161922 100%); border-color:rgba(223,195,132,.3); }
+.registry-selection-actions .hw-btn.is-active { border-color:#dfc384; background:linear-gradient(180deg,rgba(223,195,132,.24),rgba(223,195,132,.08)),#12151c; color:#f3dfb6; box-shadow:inset 0 1px rgba(255,255,255,.14),0 0 10px rgba(223,195,132,.28); }
+.registry-selection-actions .hw-btn:disabled { opacity:.45; cursor:not-allowed; }
 .registry-selection-actions svg { width:15px; height:15px; }
-.registry-selection-clear { width:34px; height:58px; background:transparent; color:var(--strong-text); display:grid; place-items:center; }
-.registry-selection-clear:hover { background:rgba(255,255,255,.12); }
+.registry-selection-clear { width:40px; height:58px; border:0; border-left:1px solid rgba(223,195,132,.22); background:transparent; color:rgba(223,195,132,.78); display:grid; place-items:center; }
+.registry-selection-clear:hover { background:rgba(223,195,132,.12); color:#dfc384; }
 .registry-selection-clear svg { width:15px; height:15px; }
-.registry-bulk-panel { border:1px solid #000; border-bottom:0; background:var(--panel); color:var(--text); padding:12px; }
+.registry-bulk-panel { border:1px solid rgba(223,195,132,.3); border-radius:10px; background:rgba(11,13,19,.95); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:var(--text); padding:12px; box-shadow:inset 0 1px rgba(255,255,255,.08),0 10px 28px rgba(0,0,0,.6); }
 .registry-bulk-panel-title { margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .registry-bulk-panel-title > span { display:flex; align-items:center; gap:7px; }
 .registry-bulk-panel-title strong { font-size: var(--gw-type-label-md); }
@@ -2798,7 +2811,7 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 @media (max-width:820px){ .asset-tabs { align-items:flex-start; } .asset-manager-root.asset-manager-root-registry { grid-template-columns:1fr; } .registry-overview-stats { grid-template-columns:repeat(2,minmax(0,1fr)); overflow:visible; } .registry-stat-card.primary { grid-column:1/-1; } .registry-stat-card { min-height:44px; } }
 @media (max-width:760px){
     .registry-selection-summary { min-width:118px; padding:0 8px; }
-    .registry-selection-actions button { min-width:76px; padding:0 8px; }
+    .registry-selection-actions .hw-btn { min-width:76px; padding:0 8px; }
     .registry-canvas-target-row,.registry-canvas-target-row + .registry-canvas-target-row { grid-template-columns:1fr; align-items:stretch; }
     .registry-tag-entry,.registry-inline-tag-editor { grid-template-columns:1fr; }
 }

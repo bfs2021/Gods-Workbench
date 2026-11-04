@@ -5611,34 +5611,43 @@ function resetRegistryAssetStructures(){
     registryAssetStructures.clear();
     closeRegistryStructureMenu();
 }
-function registrySelectedImageAssets(board=assetBoardById(activeTab)){
-    const selected = registrySelectedAssets(board);
-    return selected.length >= 2 && selected.every(isRegistryStructureImage) ? selected : [];
-}
 function closeRegistryStructureMenu(){
     registryStructureMenu = null;
     document.querySelector('[data-registry-structure-menu]')?.remove();
 }
-function renderRegistryStructureContextMenu(assetIds=[]){
+// 【QIN-534】多选右键菜单不再限定 kind==='image'：版本/组结构按「是否全为图片」决定可用性，
+// 关联结构对任意多模态素材可用，避免右键菜单被旧限制静默拦掉。
+function renderRegistryStructureContextMenu(assetIds=[], options={}){
     const count = assetIds.length;
-    return `<div class="registry-structure-context-menu" data-registry-structure-menu role="menu" aria-label="合并已选图片">
-        <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span>${count} 张图片</span></div>
-        <button type="button" role="menuitem" data-registry-structure-create="version"><i data-lucide="git-branch"></i><span>合并为版本结构</span><small>切换最终版本</small></button>
-        <button type="button" role="menuitem" data-registry-structure-create="group"><i data-lucide="layers-2"></i><span>合并为组结构</span><small>叠放缩略图，双击进入组 Coverflow</small></button>
+    const imageOnly = options.imageOnly !== false;
+    const structureDisabled = imageOnly ? '' : ' disabled';
+    const structureHint = imageOnly ? '切换最终版本' : '仅支持图片素材';
+    return `<div class="registry-structure-context-menu" data-registry-structure-menu role="menu" aria-label="合并已选素材">
+        <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span>${count} 项素材</span></div>
+        <button type="button" role="menuitem" data-registry-structure-create="version"${structureDisabled}><i data-lucide="git-branch"></i><span>合并为版本结构</span><small>${structureHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-create="relation"><i data-lucide="link-2"></i><span>合并为关联结构</span><small>建立素材互相关联</small></button>
+        <button type="button" role="menuitem" data-registry-structure-create="group"${structureDisabled}><i data-lucide="layers-2"></i><span>合并为组结构</span><small>${imageOnly ? '叠放缩略图，双击进入组 Coverflow' : '仅支持图片素材'}</small></button>
     </div>`;
 }
+// 【QIN-534】触发修复：多选后右键点击「任意已选卡片」或「网格空白区」都要弹出同一套黑金菜单；
+// 旧的 kind==='image' 限制与空白区无响应一并解除，preventDefault 前置避免原生右键菜单抢先弹出。
 function openRegistryStructureContextMenu(event){
+    if(activeTab !== 'registry' && assetBoardById(activeTab)?.system !== false) return;
+    const board = assetBoardById(activeTab);
+    const selected = registrySelectedAssets(board);
+    if(selected.length < 2) return;
     const card = event.target?.closest?.('[data-registry-card]');
-    if(!card || activeTab !== 'registry' && assetBoardById(activeTab)?.system !== false) return;
-    const cardId = String(card.dataset.registryCard || '');
-    if(!cardId || !registrySelectedIds.has(cardId)) return;
-    const selected = registrySelectedImageAssets(assetBoardById(activeTab));
-    if(!selected.length) return;
+    if(card){
+        if(!registrySelectedIds.has(String(card.dataset.registryCard || ''))) return;
+    } else if(!event.target?.closest?.('.registry-grid, .registry-assets-scroll')){
+        return;
+    }
     event.preventDefault();
     event.stopPropagation();
     closeRegistryStructureMenu();
     const menuHost = document.createElement('div');
-    menuHost.innerHTML = renderRegistryStructureContextMenu(selected.map(item => item.id));
+    const imageOnly = selected.every(isRegistryStructureImage);
+    menuHost.innerHTML = renderRegistryStructureContextMenu(selected.map(item => item.id), {imageOnly});
     const menu = menuHost.firstElementChild;
     if(!menu) return;
     document.body.appendChild(menu);
@@ -8013,14 +8022,17 @@ async function attachSelectedRegistryAssetsToCanvas(createNew=false){
     render();
     setStatus(`${data.added || assetIds.length} 个素材已加入${data.canvas?.title ? `“${data.canvas.title}”` : '画布'}`);
 }
-async function relateSelectedRegistryAssets(){
-    const assetIds = registryActiveSelectedIds(assetBoardById(activeTab));
-    if(assetIds.length < 2){ setStatus('至少选择两个素材才能建立关联'); return; }
-    const data = await apiJsonResponse(assetManagerApi.relateRegistryAssets({asset_ids:assetIds,relation_type:'related'}));
+// 【QIN-534】允许显式传入素材 id 集合：底部「建立关联」沿用当前选择，
+// 右键菜单的「合并为关联结构」直接使用菜单捕获的 id，避免菜单与选择集不同步。
+async function relateSelectedRegistryAssets(assetIds=[]){
+    const explicit = [...new Set((assetIds || []).map(value => String(value || '').trim()).filter(Boolean))];
+    const ids = explicit.length ? explicit : registryActiveSelectedIds(assetBoardById(activeTab));
+    if(ids.length < 2){ setStatus('至少选择两个素材才能建立关联'); return; }
+    const data = await apiJsonResponse(assetManagerApi.relateRegistryAssets({asset_ids:ids,relation_type:'related'}));
     (data.assets || []).forEach(mergeRegistryAssetUpdate);
     if(detailViewerState.open && detailViewerState.source === 'registry') renderDetailViewer();
     else render();
-    setStatus(`已关联 ${assetIds.length} 个素材`);
+    setStatus(`已关联 ${ids.length} 个素材`);
 }
 async function removeRegistryAssetRelation(assetId, relatedAssetId){
     if(!assetId || !relatedAssetId) return;
@@ -10188,6 +10200,8 @@ function renderRegistryBulkPanel(board=null){
     }
     return '';
 }
+// 【QIN-534】底部批量抽屉：数量汇总改暗金硬件徽标，操作按钮组接入标准黑金硬件微胶囊（hw-btn），
+// 关闭按钮保留暗金微型图标；底色与描边全部交给 CSS 的黑金毛玻璃容器。
 function renderRegistrySelectionBar(board=null){
     const selected = registrySelectedAssets(board);
     if(!selected.length) return '';
@@ -10195,13 +10209,13 @@ function renderRegistrySelectionBar(board=null){
     return `<div class="registry-selection-dock">
         ${renderRegistryBulkPanel(board)}
         <div class="registry-selection-bar">
-            <div class="registry-selection-summary"><span>${selected.length}</span><strong>已选素材</strong><small>${escapeHtml(formatFileSize(totalSize))}</small></div>
+            <div class="registry-selection-summary"><span class="registry-selection-badge"><i data-lucide="check-check"></i>${selected.length}</span><strong>已选素材</strong><small>${escapeHtml(formatFileSize(totalSize))}</small></div>
             <div class="registry-selection-actions">
-                <button class="${registryBulkPanel === 'canvas' ? 'is-active' : ''}" type="button" data-registry-bulk-panel="canvas"><i data-lucide="layout-dashboard"></i><span>加入画布</span></button>
-                <button class="${registryBulkPanel === 'tags' ? 'is-active' : ''}" type="button" data-registry-bulk-panel="tags"><i data-lucide="tags"></i><span>添加标签</span></button>
-                <button type="button" data-registry-relate ${selected.length < 2 ? 'disabled' : ''}><i data-lucide="link-2"></i><span>建立关联</span></button>
-                <button type="button" data-registry-archive ${registryArchiveBusy ? 'disabled' : ''}><i data-lucide="package"></i><span>打包导出</span></button>
-                <button type="button" data-registry-export-pdf ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>
+                <button class="hw-btn${registryBulkPanel === 'canvas' ? ' is-active' : ''}" type="button" data-registry-bulk-panel="canvas"><i data-lucide="layout-dashboard"></i><span>加入画布</span></button>
+                <button class="hw-btn${registryBulkPanel === 'tags' ? ' is-active' : ''}" type="button" data-registry-bulk-panel="tags"><i data-lucide="tags"></i><span>添加标签</span></button>
+                <button class="hw-btn" type="button" data-registry-relate ${selected.length < 2 ? 'disabled' : ''}><i data-lucide="link-2"></i><span>建立关联</span></button>
+                <button class="hw-btn" type="button" data-registry-archive ${registryArchiveBusy ? 'disabled' : ''}><i data-lucide="package"></i><span>打包导出</span></button>
+                <button class="hw-btn" type="button" data-registry-export-pdf ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>
             </div>
             <button class="registry-selection-clear" type="button" data-registry-clear-selection title="清空选择"><i data-lucide="x"></i></button>
         </div>
@@ -20373,8 +20387,10 @@ document.addEventListener('click', event => {
     if(structureCreate){
         const type = structureCreate.dataset.registryStructureCreate || '';
         const ids = registryStructureMenu?.assetIds || [];
+        closeRegistryStructureMenu();
         if(type === 'version') createRegistryVersionStructure(ids).catch(err => setStatus(err.message || '版本结构创建失败'));
         else if(type === 'group') createRegistryGroupStructure(ids).catch(err => setStatus(err.message || '组结构创建失败'));
+        else if(type === 'relation') relateSelectedRegistryAssets(ids).catch(err => setStatus(err.message || '关联结构创建失败'));
         return;
     }
     if(event.target.closest?.('[data-registry-structure-remove-dialog-close]')){
