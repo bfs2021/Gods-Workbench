@@ -26,7 +26,7 @@ test('统一回收站展示素材回收条目并携带版本调用文件恢复',
       requests.push({url, options});
       const data = url.endsWith('/recycle-bin')
         ? {revision:7, assets:[{entry_id:'rcy_1', deleted_at:'2026-01-01', payload:{name:'sample.png'}}]}
-        : {projects:[], canvases:[], assets:[]};
+        : {projects:[], canvases:[], assets:[{id:'archived_1',name:'legacy.png'}]};
       return {ok:true, json:async()=>data};
     }
   });
@@ -34,10 +34,13 @@ test('统一回收站展示素材回收条目并携带版本调用文件恢复',
   await context.window.WorkbenchProjects.refreshGlobalTrash();
   context.window.WorkbenchProjects.switchGlobalTrashTab('assets');
   assert.match(getElementById('globalTrashContainer').innerHTML, /sample\.png/);
+  assert.match(getElementById('globalTrashContainer').innerHTML, /legacy\.png/);
   await context.window.WorkbenchProjects.restoreAssetFromTrash('rcy_1');
   const restore = requests.find(request => request.url.endsWith('/recycle-bin/rcy_1/restore'));
   assert.ok(restore);
   assert.equal(JSON.parse(restore.options.body).expected_version, 7);
+  await context.window.WorkbenchProjects.restoreAssetFromTrash('archived_1');
+  assert.ok(requests.find(request => request.url.endsWith('/governance/asset-trash/archived_1/restore')));
 });
 
 test('顶栏垃圾桶是当前页按钮，缺少抽屉时由共享壳层装载', () => {

@@ -1430,12 +1430,13 @@ window.WorkbenchProjects = (function () {
       globalTrashState.registryRevision = recycleData.revision;
       globalTrashState.projects = (Array.isArray(data.projects) ? data.projects : [])
         .filter(item => item && (item.deleted_at != null || item.deleted_entity_id));
-      globalTrashState.assets = (Array.isArray(recycleData.assets) ? recycleData.assets : []).map(entry => ({
+      const registryAssets = (Array.isArray(recycleData.assets) ? recycleData.assets : []).map(entry => ({
         ...entry.payload,
         id: entry.entry_id,
         deleted_at: entry.deleted_at,
         registry_recycle: true
       }));
+      globalTrashState.assets = [...(Array.isArray(data.assets) ? data.assets : []), ...registryAssets];
       globalTrashState.canvases = Array.isArray(data.canvases) ? data.canvases : [];
       globalTrashState.degradation = null;
 
@@ -1609,7 +1610,11 @@ window.WorkbenchProjects = (function () {
   async function restoreAssetFromTrash(id) {
     // 显式降级：失败不本地伪造成功。
     try {
-      const res = await fetch(`/api/asset-registry/recycle-bin/${encodeURIComponent(id)}/restore`, {
+      const asset = globalTrashState.assets.find(item => item.id === id);
+      const url = asset?.registry_recycle
+        ? `/api/asset-registry/recycle-bin/${encodeURIComponent(id)}/restore`
+        : `/api/asset-registry/governance/asset-trash/${encodeURIComponent(id)}/restore`;
+      const res = await fetch(url, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
