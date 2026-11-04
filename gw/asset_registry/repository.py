@@ -180,6 +180,99 @@ def _is_removed_asset(asset: Dict[str, Any], removed_root_ids: set[str]) -> bool
     return False
 
 
+def _iso_from_epoch(seconds: Any) -> str:
+    """把文件系统时间戳转成与 ``storage.now_iso()`` 同口径的 ISO 8601 UTC 字符串。"""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    if not math.isfinite(value) or value <= 0:
+        return ""
+    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _source_display_names() -> Dict[str, str]:
+    """来源 ID 到显示名映射：与左栏资产库同源（``root_facets``），不另存副本。
+
+    ``root_facets`` 本身对每个来源做有界挂载探测，异常时按空表处理——宁可显示名
+    缺失，也不能让一次探测失败把整个列表请求打成 500。
+    """
+    from gw.asset_registry import index_jobs
+
+    names: Dict[str, str] = {}
+    try:
+        facets = index_jobs.root_facets()
+    except Exception:
+        return names
+    for facet in facets:
+        source_id = str(facet.get("id") or "")
+        name = str(facet.get("name") or "").strip()
+        if source_id and name and source_id not in names:
+            names[source_id] = name
+    return names
+
+
+def _asset_source_names(asset: Dict[str, Any], names: Dict[str, str]) -> List[str]:
+    """返回素材登记所在来源库的显示名；来源登记不可解析时退回物理根名。"""
+    for key in ("storage_root_id", "root_id"):
+        name = names.get(str(asset.get(key) or ""), "")
+        if name:
+            return [name]
+    return []
+
+
+def _asset_modified_at(asset: Dict[str, Any], raw: Dict[str, Any]) -> str:
+    """按素材登记位置读取真实文件修改时间；读不到就返回空串，不伪造时间。"""
+    asset_id = str(asset.get("asset_id") or asset.get("id") or "")
+    if not asset_id:
+        return ""
+    try:
+        path = _media_file_in_state(raw, asset_id)
+    except CleanroomException:
+        return ""
+    if path is None:
+        return ""
+    try:
+        return _iso_from_epoch(path.stat().st_mtime)
+    except OSError:
+        return ""
+
+
+def annotate_asset_provenance(
+    items: Iterable[Dict[str, Any]],
+    *,
+    raw: Optional[Dict[str, Any]] = None,
+    resolve_modified: bool = True,
+) -> List[Dict[str, Any]]:
+    """补下发真实来源库名与文件修改时间（QIN-539 / GitHub #592）。
+
+    - ``source_names``：素材登记所在来源库的显示名（与左栏一致）；前端在多来源
+      条目上沿用既有「N 库」渲染。
+    - ``storage_root_name``：``source_names`` 首位，供只取单值的旧渲染复用。
+    - ``modified_at``：文件修改时间（ISO 8601 UTC）。索引期已落盘则直接取用；
+      历史条目仅在缺失时兜底 stat 一次，取不到就留空，不编造时间。
+
+    只装饰调用方给到的条目（分页后的当前页），不对全库逐条 stat。
+    """
+    snapshot = raw if raw is not None else state().read()
+    names = _source_display_names()
+    decorated: List[Dict[str, Any]] = []
+    for item in items:
+        entry = dict(item)
+        source_names = _asset_source_names(entry, names)
+        if source_names:
+            entry["source_names"] = source_names
+            entry["storage_root_name"] = source_names[0]
+        else:
+            entry.pop("source_names", None)
+        if not str(entry.get("modified_at") or "") and resolve_modified:
+            modified_at = _asset_modified_at(entry, snapshot)
+            if modified_at:
+                entry["modified_at"] = modified_at
+        decorated.append(entry)
+    return decorated
+
+
 def _require(raw: Dict[str, Any], asset_id: str) -> Dict[str, Any]:
     item = raw["assets"].get(asset_id)
     if item is None or not _visible(item):
@@ -477,6 +570,8 @@ def import_assets(items: List[Dict[str, Any]], source_kind: str, expected_versio
                 "tags": tags,
                 "metadata": metadata,
             }
+            if entry.get("modified_at"):
+                extra["modified_at"] = str(entry["modified_at"])
             if entry.get("frame_rate") is not None:
                 extra["frame_rate"] = entry["frame_rate"]
             if entry.get("duration") is not None:
@@ -694,7 +789,8 @@ def restore_asset(asset_id: str, context=None) -> Dict[str, Any]:
 
 
 def get_asset(asset_id: str) -> Dict[str, Any]:
-    return dict(_require(state().read(), asset_id))
+    raw = state().read()
+    return annotate_asset_provenance([_require(raw, asset_id)], raw=raw)[0]
 
 
 _ASSET_CATEGORY_EXTENSIONS = {
@@ -1040,6 +1136,8 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
     if dynamic_limit is not None and total > 1500:
         limit = min(limit, dynamic_limit)
     page = items[offset:offset + limit]
+    # 只装饰当前页：来源名与文件修改时间按页下发，避免为全库逐条 stat。
+    page = annotate_asset_provenance(page, raw=raw)
     has_more = offset + len(page) < total
     next_offset = offset + len(page) if has_more else None
     next_cursor = None
@@ -1507,6 +1605,7 @@ def _list_structured_assets(
 
     total = len(items)
     page = items[offset:offset + limit]
+    page = annotate_asset_provenance(page, raw=raw)
     has_more = offset + len(page) < total
     next_offset = offset + len(page) if has_more else None
     next_cursor = None
@@ -1616,6 +1715,7 @@ def list_unassigned_assets(owner_key: str, limit: int = 100, offset: int = 0, *,
     items.sort(key=lambda a: a["asset_id"])
     total = len(items)
     page = items[offset:offset + limit]
+    page = annotate_asset_provenance(page, raw=raw)
     return {"assets": page, "items": page, "total": total, "total_known": True,
             "limit": limit, "offset": offset, "has_more": offset + len(page) < total,
             "revision": raw["revision"], "data_status": DATA_STATUS_OK, "data_gaps": []}

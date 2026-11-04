@@ -76,6 +76,7 @@ tests/frontend/qin-530-asset-sidebar-redesign.test.mjs
 tests/frontend/qin-531-asset-topbar-cards.test.mjs
 tests/frontend/qin-533-asset-rack-folders-only.test.mjs
 tests/frontend/qin-537-skeuomorphic-video-player.test.mjs
+tests/frontend/qin-539-asset-source-and-modified.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs
 tests/frontend/test_c18_video_jump.mjs

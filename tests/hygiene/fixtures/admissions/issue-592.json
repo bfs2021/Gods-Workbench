@@ -1,0 +1,32 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 592,
+  "authorization_basis": "GitHub Issue #592 (QIN-539), 2026-11-04",
+  "files": [
+    "gw/api/routes_asset_registry.py",
+    "gw/asset_registry/index_jobs.py",
+    "gw/asset_registry/repository.py",
+    "web/js/modules/asset-manager.js",
+    "tests/contracts/assets/test_qin_539_asset_source_and_modified.py",
+    "tests/frontend/qin-539-asset-source-and-modified.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-592.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_qin_539_asset_source_and_modified.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #592 (QIN-539), 2026-11-04",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-539-asset-source-and-modified.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #592 (QIN-539), 2026-11-04",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-539 补齐资产列表/详情/总览的 source_names、storage_root_name 与文件修改时间 modified_at，并把详情「更新时间」改为「修改时间」、无数据回落「—」。分片按 GitHub #592 命名，避免与既有 issue-539.json（GitHub #539 / QIN-515）冲突。"
+}

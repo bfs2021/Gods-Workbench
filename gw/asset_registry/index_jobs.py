@@ -1350,6 +1350,10 @@ class IndexJobs:
                             "canonical_relpath": storage.canonical_relpath(display_path),
                             "name": path.name,
                             "size_bytes": info.st_size,
+                            # QIN-539：索引期就落盘文件修改时间，读取时不必再 stat。
+                            "modified_at": time.strftime(
+                                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(info.st_mtime)
+                            ),
                         }
                         if path.suffix.lower() in VIDEO_SUFFIXES:
                             video_metadata, duration = _video_index_data(path)
@@ -1451,6 +1455,7 @@ class IndexJobs:
                             "name",
                             "size_bytes",
                             "sha256",
+                            "modified_at",
                         ):
                             if field in item and existing.get(field) != item[field]:
                                 existing[field] = item.get(field)
