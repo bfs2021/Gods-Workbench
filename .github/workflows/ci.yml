@@ -9,6 +9,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 # 同一 PR（或同一分支）再次推送时立即取消旧运行，杜绝队列堆积。
@@ -22,6 +23,7 @@ permissions:
 jobs:
   test:
     name: Python 3.11 tests and hygiene
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -219,6 +221,7 @@ jobs:
 
   desktop:
     name: Windows desktop Rust gate
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # QIN-520：日常 PR 只做 Rust 格式与单测（约 2~3 分钟）。
     # 原先的 `cargo install tauri-cli` + `cargo tauri build --bundles nsis`
     # 与安装包上传（约 18 分钟）已整体下放到 release-desktop.yml，
