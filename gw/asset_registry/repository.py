@@ -768,11 +768,13 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
                 aspect_ratio: Optional[str] = None,
                 include_removed: bool = False,
                 dynamic_limit: Optional[int] = None,
-                folder_path: Optional[str] = None) -> Dict[str, Any]:
+                folder_path: Optional[str] = None,
+                board_sources: Optional[str] = None) -> Dict[str, Any]:
     if structured:
         if (
             root_id
             or folder_path
+            or board_sources
             or collection_id
             or any(
                 value is not None
@@ -861,9 +863,22 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         (key, tuple(val) if isinstance(val, list) else val)
         for key, val in normalized_cinematography.items()
     )
+    board_scope = None
+    if board_sources is not None:
+        try:
+            board_scope = json.loads(board_sources)
+            if (not isinstance(board_scope, dict)
+                    or set(board_scope) != {"visible", "known", "automatic", "automatic_only"}
+                    or any(not isinstance(board_scope[key], list)
+                           or any(not isinstance(value, str) or len(value) > 128 for value in board_scope[key])
+                           or len(board_scope[key]) > 500 for key in ("visible", "known"))
+                    or any(type(board_scope[key]) is not bool for key in ("automatic", "automatic_only"))):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise CleanroomException(400, "INVALID_REQUEST", "看板来源过滤无效") from None
     filters = [query or "", kind or "", archived, ordering, category or "", tag or "", project_id or "",
                includes, excludes, cutoff, root_id or "", collection_id or "",
-               cinematography_tokens, folder_path or ""]
+               cinematography_tokens, folder_path or "", board_scope]
     fingerprint = hashlib.sha256(json.dumps(filters, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     if cursor:
         try:
@@ -935,6 +950,17 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         items = [a for a in items if str(a.get("storage_root_id") or a.get("root_id") or "") == root_id]
     elif not include_removed:
         items = [a for a in items if a.get("root_availability") != "removed"]
+    if board_scope is not None:
+        visible_sources = set(board_scope["visible"])
+        known_sources = set(board_scope["known"])
+        def belongs_to_board(asset: Dict[str, Any]) -> bool:
+            source = str(asset.get("storage_root_id") or "")
+            if board_scope["automatic_only"]:
+                return bool(visible_sources and board_scope["automatic"] and source not in known_sources)
+            if source in known_sources:
+                return source in visible_sources
+            return bool(visible_sources and board_scope["automatic"])
+        items = [item for item in items if belongs_to_board(item)]
     if folder_path:
         selected_folder = folder_path.replace("\\", "/").strip("/")
         def in_folder(asset: Dict[str, Any]) -> bool:

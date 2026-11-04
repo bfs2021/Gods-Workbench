@@ -292,3 +292,20 @@ test('AC5: 测试登记到 node-files.txt 并完成卫生准入分片', () => {
         '新增前端测试必须在准入分片登记'
     );
 });
+
+test('QIN-532: 看板来源和自动归档范围随分页查询发送', () => {
+    const build = new Function('URLSearchParams', `
+        const REGISTRY_PAGE_SIZE=1500, registrySort='newest', registryProjectFilterId='', registryQuery='', registryKind='', registryStatCategory='', registryCollectionId='', registryRootId='', registryRecentDays=0;
+        const registryIncludeTags=new Set(), registryExcludeTags=new Set(), activeTab='board', boardFolderSelection={}, registryNavFolder={};
+        const boardSourceSelection={board:'__automatic__'};
+        const board={id:'board',system:false,automaticHidden:false,sources:[{id:'a',hidden:false},{id:'b',hidden:true}],excludedSourceIds:['c']};
+        const assetBoardById=()=>board, registryDynamicPageSize=()=>120;
+        ${functionSource('registryQueryString')}
+        return registryQueryString;
+    `)(URLSearchParams);
+    const params = new URLSearchParams(build());
+    assert.equal(params.get('dynamic_limit'), '120');
+    assert.deepEqual(JSON.parse(params.get('board_sources')), {
+        visible:['a'], known:['a','b','c'], automatic:true, automatic_only:true,
+    });
+});

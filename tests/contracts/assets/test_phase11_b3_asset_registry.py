@@ -696,6 +696,16 @@ def test_qin_532_pagination_and_recycle_capability(client, assets, monkeypatch):
     assert scoped["total"] == 1
     assert scoped["items"][0]["asset_id"] == assets[0]
     assert scoped["has_more"] is False
+    board_filter = json.dumps({"visible": ["readonly"], "known": ["readonly", "writable"],
+                               "automatic": False, "automatic_only": False})
+    board = client.get("/api/asset-registry/assets", headers=AUTH, params={
+        "limit": 1500, "dynamic_limit": 120, "board_sources": board_filter,
+    }).json()
+    assert board["total"] == 1
+    assert board["items"][0]["asset_id"] == assets[1]
+    assert board["has_more"] is False
+    invalid = client.get("/api/asset-registry/assets", headers=AUTH, params={"board_sources": "{}"})
+    assert invalid.status_code == 400
     folders = client.get("/api/asset-registry/folders?root_id=writable", headers=AUTH).json()
     counts = {item["path"]: item["count"] for item in folders["indexed_folders"]}
     assert counts == {"large": 1499, "small/sub": 1}

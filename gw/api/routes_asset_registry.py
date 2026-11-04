@@ -286,6 +286,7 @@ def list_registry_assets(
     exclude_tags: Optional[str] = Query(None),
     root_id: Optional[str] = Query(None),
     folder_path: Optional[str] = Query(None),
+    board_sources: Optional[str] = Query(None),
     collection_id: Optional[str] = Query(None),
     recent_days: Optional[int] = Query(None),
     archived: Optional[bool] = Query(None),
@@ -357,7 +358,7 @@ def list_registry_assets(
                             focal_length=focal_length, lighting_phase=lighting_phase,
                             aspect_ratio=aspect_ratio,
                             include_removed=include_removed, dynamic_limit=dynamic_limit,
-                            folder_path=folder_path)
+                            folder_path=folder_path, board_sources=board_sources)
 
 
 #: 镜头级检索单次返回上限，防止一次下钻把整库镜头全部返回。

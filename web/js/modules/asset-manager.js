@@ -6820,6 +6820,12 @@ function registryQueryString({offset=0, limit=REGISTRY_PAGE_SIZE, cursor=''}={})
     const folderPath = board?.system === false ? boardFolderSelection[board.id] : registryNavFolder.path;
     const selectedRoot = folderRoot && folderRoot !== '__automatic__' ? folderRoot : registryRootId;
     if(selectedRoot) params.set('root_id', selectedRoot);
+    if(board?.system === false && !board.sourceBoard){
+        const sources = Array.isArray(board.sources) ? board.sources : [];
+        const visible = sources.filter(source => !source.hidden).map(source => String(source.id));
+        const known = [...new Set([...sources.map(source => String(source.id)), ...(board.excludedSourceIds || []).map(String)])];
+        params.set('board_sources', JSON.stringify({visible, known, automatic:!board.automaticHidden, automatic_only:folderRoot === '__automatic__'}));
+    }
     if(folderPath) params.set('folder_path', folderPath);
     if(registryRecentDays) params.set('recent_days', String(registryRecentDays));
     if(registryIncludeTags.size) params.set('include_tags', [...registryIncludeTags].join(','));
