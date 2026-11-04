@@ -3269,6 +3269,27 @@ def _confirmed_alias_media_path(
     return resolved_target
 
 
+def _stored_name_media_path(stored_name: str) -> Optional[Path]:
+    """上传素材（仅登记 stored_name）的受管回读路径（QIN-550）。
+
+    multipart 上传链路把文件落盘在数据根 ``registry_uploads/`` 且只记
+    ``stored_name``；读取侧此前只认 ``display_path``，导致上传素材永远
+    「暂无预览」。这里按单段文件名回读受管目录，失败关闭：名称含路径
+    分隔符、解析后越出受管目录、或文件不存在，一律返回 None，不伪造。
+    """
+    name = str(stored_name or "").strip()
+    if not name or "/" in name or "\\" in name or name in {".", ".."}:
+        return None
+    try:
+        directory = (storage.data_root() / "registry_uploads").resolve()
+        candidate = (directory / name).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if candidate.parent != directory or not candidate.is_file():
+        return None
+    return candidate
+
+
 def _media_file_in_state(raw: dict, asset_id: str, version_id: Optional[str] = None) -> Optional[Path]:
     """在已加载的注册表快照里解析素材文件路径（批量入口复用同一口径）。"""
     root_id = None
@@ -3302,7 +3323,9 @@ def _media_file_in_state(raw: dict, asset_id: str, version_id: Optional[str] = N
             storage_root_id = (version or {}).get("storage_root_id") or storage_root_id
             canonical_relpath = (version or {}).get("canonical_relpath") or canonical_relpath
     if not display:
-        return None
+        # 上传素材（QIN-550）：display_path 为空时回退受管 registry_uploads 内的
+        # stored_name 文件；失败关闭返回 None，不伪造可读性。
+        return _stored_name_media_path(str(asset_record.get("stored_name") or ""))
     try:
         path = _resolve_display(str(display), root_id=str(root_id) if root_id else None)
     except CleanroomException as exc:
@@ -3372,9 +3395,27 @@ def preview_asset_paths() -> Dict[str, Path]:
 
 
 def stored_upload_path(asset_id: str, filename: str) -> Path:
-    """导入素材在数据目录内的落盘位置（服务端自生成路径，不暴露给调用方）。"""
-    safe = "".join(ch for ch in (filename or "upload") if ch.isalnum() or ch in "-_. ")
-    safe = safe.strip() or "upload"
+    """导入素材在数据目录内的落盘位置（服务端自生成路径，不暴露给调用方）。
+
+    落盘名一律 ASCII 且无空格（QIN-550 / SKILL 4.5 物理落盘零非 ASCII）：stem
+    只保留 ASCII 字母数字与 ``-_``，扩展名只保留字母数字，中文名回退 ``upload``，
+    超长截断保留扩展名；业务展示名不受影响。
+    """
+    name = str(filename or "").strip()
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+
+    def _clean_segment(value: str) -> str:
+        return "".join(
+            ch for ch in value if ch.isascii() and (ch.isalnum() or ch in "-_")
+        )
+
+    clean_stem = _clean_segment(stem).strip("-_") or "upload"
+    clean_ext = _clean_segment(ext)
+    if len(clean_stem) + len(clean_ext) + (1 if clean_ext else 0) > 96:
+        clean_stem = clean_stem[: 96 - len(clean_ext) - 1] if clean_ext else clean_stem[:96]
+    safe = f"{clean_stem}.{clean_ext}" if clean_ext else clean_stem
     target_dir = storage.data_root() / "registry_uploads"
     target_dir.mkdir(parents=True, exist_ok=True)
     return target_dir / ("%s_%s" % (asset_id, safe))

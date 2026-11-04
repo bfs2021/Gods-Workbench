@@ -967,7 +967,9 @@ async def import_registry_assets(
         result = repo.import_assets([{"name": name, "kind": _kind_from_name(name),
                                       "size_bytes": len(data)}], "upload", None)
         asset_id = result["asset_ids"][0]
-        target = repo.stored_upload_path(asset_id, name)
+        # 落盘命名优先取真实上传文件名（QIN-550）：展示名可能不带扩展名，
+        # 丢失扩展名会让预览代理按无后缀文件处理。
+        target = repo.stored_upload_path(asset_id, str(getattr(upload, "filename", "") or name))
 
         def mutate(raw: Dict[str, Any]) -> Any:
             item = raw["assets"][asset_id]

@@ -272,3 +272,114 @@ def test_qin543_project_entities_assets_repository_roundtrip(asset_api_runtime):
         stored = repo.project_entities(project_id)["entities"][0]
         assert stored["asset_ids"] == [asset_a, asset_b]
         assert stored["status"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# QIN-550：multipart 上传素材 stored_name 媒体回读闭环
+# ---------------------------------------------------------------------------
+
+
+def _tiny_png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 48), (180, 40, 40)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_upload_asset_stored_name_media_roundtrip(asset_api_runtime):
+    """上传素材（仅 stored_name 登记）可产出预览字节并经 /media 端点回读（AC1/AC2/AC4）。"""
+    png_bytes = _tiny_png()
+    with TestClient(create_app()) as client:
+        uploaded = client.post(
+            f"{BASE}/assets/import",
+            headers=AUTH,
+            files={"file": ("现场截图 01.png", png_bytes, "image/png")},
+            data={"name": "现场截图 01"},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        asset = uploaded.json()["asset"]
+        asset_id = uploaded.json()["asset_ids"][0]
+        assert asset["display_path"] is None
+        stored_name = asset["stored_name"]
+        # AC4：新上传落盘名全 ASCII 且无空格，扩展名保留
+        assert stored_name.isascii()
+        assert " " not in stored_name
+        assert stored_name.endswith(".png")
+
+        # AC1：display_path 为空时经 stored_name 回退解析到受管 registry_uploads 文件
+        resolved = repo.media_file(asset_id)
+        assert resolved is not None
+        assert resolved.is_file()
+        assert resolved.name == stored_name
+
+        # AC2：预览字节可产出（媒体预览代理不再 503）
+        from gw.media import repository as media_repo
+
+        result = media_repo.preview_bytes({"asset_id": asset_id, "w": 256})
+        assert result["bytes"]
+        assert result["media_type"].startswith("image/")
+
+        # AC2：/media 端点回读真实原件字节
+        media_resp = client.get(f"{BASE}/assets/{asset_id}/media", headers=AUTH)
+        assert media_resp.status_code == 200
+        assert media_resp.content == png_bytes
+
+
+def test_upload_stored_name_nonascii_compat(asset_api_runtime):
+    """既有非 ASCII 落盘旧名按 stored_name 原样兼容回读，不搬家不重命名（AC4）。"""
+    png_bytes = _tiny_png()
+    legacy_name = "ast_legacy_现场截图 01_版本V1_1793753616058.png"
+    with TestClient(create_app()) as client:
+        uploaded = client.post(
+            f"{BASE}/assets/import",
+            headers=AUTH,
+            files={"file": ("legacy.png", png_bytes, "image/png")},
+            data={"name": "legacy"},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        asset_id = uploaded.json()["asset_ids"][0]
+
+        # 模拟历史数据：登记的 stored_name 与落盘文件均为非 ASCII 旧名
+        from gw.core import storage as gw_storage
+
+        legacy_file = gw_storage.data_root() / "registry_uploads" / legacy_name
+        legacy_file.parent.mkdir(parents=True, exist_ok=True)
+        legacy_file.write_bytes(png_bytes)
+
+        def mutate(raw):
+            item = raw["assets"][asset_id]
+            item["stored_name"] = legacy_name
+
+        repo.state().mutate(mutate)
+
+        # 兼容回读：media_file 命中旧名文件，/media 端点返回原件字节
+        resolved = repo.media_file(asset_id)
+        assert resolved is not None
+        assert resolved.name == legacy_name
+        media_resp = client.get(f"{BASE}/assets/{asset_id}/media", headers=AUTH)
+        assert media_resp.status_code == 200
+        assert media_resp.content == png_bytes
+
+
+def test_stored_upload_path_ascii_naming(asset_api_runtime):
+    """新上传落盘名清洗：全 ASCII、无空格、保留扩展名、超长截断保留扩展名（AC4）。"""
+    from gw.asset_registry.repository import stored_upload_path
+
+    cases = {
+        "现场截图 01.png": "01.png",
+        "report final-v2.jpg": "reportfinal-v2.jpg",
+        "asciiname.tif": "asciiname.tif",
+    }
+    for raw_name, expected_tail in cases.items():
+        target = stored_upload_path("ast_x", raw_name)
+        name = target.name
+        assert name.isascii() and " " not in name
+        assert name == f"ast_x_{expected_tail}"
+
+    long_name = "x" * 200 + ".png"
+    target = stored_upload_path("ast_x", long_name)
+    assert len(target.name) <= len("ast_x_") + 96
+    assert target.name.endswith(".png")
