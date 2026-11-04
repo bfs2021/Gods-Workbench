@@ -802,6 +802,29 @@ body.theme-dark .asset-card.active { border-color:rgba(248,250,252,.86); box-sha
 .asset-detail-video-dock.is-playing .asset-detail-video-icon-pause,
 .asset-detail-video-dock.is-muted .asset-detail-video-icon-muted { display: block; }
 
+/* AC5：走带播放/暂停大键在触感按键族里作为主键，比上一帧/下一帧大一号。
+   通用 .hw-tactile-btn 规则在本段之后声明，故此处用容器前缀提高优先级并写在其后，
+   避免主键尺寸被 28px 通用值吃掉（否则 34px 声明沦为死代码）。 */
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    color: #fae2c8;
+}
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play .hw-play-tactile-inner {
+    width: 28px;
+    height: 28px;
+    background: radial-gradient(circle at 50% 35%, #2b3140 0%, #141821 62%, #0a0c11 100%);
+    border-color: rgba(250, 226, 200, 0.22);
+    color: #fae2c8;
+}
+.asset-detail-video-dock .asset-detail-video-controls button.asset-detail-video-play svg {
+    width: 14px;
+    height: 14px;
+    fill: #fae2c8;
+    color: #fae2c8;
+}
+
 /* AC4: 阴刻凹陷式时间码铭牌 (timecode-recessed) */
 .asset-detail-video-time,
 .asset-detail-video-time.timecode-recessed {
