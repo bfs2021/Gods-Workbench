@@ -14974,6 +14974,66 @@ function detailMediaCanvasMetrics(items=detailMediaCanvasItems()){
         gap:10, minX, minY, maxX, maxY, width, height,
     };
 }
+function renderMediaNodeParametricSvg(item, edit, url, previewFallback=''){
+    const sourceWidth = Math.max(1, Number(edit.source_width || item.natural_w || item.naturalWidth || item.metadata?.width || 1200));
+    const sourceHeight = Math.max(1, Number(edit.source_height || item.natural_h || item.naturalHeight || item.metadata?.height || 800));
+    const rawCrop = edit.crop && typeof edit.crop === 'object' ? edit.crop : {};
+    const cropX = Math.max(0, Math.min(sourceWidth - 1, Number(rawCrop.x || 0)));
+    const cropY = Math.max(0, Math.min(sourceHeight - 1, Number(rawCrop.y || 0)));
+    const cropW = Math.max(1, Math.min(sourceWidth - cropX, Number(rawCrop.w || (sourceWidth - cropX))));
+    const cropH = Math.max(1, Math.min(sourceHeight - cropY, Number(rawCrop.h || (sourceHeight - cropY))));
+    const flipX = Boolean(edit.flip_x || edit.flipX);
+    const flipY = Boolean(edit.flip_y || edit.flipY);
+    const transform = (flipX || flipY)
+        ? `transform="translate(${flipX ? cropW : 0}, ${flipY ? cropH : 0}) scale(${flipX ? -1 : 1}, ${flipY ? -1 : 1})"`
+        : '';
+    const groups = new Map((edit.groups || []).map(g => [g.id, g]));
+    const layerSvgs = (edit.layers || []).map(layer => {
+        const group = groups.get(layer.group_id);
+        if(layer.hidden || group?.hidden) return '';
+        if(layer.type === 'brush'){
+            const paths = (layer.paths || []).map(path => {
+                if(!path.points?.length) return '';
+                const strokeColor = path.color || signalFlowAccentColor();
+                const strokeWidth = Math.max(1, Number(path.width || 8));
+                if(path.points.length === 1){
+                    const pt = path.points[0];
+                    return `<circle cx="${Number(pt.x || 0).toFixed(1)}" cy="${Number(pt.y || 0).toFixed(1)}" r="${(strokeWidth / 2).toFixed(1)}" fill="${escapeAttr(strokeColor)}" />`;
+                }
+                const d = path.points.map((pt, idx) => `${idx ? 'L' : 'M'}${Number(pt.x || 0).toFixed(1)},${Number(pt.y || 0).toFixed(1)}`).join(' ');
+                return `<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" />`;
+            }).join('');
+            return `<g class="asset-detail-parametric-brush">${paths}</g>`;
+        }
+        if(layer.type === 'text'){
+            const fontSize = Math.max(10, Number(layer.fontSize || layer.font_size || 32));
+            const color = layer.color || '#ffffff';
+            const lines = String(layer.text || '').split('\n');
+            const texts = lines.map((line, idx) => {
+                const y = Number(layer.y || 0) + (idx + 1) * fontSize * 1.05;
+                return `<text x="${Number(layer.x || 0).toFixed(1)}" y="${y.toFixed(1)}" fill="${escapeAttr(color)}" font-size="${fontSize}" font-family="Microsoft YaHei, sans-serif" font-weight="600" stroke="rgba(0,0,0,0.55)" stroke-width="${Math.max(1, fontSize / 14)}" paint-order="stroke fill">${escapeHtml(line)}</text>`;
+            }).join('');
+            return `<g class="asset-detail-parametric-text">${texts}</g>`;
+        }
+        return '';
+    }).join('');
+    const safeId = escapeAttr(String(item.id || 'node').replace(/[^a-zA-Z0-9_-]/g, '_'));
+    const clipId = `crop-clip-${safeId}`;
+    return `<svg class="asset-detail-media-node-content asset-detail-parametric-svg" viewBox="0 0 ${cropW} ${cropH}" preserveAspectRatio="xMidYMid meet" data-detail-media-natural="${escapeAttr(item.id || '')}" data-preview-fallback="${escapeAttr(item.name || '图片')}" style="width:100%;height:100%;display:block;overflow:hidden;pointer-events:none;">
+        <defs>
+            <clipPath id="${clipId}">
+                <rect x="0" y="0" width="${cropW}" height="${cropH}" />
+            </clipPath>
+        </defs>
+        <g clip-path="url(#${clipId})">
+            <g ${transform}>
+                <image href="${escapeAttr(url)}" x="${-cropX}" y="${-cropY}" width="${sourceWidth}" height="${sourceHeight}" preserveAspectRatio="none" />
+            </g>
+            ${layerSvgs}
+        </g>
+    </svg>`;
+}
+
 function renderDetailMediaCanvasNode(source, item){
     const type = detailViewerType(source, item);
     const currentUrl = detailViewerUrl(source, item);
@@ -14999,11 +15059,16 @@ function renderDetailMediaCanvasNode(source, item){
     const videoSrcWithJump = jumpTarget != null && videoSource && !videoSource.includes('#t=')
         ? `${videoSource}#t=${jumpTarget}`
         : videoSource;
+    const edit = (item.reference_edit && typeof item.reference_edit === 'object')
+        ? item.reference_edit
+        : (item.edit && typeof item.edit === 'object' ? item.edit : null);
     const media = type === 'workflow'
         ? workflowThumb(item)
         : type === 'video'
             ? `<video class="asset-detail-media-node-content asset-detail-player" src="${escapeAttr(videoSrcWithJump)}" playsinline preload="auto" data-detail-media-natural="${escapeAttr(item.id)}"></video>`
-            : `<img class="asset-detail-media-node-content" src="${escapeAttr(url)}" data-detail-media-preview-fallback="${escapeAttr(previewFallback)}" data-preview-fallback="${escapeAttr(item.name || '图片')}" data-detail-media-natural="${escapeAttr(item.id)}" alt="${escapeAttr(item.name || '画布素材')}" draggable="false" loading="eager" decoding="async">`;
+            : (edit
+                ? renderMediaNodeParametricSvg(item, edit, url, previewFallback)
+                : `<img class="asset-detail-media-node-content" src="${escapeAttr(url)}" data-detail-media-preview-fallback="${escapeAttr(previewFallback)}" data-preview-fallback="${escapeAttr(item.name || '图片')}" data-detail-media-natural="${escapeAttr(item.id)}" alt="${escapeAttr(item.name || '素材')}" draggable="false" loading="eager" decoding="async">`);
     const centerPlay = type === 'video'
         ? `<div class="asset-detail-video-center-play-socket" aria-hidden="true"><button class="asset-detail-video-center-play hw-play-capsule" type="button" data-detail-video-action="toggle" data-detail-video-for="${escapeAttr(item.id)}" aria-label="播放视频" title="播放 / 暂停（Space）"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></button></div>`
         : '';
@@ -15133,30 +15198,30 @@ function renderDetailMediaCanvasToolButtons(){
     const selectedGroupCount = detailMediaCanvasSelectionOrder().filter(id => detailMediaCanvasGroup(id)).length;
     const normalizeBasis = detailViewerState.mediaCanvasNormalizeBasis || 'first';
     return `<div class="asset-detail-media-tool-group" role="group" aria-label="画布创建工具">
-        <button type="button" data-detail-media-context-action="annotation"><i data-lucide="message-square-text"></i><span>注释</span></button>
-        <button class="${detailViewerState.mediaCanvasSnap ? 'is-active' : ''}" type="button" data-detail-media-context-action="snap" aria-pressed="${detailViewerState.mediaCanvasSnap}"><i data-lucide="magnet"></i><span>吸附网格</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="annotation"><i data-lucide="message-square-text"></i><span>注释</span></button>
+        <button class="hw-btn ${detailViewerState.mediaCanvasSnap ? 'is-active' : ''}" type="button" data-detail-media-context-action="snap" aria-pressed="${detailViewerState.mediaCanvasSnap}"><i data-lucide="magnet"></i><span>吸附网格</span></button>
     </div>
     <div class="asset-detail-media-tool-group" role="group" aria-label="排列">
-        <button type="button" data-detail-media-context-action="arrange-grid" title="网格排列"><i data-lucide="grid-2x2"></i><span>网格</span></button>
-        <button type="button" data-detail-media-context-action="arrange-horizontal" title="水平排列"><i data-lucide="rows-3"></i><span>横排</span></button>
-        <button type="button" data-detail-media-context-action="arrange-vertical" title="垂直排列"><i data-lucide="columns-3"></i><span>竖排</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="arrange-grid" title="网格排列"><i data-lucide="grid-2x2"></i><span>网格</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="arrange-horizontal" title="水平排列"><i data-lucide="rows-3"></i><span>横排</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="arrange-vertical" title="垂直排列"><i data-lucide="columns-3"></i><span>竖排</span></button>
     </div>
     <div class="asset-detail-media-tool-group" role="group" aria-label="分组">
-        <button type="button" data-detail-media-context-action="group" title="打组 Ctrl+G" ${selectedCount < 2 ? 'disabled' : ''}><i data-lucide="group"></i><span>打组</span></button>
-        <button type="button" data-detail-media-context-action="ungroup" title="解组 Ctrl+Shift+G" ${!selectedGroupCount ? 'disabled' : ''}><i data-lucide="ungroup"></i><span>解组</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="group" title="打组 Ctrl+G" ${selectedCount < 2 ? 'disabled' : ''}><i data-lucide="group"></i><span>打组</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="ungroup" title="解组 Ctrl+Shift+G" ${!selectedGroupCount ? 'disabled' : ''}><i data-lucide="ungroup"></i><span>解组</span></button>
     </div>
     <div class="asset-detail-media-tool-group" role="group" aria-label="对齐">
-        <button type="button" data-detail-media-context-action="align-left" title="左对齐"><i data-lucide="align-start-vertical"></i></button>
-        <button type="button" data-detail-media-context-action="align-center-x" title="水平居中"><i data-lucide="align-center-vertical"></i></button>
-        <button type="button" data-detail-media-context-action="align-right" title="右对齐"><i data-lucide="align-end-vertical"></i></button>
-        <button type="button" data-detail-media-context-action="align-top" title="顶部对齐"><i data-lucide="align-start-horizontal"></i></button>
-        <button type="button" data-detail-media-context-action="align-center-y" title="垂直居中"><i data-lucide="align-center-horizontal"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="align-left" title="左对齐"><i data-lucide="align-start-vertical"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="align-center-x" title="水平居中"><i data-lucide="align-center-vertical"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="align-right" title="右对齐"><i data-lucide="align-end-vertical"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="align-top" title="顶部对齐"><i data-lucide="align-start-horizontal"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="align-center-y" title="垂直居中"><i data-lucide="align-center-horizontal"></i></button>
     </div>
     <div class="asset-detail-media-tool-group" role="group" aria-label="规格化">
         <label class="asset-detail-media-normalize-basis" title="规格化尺寸基准"><span>基准</span><select data-detail-media-normalize-basis aria-label="规格化尺寸基准"><option value="first" ${normalizeBasis === 'first' ? 'selected' : ''}>第一个</option><option value="average" ${normalizeBasis === 'average' ? 'selected' : ''}>平均</option><option value="last" ${normalizeBasis === 'last' ? 'selected' : ''}>最后一个</option></select></label>
-        <button type="button" data-detail-media-context-action="normalize-width" title="统一宽度"><i data-lucide="move-horizontal"></i></button>
-        <button type="button" data-detail-media-context-action="normalize-height" title="统一高度"><i data-lucide="move-vertical"></i></button>
-        <button type="button" data-detail-media-context-action="normalize-original" title="恢复原始尺寸"><i data-lucide="maximize"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="normalize-width" title="统一宽度"><i data-lucide="move-horizontal"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="normalize-height" title="统一高度"><i data-lucide="move-vertical"></i></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="normalize-original" title="恢复原始尺寸"><i data-lucide="maximize"></i></button>
     </div>
     <div class="asset-detail-media-note-colors" aria-label="注释颜色">
         <label title="注释背景色"><span>背景</span><input type="color" data-detail-annotation-color="background" value="${escapeAttr(detailMediaCanvasSelectedAnnotationColor('background'))}"></label>
@@ -15164,8 +15229,8 @@ function renderDetailMediaCanvasToolButtons(){
     </div>
     <div class="asset-detail-media-tool-group asset-detail-media-export-tools" role="group" aria-label="输出">
         <label class="asset-detail-media-export-scope" title="PNG 输出范围"><span>范围</span><select data-detail-media-export-scope aria-label="PNG 输出范围"><option value="all" ${detailViewerState.mediaCanvasExportScope !== 'selection' ? 'selected' : ''}>全部画布</option><option value="selection" ${detailViewerState.mediaCanvasExportScope === 'selection' ? 'selected' : ''}>当前选中</option></select></label>
-        <button type="button" data-detail-media-context-action="export"><i data-lucide="download"></i><span>导出</span></button>
-        <button type="button" data-detail-media-context-action="save-image"><i data-lucide="image-down"></i><span>保存图片</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="export"><i data-lucide="download"></i><span>导出</span></button>
+        <button class="hw-btn" type="button" data-detail-media-context-action="save-image"><i data-lucide="image-down"></i><span>保存图片</span></button>
         <small>${detailViewerState.mediaCanvasExportScope === 'selection' ? (selectedCount ? `输出已选 ${selectedCount} 项` : '请先选择对象') : '输出全部画布'}</small>
     </div>`;
 }
@@ -15204,11 +15269,11 @@ function renderDetailMediaCanvas(source){
                 <label><i data-lucide="map"></i><input type="text" data-detail-reference-title value="${escapeAttr(detailViewerState.referenceCanvasTitle || '参考画布')}" maxlength="80" aria-label="参考画布名称"></label>
                 <span><b>${items.length}</b> 个素材</span>
                 <div>
-                <button type="button" data-detail-reference-add-selection title="将当前已选图片和视频加入画布"><i data-lucide="images"></i><span>添加已选</span></button>
-                <button type="button" data-detail-media-canvas-remove="${escapeAttr(activeId)}" ${!detailMediaCanvasSelectedIds().size ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>移除所选</span></button>
-                <button type="button" data-detail-media-canvas-zoom="0"><i data-lucide="scan"></i><span>适应画布</span></button>
-                <button class="asset-detail-media-minimap-toggle ${detailMediaCanvasMinimapVisible ? 'is-active' : ''}" type="button" data-detail-media-minimap-toggle aria-pressed="${detailMediaCanvasMinimapVisible}" title="${detailMediaCanvasMinimapVisible ? '隐藏画布缩略图' : '显示画布缩略图'}"><i class="asset-detail-minimap-visible" data-lucide="map"></i><i class="asset-detail-minimap-hidden" data-lucide="map-off"></i><span class="asset-detail-minimap-visible">隐藏缩略图</span><span class="asset-detail-minimap-hidden">显示缩略图</span></button>
-                <button class="primary" type="button" data-detail-reference-save ${!canPersist || detailViewerState.referenceCanvasSaving ? 'disabled' : ''}><i data-lucide="${detailViewerState.referenceCanvasSaving ? 'loader-2' : 'save'}"></i><span>${detailViewerState.referenceCanvasId ? '更新参考画布' : '保存参考画布'}</span></button>
+                <button class="hw-btn" type="button" data-detail-reference-add-selection title="将当前多选图片或视频加入画布"><i data-lucide="images"></i><span>加选</span></button>
+                <button class="hw-btn" type="button" data-detail-media-canvas-remove="${escapeAttr(activeId)}" ${!detailMediaCanvasSelectedIds().size ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>移除选中</span></button>
+                <button class="hw-btn" type="button" data-detail-media-canvas-zoom="0"><i data-lucide="scan"></i><span>自适应</span></button>
+                <button class="hw-btn asset-detail-media-minimap-toggle ${detailMediaCanvasMinimapVisible ? 'is-active' : ''}" type="button" data-detail-media-minimap-toggle aria-pressed="${detailMediaCanvasMinimapVisible}" title="${detailMediaCanvasMinimapVisible ? '隐藏小地图' : '显示小地图'}"><i class="asset-detail-minimap-visible" data-lucide="map"></i><i class="asset-detail-minimap-hidden" data-lucide="map-off"></i><span class="asset-detail-minimap-visible">小地图</span><span class="asset-detail-minimap-hidden">显示小地图</span></button>
+                <button class="hw-btn hw-btn-gold" type="button" data-detail-reference-save ${!canPersist || detailViewerState.referenceCanvasSaving ? 'disabled' : ''}><i data-lucide="${detailViewerState.referenceCanvasSaving ? 'loader-2' : 'save'}"></i><span>${detailViewerState.referenceCanvasId ? '更新参考画布' : '保存参考画布'}</span></button>
                 </div>
             </div>
             <div class="asset-detail-media-toolbar-tools">${renderDetailMediaCanvasToolButtons()}</div>
@@ -15229,9 +15294,12 @@ function renderDetailMediaCanvas(source){
                     const type = detailViewerType(source, value);
                     const url = detailViewerUrl(source, value);
                     const box = detailViewerState.mediaCanvasLayout?.[value.id] || {};
+                    const edit = (value.reference_edit && typeof value.reference_edit === 'object') ? value.reference_edit : (value.edit && typeof value.edit === 'object' ? value.edit : null);
                     const preview = type === 'workflow'
                         ? workflowThumb(value)
-                        : `<img src="${escapeAttr(assetPreviewUrl(url, 320, value))}" alt="">`;
+                        : (edit
+                            ? renderMediaNodeParametricSvg(value, edit, url, '')
+                            : `<img src="${escapeAttr(assetPreviewUrl(url, 320, value))}" alt="">`);
                     return `<button class="${value.id === activeId ? 'is-active' : ''}" type="button" data-detail-media-canvas-node="${escapeAttr(value.id)}" title="${escapeAttr(value.name || '画布素材')}" style="left:${(Number(box.x || 0)-metrics.minX) * minimapScale}px;top:${(Number(box.y || 0)-metrics.minY) * minimapScale}px;width:${Math.max(2,Number(box.width || 0) * minimapScale)}px;height:${Math.max(2,Number(box.height || 0) * minimapScale)}px">${preview}</button>`;
                 }).join('')}</div>
             </aside>
@@ -15439,8 +15507,8 @@ function renderDetailModelInspector(item, tags, rows, url){
             <dl class="asset-detail-facts">${renderDetailViewerMetaRows(rows, item)}</dl>
             ${registryMeta}
             <div class="asset-detail-actions">
-                ${url ? `<a class="primary" href="${escapeAttr(url)}" ${item.is_remote ? 'target="_blank" rel="noopener"' : 'download'}><i data-lucide="download"></i><span>${item.is_remote ? '打开原文件' : '下载原文件'}</span></a>` : ''}
-                <button type="button" data-detail-viewer-close><i data-lucide="x"></i><span>关闭详情</span></button>
+                ${url ? `<a class="hw-btn hw-btn-gold" href="${escapeAttr(url)}" ${item.is_remote ? 'target="_blank" rel="noopener"' : 'download'}><i data-lucide="download"></i><span>${item.is_remote ? '打开原文件' : '下载原文件'}</span></a>` : ''}
+                <button class="hw-btn" type="button" data-detail-viewer-close><i data-lucide="x"></i><span>关闭详情</span></button>
             </div>
             <div class="asset-detail-shortcuts"><span><kbd>←</kbd><kbd>→</kbd> 切换</span><span><kbd>滚轮</kbd> 缩放图片</span><span><kbd>~</kbd><kbd>Esc</kbd> 关闭</span></div>
         </div>
@@ -15459,9 +15527,9 @@ function renderDetailViewerInspectorContent(item, type, tags, rows, url, extraCo
         ${type === 'text' && detailViewerCanEditText(source, item) ? renderDetailTextVersions() : ''}
         ${extraContent}
         <div class="asset-detail-actions">
-            ${url ? `<a class="primary" href="${escapeAttr(url)}" ${item.is_remote ? 'target="_blank" rel="noopener"' : 'download'}><i data-lucide="download"></i><span>${item.is_remote ? '打开原文件' : '下载原文件'}</span></a>` : ''}
-            ${source === 'registry' && ['image','text'].includes(type) ? `<button type="button" data-detail-export-pdf="${escapeAttr(item.id || '')}" ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>` : ''}
-            <button type="button" data-detail-viewer-close><i data-lucide="x"></i><span>关闭详情</span></button>
+            ${url ? `<a class="hw-btn hw-btn-gold" href="${escapeAttr(url)}" ${item.is_remote ? 'target="_blank" rel="noopener"' : 'download'}><i data-lucide="download"></i><span>${item.is_remote ? '打开原文件' : '下载原文件'}</span></a>` : ''}
+            ${source === 'registry' && ['image','text'].includes(type) ? `<button class="hw-btn" type="button" data-detail-export-pdf="${escapeAttr(item.id || '')}" ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>` : ''}
+            <button class="hw-btn" type="button" data-detail-viewer-close><i data-lucide="x"></i><span>关闭详情</span></button>
         </div>
         <div class="asset-detail-shortcuts"><span><kbd>←</kbd><kbd>→</kbd> 切换</span>${type === 'video' ? '<span><kbd>D</kbd><kbd>F</kbd> 上一帧 / 下一帧</span><span><kbd>Enter</kbd> 全屏播放</span>' : ''}${['audio','video'].includes(type) ? '<span><kbd>Space</kbd> 播放 / 暂停</span>' : ''}<span><kbd>·</kbd><kbd>Esc</kbd> 关闭 / 返回</span></div>`;
 }
@@ -15714,7 +15782,7 @@ function restoreDetailViewerMediaNodes(overlay,snapshot){
     overlay.querySelectorAll?.('.asset-detail-media-node[data-detail-media-canvas-node]').forEach(node => {
         const previous = snapshot.get(String(node.dataset.detailMediaCanvasNode || ''));
         const current = node.querySelector('.asset-detail-media-node-content');
-        if(!previous || !current || previous.tag !== String(current.tagName || '').toLowerCase() || previous.src !== String(current.getAttribute('src') || '')) return;
+        if(!previous || !current || previous.tag !== String(current.tagName || '').toLowerCase() || previous.tag === 'svg' || previous.src !== String(current.getAttribute('src') || '')) return;
         current.replaceWith(previous.media);
         pending.push(previous);
     });
@@ -15926,7 +15994,10 @@ function renderDetailImageVersionsPanel(){
             const thumbnail=version.is_original
                 ? `/api/media-preview?w=220&asset_id=${encodeURIComponent(assetId)}&v=${encodeURIComponent(Number(item.updated_at || item.indexed_at || 0))}`
                 : `${url}${url.includes('?')?'&':'?'}w=220`;
-            return `<article class="${selected?'is-selected':''} ${version.is_hidden?'is-hidden':''}"><button class="asset-detail-image-version-main" type="button" data-detail-image-version-select="${escapeAttr(version.id)}" aria-current="${selected}"><img src="${escapeAttr(thumbnail)}" alt="${version.is_original?'原始素材':`版本 V${Number(version.version_number||0)}`}预览" loading="lazy"><span><strong>${version.is_original?'原始素材':`版本 V${Number(version.version_number||0)}`}${version.is_hidden?' · 已隐藏':''}</strong><small>${escapeHtml(formatDate(version.created_at))}</small></span></button><div><button type="button" data-detail-image-version-edit="${escapeAttr(version.id)}" title="编辑此版本" aria-label="编辑版本 V${Number(version.version_number||0)}"><i data-lucide="pencil"></i></button>${version.is_original?'':`<button type="button" data-detail-image-version-delete="${escapeAttr(version.id)}" title="删除此版本" aria-label="删除版本 V${Number(version.version_number||0)}"><i data-lucide="trash-2"></i></button>`}</div></article>`;
+            const thumbMedia = (version.edit && typeof version.edit === 'object')
+                ? renderMediaNodeParametricSvg({ ...item, id: `ver-thumb-${version.id}` }, version.edit, url, thumbnail)
+                : `<img src="${escapeAttr(thumbnail)}" alt="${version.is_original?'原始素材':`版本 V${Number(version.version_number||0)}`}预览" loading="lazy">`;
+            return `<article class="${selected?'is-selected':''} ${version.is_hidden?'is-hidden':''}"><button class="asset-detail-image-version-main" type="button" data-detail-image-version-select="${escapeAttr(version.id)}" aria-current="${selected}">${thumbMedia}<span><strong>${version.is_original?'原始素材':`版本 V${Number(version.version_number||0)}`}${version.is_hidden?' · 已隐藏':''}</strong><small>${escapeHtml(formatDate(version.created_at))}</small></span></button><div><button class="hw-btn" type="button" data-detail-image-version-edit="${escapeAttr(version.id)}" title="编辑此版本" aria-label="编辑版本 V${Number(version.version_number||0)}"><i data-lucide="pencil"></i></button>${version.is_original?'':`<button class="hw-btn hw-btn-danger" type="button" data-detail-image-version-delete="${escapeAttr(version.id)}" title="删除此版本" aria-label="删除版本 V${Number(version.version_number||0)}"><i data-lucide="trash-2"></i></button>`}</div></article>`;
         }).join('') || '<p>当前仅有原始素材</p>';
     return `<aside class="asset-detail-image-versions"><header><button type="button" data-detail-image-versions-toggle aria-label="折叠图片版本" title="折叠图片版本"><i data-lucide="panel-left-close"></i></button><div><strong>图片版本</strong><span>${structureCount ? `${structureCount} 个合并版本 · ` : ''}${versions.length} 个当前素材版本</span></div><button type="button" data-detail-image-versions-refresh title="刷新版本" aria-label="刷新图片版本"><i data-lucide="refresh-cw"></i></button></header><div class="asset-detail-image-version-list">${structureVersions}${content}</div></aside>`;
 }
