@@ -218,26 +218,19 @@ function readHiddenLibraryFolders(){
         return {};
     }
 }
-// 【QIN-524】统一资产库中栏「双模紧凑机架」：模式与折叠态、目录展开态的本地记忆
-const ASSET_RACK_MODE_KEY = 'asset_registry_rack_mode_v1';
-const ASSET_RACK_COLLAPSED_KEY = 'asset_registry_rack_collapsed_v1';
+// 【QIN-524】统一资产库中栏「紧凑目录机架」：折叠态与目录展开态的本地记忆
+// 【QIN-533】智能筛选页下线，中栏只保留目录层级；模式记忆键随之删除。
+// 折叠记忆键升到 v2：旧版默认展开时写入的 '0' 不得让中栏在新版仍然默认展开。
+const ASSET_RACK_COLLAPSED_KEY = 'asset_registry_rack_collapsed_v2';
 const ASSET_RACK_EXPANDED_KEY = 'asset_registry_rack_expanded_v1';
 const ASSET_RACK_KNOWN_ROOTS_KEY = 'asset_registry_rack_known_roots_v1';
-const ASSET_RACK_MODES = ['folders', 'filters'];
 const ASSET_RACK_ROOT_KEY = '__root__';
-function readAssetRackMode(){
-    try {
-        const value = localStorage.getItem(ASSET_RACK_MODE_KEY) || '';
-        return ASSET_RACK_MODES.includes(value) ? value : 'folders';
-    } catch(_) {
-        return 'folders';
-    }
-}
-function saveAssetRackMode(mode){
-    try { localStorage.setItem(ASSET_RACK_MODE_KEY, ASSET_RACK_MODES.includes(mode) ? mode : 'folders'); } catch(_) {}
-}
 function readAssetRackCollapsed(){
-    try { return localStorage.getItem(ASSET_RACK_COLLAPSED_KEY) === '1'; } catch(_) { return false; }
+    // 【QIN-533】缺省收起：只有用户显式展开过（存 '0'）才保持展开
+    try {
+        const stored = localStorage.getItem(ASSET_RACK_COLLAPSED_KEY);
+        return stored === null ? true : stored === '1';
+    } catch(_) { return true; }
 }
 function saveAssetRackCollapsed(collapsed){
     try { localStorage.setItem(ASSET_RACK_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch(_) {}
@@ -263,7 +256,6 @@ const savedRegistryViewSettings = readRegistryViewSettings();
 
 let activeTab = 'registry';
 let boardNavigationState = null;
-let assetRackMode = readAssetRackMode();
 let assetRackCollapsed = readAssetRackCollapsed();
 const assetRackExpandedFolders = new Set(readAssetRackExpandedFolders());
 // 目录层级模式下的目录过滤（rootId + 物理相对路径），纯前端过滤，不触发网络请求
@@ -10299,7 +10291,7 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
     return `<div class="content-toolbar registry-toolbar">
         ${options.hideHeading ? '' : `<div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>`}
         <div class="registry-toolbar-controls">
-            ${!board && document.documentElement.classList.contains('vault-shell-embedded') ? '<button class="hw-btn hw-btn-icon vault-filters-toggle" type="button" popovertarget="registryFacetPopover" title="智能筛选" aria-label="智能筛选"><i data-lucide="filter"></i></button>' : ''}
+            ${!board && document.documentElement.classList.contains('vault-shell-embedded') ? '<button class="hw-btn hw-btn-icon vault-filters-toggle" type="button" popovertarget="registryFacetPopover" title="目录层级" aria-label="目录层级"><i data-lucide="folder-tree"></i></button>' : ''}
             ${coverflowControl}
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
@@ -10796,7 +10788,7 @@ async function loadAssetRackRegisteredFolders(force=false){
     // 总览态同样合并磁盘真实子目录（含空目录；admin 可读，editor 静默降级）
     const rootIds = assetRackRoots().map(root => String(root.id || '')).filter(Boolean);
     const diskResults = await Promise.all(rootIds.map(rootId => loadAssetRackDiskFolders(rootId)));
-    if(activeTab === 'registry' && assetRackMode === 'folders' && diskResults.some(entries => entries.length)) render();
+    if(activeTab === 'registry' && !assetRackCollapsed && diskResults.some(entries => entries.length)) render();
 }
 let assetRackDirectoryIndexPromise = null;
 function resetAssetRackDirectoryIndex(){
@@ -10832,24 +10824,8 @@ async function ensureAssetRackDirectoryIndex(){
         if(assetRackDirectoryIndexPromise === run) resetAssetRackDirectoryIndex();
         return null;
     }
-    if(assetRackMode === 'folders') render();
+    if(!assetRackCollapsed) render();
     return assetRackDirectoryIndexPromise;
-}
-function setAssetRackMode(mode){
-    const next = ASSET_RACK_MODES.includes(String(mode || '')) ? String(mode) : 'folders';
-    assetRackMode = next;
-    saveAssetRackMode(next);
-    if(assetRackCollapsed){
-        assetRackCollapsed = false;
-        saveAssetRackCollapsed(false);
-    }
-    render();
-    if(next === 'folders'){
-        const board = assetRackBoard();
-        void ensureAssetRackDirectoryIndex();
-        if(board) loadCustomBoardFolderDirectories(board).catch(() => null);
-        else loadAssetRackRegisteredFolders().catch(() => null);
-    }
 }
 function setAssetRackCollapsed(collapsed){
     assetRackCollapsed = Boolean(collapsed);
@@ -10943,22 +10919,15 @@ async function createAssetRackFolder(rootId){
         setStatus(err.message || '新建文件夹失败');
     }
 }
-function renderAssetRackSegmented(){
-    const options = [
-        {mode:'folders', icon:'folder-tree', label:'目录层级'},
-        {mode:'filters', icon:'sliders-horizontal', label:'智能筛选'},
-    ];
-    return `<div class="asset-rack-segmented" role="tablist" aria-label="中栏模式">${options.map(option => {
-        const active = assetRackMode === option.mode;
-        return `<button type="button" role="tab" class="asset-rack-seg ${active ? 'is-active' : ''}" data-asset-rack-mode="${option.mode}" aria-selected="${active}"><i data-lucide="${option.icon}"></i><span>${option.label}</span></button>`;
-    }).join('')}</div>`;
+function renderAssetRackTitle(){
+    // 【QIN-533】智能筛选页下线：中栏头部只保留「目录层级」标题与收起按钮
+    return `<div class="asset-rack-title"><i data-lucide="folder-tree"></i><strong>目录层级</strong></div>`;
 }
 function renderAssetRackRail(){
     const railButton = (attrs, icon, label, active=false) => `<button class="asset-rack-rail-btn ${active ? 'is-active' : ''}" type="button" ${attrs} title="${label}" aria-label="${label}"><i data-lucide="${icon}"></i></button>`;
     return `<div class="asset-rack-rail" aria-label="中栏图标条">
         ${railButton('data-asset-rack-expand', 'chevrons-right', '展开中栏')}
-        ${railButton('data-asset-rack-mode="folders"', 'folder-tree', '目录层级', assetRackMode === 'folders')}
-        ${railButton('data-asset-rack-mode="filters"', 'sliders-horizontal', '智能筛选', assetRackMode === 'filters')}
+        ${railButton('data-asset-rack-expand', 'folder-tree', '目录层级', true)}
         ${railButton('data-registry-clear="all"', 'rotate-ccw', '清空筛选')}
     </div>`;
 }
@@ -11033,120 +11002,36 @@ function renderAssetRackFolderRoots(){
         </section>`;
     }).join('');
 }
-// 票面口径：素材类型以「3D」称呼 model，其余沿用统一类型标签
-const ASSET_RACK_KIND_LABELS = {model:'3D'};
-function assetRackKindLabel(kind=''){
-    const key = String(kind || '').toLowerCase();
-    return ASSET_RACK_KIND_LABELS[key] || registryKindLabel(key);
-}
-function renderAssetRackKindBadges(){
-    const board = assetRackBoard();
-    const pool = board ? assetRackBoardPool(board) : null;
-    const countFor = kind => {
-        if(!board) return registryFacetKindCount(kind);
-        // 索引产物的 kind 常为 indexed，类型必须按扩展名归类，与服务端 facets 口径一致
-        return pool.filter(item => registryAssetCategory(item) === kind).length;
-    };
-    const fallbackKinds = [
-        {id:'image', name:'image', count:0},
-        {id:'video', name:'video', count:0},
-        {id:'audio', name:'audio', count:0},
-        {id:'document', name:'document', count:0},
-        {id:'model', name:'model', count:0},
-    ];
-    const baseKinds = (registryFacets.kinds || []).length ? registryFacets.kinds : fallbackKinds;
-    // 看板态只展示本看板实际包含的类型，避免点了注定为空的类型
-    const kinds = board
-        ? baseKinds.filter(item => countFor(String(item.id || item.name || '')) > 0 || registryKind === String(item.id || item.name || ''))
-        : baseKinds;
-    const body = kinds.map(item => {
-        const value = String(item.id || item.name || '');
-        const active = registryKind === value;
-        const count = board ? countFor(value) : Number(item.count || 0);
-        return `<button type="button" class="asset-rack-kind ${active ? 'is-active' : ''}" data-registry-kind="${escapeAttr(value)}" aria-pressed="${active}" title="按${escapeAttr(assetRackKindLabel(item.name))}筛选"><i data-lucide="${escapeAttr(registryKindIcon(item.name))}"></i><span>${escapeHtml(assetRackKindLabel(item.name))}</span><em>${count}</em></button>`;
-    }).join('');
-    return `<div class="asset-rack-kind-grid">${body || '<div class="asset-rack-empty">本库暂无可筛选类型</div>'}</div>`;
-}
-function renderAssetRackRecentCapsules(){
-    const options = [{value:0, label:'全部'}, {value:7, label:'近7天'}, {value:30, label:'近30天'}];
-    return `<div class="asset-rack-capsules">${options.map(option => {
-        const active = Number(registryRecentDays || 0) === option.value;
-        return `<button type="button" class="asset-rack-capsule ${active ? 'is-active' : ''}" data-registry-recent="${option.value}" aria-pressed="${active}">${option.label}</button>`;
-    }).join('')}</div>`;
-}
-function renderAssetRackTagCloud(){
-    const board = assetRackBoard();
-    // 看板态只列本看板素材真实携带的标签，计数同样来自看板素材池
-    const tags = board
-        ? customBoardTagEntries(assetRackBoardPool(board))
-        : registryTagsByGroup().flatMap(group => group.tags);
-    if(!tags.length) return '<div class="asset-rack-empty">暂无标签</div>';
-    return `<div class="asset-rack-cloud">${tags.slice(0, 36).map(tag => {
-        const include = registryIncludeTags.has(tag.id);
-        const exclude = registryExcludeTags.has(tag.id);
-        return `<span class="asset-rack-pill ${include ? 'is-include' : ''} ${exclude ? 'is-exclude' : ''}">
-            <button type="button" class="asset-rack-pill-main" data-registry-tag="${escapeAttr(tag.id)}" aria-pressed="${include}" title="包含此标签">${escapeHtml(tag.name)}</button>
-            <button type="button" class="asset-rack-pill-x" data-registry-tag-exclude="${escapeAttr(tag.id)}" aria-pressed="${exclude}" title="排除此标签"><i data-lucide="minus"></i></button>
-        </span>`;
-    }).join('')}</div>`;
-}
-function renderAssetRackCollections(){
-    const collections = (registryFacets.collections || []).filter(item => String(item.availability || '') !== 'removed');
-    if(!collections.length) return '';
-    return `<section class="asset-rack-group"><div class="asset-rack-label"><strong>集合</strong><em>${collections.length}</em></div><div class="asset-rack-cloud">${collections.map(item => {
-        const active = String(item.id || '') === String(registryCollectionId || '');
-        return `<button type="button" class="asset-rack-chip ${active ? 'is-active' : ''}" data-registry-collection="${escapeAttr(item.id || '')}" aria-pressed="${active}">${escapeHtml(item.name || '未命名')}<em>${Number(item.count || 0)}</em></button>`;
-    }).join('')}</div></section>`;
-}
-function renderAssetRackPresets(){
-    const presets = registryPresets || [];
-    return `<section class="asset-rack-group"><div class="asset-rack-label"><strong>筛选预设</strong><button class="asset-rack-tool" type="button" data-registry-preset-save aria-label="保存筛选预设" title="保存当前筛选为预设"><i data-lucide="plus"></i></button></div>
-        ${presets.length ? `<div class="asset-rack-presets">${presets.map(item => `<span class="asset-rack-preset"><button type="button" data-registry-preset="${escapeAttr(item.id)}" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</button><button type="button" class="asset-rack-pill-x" data-registry-preset-delete="${escapeAttr(item.id)}" aria-label="删除预设"><i data-lucide="x"></i></button></span>`).join('')}</div>` : '<div class="asset-rack-empty">暂无预设</div>'}
-    </section>`;
-}
 function renderAssetRackBoardExtras(board){
-    // 看板既有能力（分组目录 / 参考画布）压缩进筛选面板，保留入口且不再堆叠灰字
+    // QIN-533：看板既有能力（分组目录 / 参考画布）随智能筛选页下线迁到目录层级页底部
     const items = customAssetLibraryBaseItems(board);
     const extras = `${renderCustomBoardGroups(board, items)}${renderCustomBoardReferenceCanvases(board, items)}`;
     return extras ? `<div class="asset-rack-board-extras">${extras}</div>` : '';
 }
-function renderAssetRackFilters(){
-    const board = assetRackBoard();
-    const registryScope = !board;
-    return `<div class="asset-rack-pane" role="tabpanel" aria-label="智能筛选">
-        <section class="asset-rack-group"><div class="asset-rack-label"><strong>时间跨度</strong></div>${renderAssetRackRecentCapsules()}</section>
-        <section class="asset-rack-group"><div class="asset-rack-label"><strong>素材类型</strong></div>${renderAssetRackKindBadges()}</section>
-        ${registryScope ? renderRegistryProjectFacetSection() : ''}
-        ${registryScope ? renderAssetRackCollections() : ''}
-        <section class="asset-rack-group"><div class="asset-rack-label"><strong>标签与 AI 分类</strong><em>${board ? customBoardTagEntries(assetRackBoardPool(board)).length : (registryFacets.tags || []).length}</em></div>${renderAssetRackTagCloud()}</section>
-        ${registryScope ? renderAssetRackPresets() : ''}
-        ${board ? renderAssetRackBoardExtras(board) : ''}
-        <button type="button" class="hw-btn asset-rack-clear" data-registry-clear="all"><i data-lucide="x-circle"></i><span>清空智能筛选</span></button>
-    </div>`;
-}
 function renderAssetRackFolders(){
     ensureAssetRackRootsExpanded();
+    const board = assetRackBoard();
     return `<div class="asset-rack-pane" role="tabpanel" aria-label="目录层级">
         ${renderAssetRackFolderToolbar()}
         <div class="asset-rack-tree" role="tree" aria-label="素材库目录层级">${renderAssetRackFolderRoots()}</div>
+        ${board ? renderAssetRackBoardExtras(board) : ''}
     </div>`;
 }
 function renderAssetRack(extraAttrs='', extraClass=''){
     const collapsed = assetRackCollapsed;
     return `<aside class="asset-panel asset-nav registry-nav asset-rack ${extraClass} ${collapsed ? 'is-collapsed' : ''}" ${extraAttrs}>
         <header class="asset-rack-head">
-            ${renderAssetRackSegmented()}
+            ${renderAssetRackTitle()}
             <button class="asset-rack-collapse" type="button" data-asset-rack-collapse title="收起中栏为图标条" aria-label="收起中栏为图标条"><i data-lucide="chevrons-left"></i></button>
         </header>
         ${renderAssetRackRail()}
-        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : (assetRackMode === 'folders' ? renderAssetRackFolders() : renderAssetRackFilters())}</div>
+        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : renderAssetRackFolders()}</div>
     </aside>`;
 }
 /* ---------------------------------------------------------------------------
  * QIN-527 补充：系统看板（剧本/制片/托管/工作流/提示词/画布/上传）全域接入机架外壳。
- * 「目录层级」页保留各看板的领域树（画布分类、项目层级、资产层级等，功能零破坏），
- * 「智能筛选」页复用机架紧凑胶囊，操作统一写回 registry 全局筛选并跳转资产总览应用，
- * 避免在没有素材网格的看板里做假按钮。
+ * 「目录层级」页保留各看板的领域树（画布分类、项目层级、资产层级等，功能零破坏）。
+ * QIN-533：智能筛选页下线，机架外壳只保留目录层级，不再做跨看板的假筛选入口。
  * ------------------------------------------------------------------------- */
 function systemBoardRackActive(){
     return SYSTEM_BOARD_RACK_TABS.includes(String(activeTab || ''));
@@ -11162,19 +11047,17 @@ function renderSystemBoardRack(tools='', body=''){
     const collapsed = assetRackCollapsed;
     return `<aside class="asset-panel asset-nav asset-rack system-board-rack ${collapsed ? 'is-collapsed' : ''}">
         <header class="asset-rack-head">
-            ${renderAssetRackSegmented()}
+            ${renderAssetRackTitle()}
             <button class="asset-rack-collapse" type="button" data-asset-rack-collapse title="收起中栏为图标条" aria-label="收起中栏为图标条"><i data-lucide="chevrons-left"></i></button>
         </header>
         ${renderAssetRackRail()}
-        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : (assetRackMode === 'folders'
-            ? `${tools ? `<div class="system-rack-tools" role="toolbar">${tools}</div>` : ''}${body}`
-            : renderAssetRackFilters())}</div>
+        <div class="nav-scroll registry-facets asset-rack-body">${collapsed ? '' : `${tools ? `<div class="system-rack-tools" role="toolbar">${tools}</div>` : ''}${body}`}</div>
     </aside>`;
 }
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
-    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}${renderAssetRack(embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="智能筛选"' : '')}
+    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}${renderAssetRack(embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="目录层级"' : '')}
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
@@ -11184,8 +11067,8 @@ function renderRegistryManager(){
         ${renderRegistrySelectionBar(null)}
     </section>`;
     syncRegistryFacetLayout();
-    if(assetRackMode === 'folders' && !assetRackCollapsed) loadAssetRackRegisteredFolders().catch(() => null);
-    if(assetRackMode === 'folders' && !assetRackCollapsed) void ensureAssetRackDirectoryIndex();
+    if(!assetRackCollapsed) loadAssetRackRegisteredFolders().catch(() => null);
+    if(!assetRackCollapsed) void ensureAssetRackDirectoryIndex();
 }
 function renderCustomAssetLibrary(board){
     if(!board){ activeTab = 'registry'; renderRegistryManager(); return; }
@@ -11223,7 +11106,7 @@ function renderCustomAssetLibrary(board){
     // 注意：这里只能触发补齐目录索引（内部有 promise 去重，不会递归重绘）；
     // 不可在此调用 loadCustomBoardFolderDirectories —— 它收尾会无条件 render()，
     // 与渲染入口互相触发会直接把页面打成死循环。
-    if(assetRackMode === 'folders' && !assetRackCollapsed) void ensureAssetRackDirectoryIndex();
+    if(!assetRackCollapsed) void ensureAssetRackDirectoryIndex();
 }
 function projectStatusLabel(status='pending'){
     return {pending:'待处理',in_progress:'进行中',approved:'已通过',blocked:'已阻塞'}[status] || status;
@@ -13116,9 +12999,8 @@ async function handleClick(event){
         await refreshRegistryAssetsFromRack();
         return;
     }
-    // 【QIN-524】中栏双模机架：模式切换、折叠成图标条、目录树展开与目录过滤
-    const assetRackModeBtn = target.closest?.('[data-asset-rack-mode]');
-    if(assetRackModeBtn){ setAssetRackMode(assetRackModeBtn.dataset.assetRackMode || ''); return; }
+    // 【QIN-524】中栏目录机架：折叠成图标条、目录树展开与目录过滤
+    // 【QIN-533】智能筛选页下线，不再有模式切换委托
     if(target.closest?.('[data-asset-rack-collapse]')){ setAssetRackCollapsed(true); return; }
     if(target.closest?.('[data-asset-rack-expand]')){ setAssetRackCollapsed(false); return; }
     const assetRackToggle = target.closest?.('[data-asset-rack-toggle]');

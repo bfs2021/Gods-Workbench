@@ -2306,18 +2306,15 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
 }
 
 /* ============================================================================
- * QIN-524 · 统一资产库中栏「双模紧凑机架」
- * 顶部双段拨片切换「目录层级 / 智能筛选」，宽度 240px，可折叠为 44px 图标条。
+ * QIN-524 · 统一资产库中栏「紧凑目录机架」
+ * QIN-533：智能筛选页下线，头部只留「目录层级」标题；宽度 240px，可折叠为 44px 图标条。
  * 全部用既有黑金令牌着色，不引入任何外部依赖或新字体。
  * ========================================================================= */
 .asset-rack { position:relative; min-width:0; }
 .asset-rack .asset-rack-head { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:8px; border-bottom:1px solid var(--line); background:var(--card); }
-.asset-rack-segmented { flex:1 1 auto; min-width:0; display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; border-radius:10px; border:1px solid var(--line); background:var(--soft-2); }
-.asset-rack-seg { min-width:0; min-height:26px; padding:0 6px; border-radius:7px; border:1px solid transparent; background:transparent; color:var(--muted); display:inline-flex; align-items:center; justify-content:center; gap:4px; font-size:var(--gw-type-label-md); font-weight:800; }
-.asset-rack-seg svg { width:12px; height:12px; flex:0 0 auto; }
-.asset-rack-seg span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.asset-rack-seg:hover { background:var(--soft); color:var(--text); }
-.asset-rack-seg.is-active { background:var(--panel); border-color:var(--line-2); color:var(--text); box-shadow:0 2px 6px rgba(0,0,0,.28); }
+.asset-rack-title { flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:5px; color:var(--text); font-size:var(--gw-type-label-md); font-weight:800; }
+.asset-rack-title svg { width:13px; height:13px; flex:0 0 auto; color:var(--faint); }
+.asset-rack-title strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .asset-rack-collapse { width:22px; height:26px; flex:0 0 auto; border-radius:7px; background:transparent; color:var(--faint); display:inline-flex; align-items:center; justify-content:center; }
 .asset-rack-collapse:hover { background:var(--soft); color:var(--text); }
 .asset-rack-collapse svg { width:13px; height:13px; }
@@ -2363,47 +2360,6 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
 .asset-rack-node.is-active > .asset-rack-folder em { background:var(--strong); color:var(--strong-text); }
 .asset-rack-children { display:flex; flex-direction:column; gap:1px; }
 .asset-rack-root-offline { margin:0 0 2px 22px; color:var(--faint); font-size:var(--gw-type-label-md); }
-.asset-rack-empty { padding:10px 8px; border:1px dashed var(--line); border-radius:8px; color:var(--faint); font-size:var(--gw-type-label-md); text-align:center; }
-
-.asset-rack-group { min-width:0; display:flex; flex-direction:column; gap:5px; padding:7px 7px 8px; border:1px solid var(--line); border-radius:9px; background:var(--card); }
-.asset-rack-label { display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--muted); font-size:var(--gw-type-label-md); font-weight:800; letter-spacing:.02em; }
-.asset-rack-label em { font-family:var(--gw-font-mono); font-style:normal; font-weight:500; color:var(--faint); }
-.asset-rack-capsules { display:flex; gap:3px; padding:2px; border-radius:7px; background:var(--soft-2); }
-.asset-rack-capsule { flex:1 1 0; min-width:0; height:22px; border-radius:5px; border:1px solid transparent; background:transparent; color:var(--muted); font-size:var(--gw-type-label-md); font-weight:750; }
-.asset-rack-capsule:hover { color:var(--text); }
-.asset-rack-capsule.is-active { background:var(--panel); border-color:var(--line-2); color:var(--text); }
-.asset-rack-kind-grid { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
-.asset-rack-kind { min-width:0; height:24px; padding:0 5px; border-radius:6px; border:1px solid var(--line); background:var(--soft); color:var(--muted); display:inline-flex; align-items:center; gap:4px; }
-.asset-rack-kind svg { width:11px; height:11px; flex:0 0 auto; }
-.asset-rack-kind span { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--gw-type-label-md); font-weight:750; }
-.asset-rack-kind em { flex:0 0 auto; font-family:var(--gw-font-mono); font-size:var(--gw-type-label-md); font-style:normal; color:var(--faint); }
-.asset-rack-kind:hover { border-color:var(--line-2); color:var(--text); }
-.asset-rack-kind.is-active { background:var(--strong); border-color:var(--strong); color:var(--strong-text); }
-.asset-rack-kind.is-active em { color:var(--strong-text); opacity:.75; }
-.asset-rack-cloud { display:flex; flex-wrap:wrap; gap:3px; }
-.asset-rack-pill { display:inline-flex; align-items:center; max-width:100%; border-radius:999px; border:1px solid var(--line); background:var(--soft); overflow:hidden; }
-.asset-rack-pill-main { max-width:118px; height:20px; padding:0 6px; background:transparent; color:var(--muted); font-size:var(--gw-type-label-md); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.asset-rack-pill-x { width:16px; height:20px; background:transparent; color:var(--faint); display:inline-flex; align-items:center; justify-content:center; }
-.asset-rack-pill-x svg { width:9px; height:9px; }
-.asset-rack-pill:hover { border-color:var(--line-2); }
-.asset-rack-pill:hover .asset-rack-pill-main { color:var(--text); }
-.asset-rack-pill.is-include { border-color:#dfc384; background:rgba(223,195,132,.14); }
-.asset-rack-pill.is-include .asset-rack-pill-main { color:#dfc384; }
-.asset-rack-pill.is-exclude { opacity:.55; }
-.asset-rack-pill.is-exclude .asset-rack-pill-main { text-decoration:line-through; }
-.asset-rack-clear { width:100%; justify-content:center; font-size:var(--gw-type-label-md); }
-.asset-rack .registry-facet-projects .registry-facet-title { min-height:24px; padding:0; background:transparent; }
-.asset-rack .registry-project-toggle-label strong { font-size:var(--gw-type-label-md); }
-.asset-rack-chip { min-width:0; max-width:100%; height:22px; padding:0 7px; border-radius:6px; border:1px solid var(--line); background:var(--soft); color:var(--muted); display:inline-flex; align-items:center; gap:4px; font-size:var(--gw-type-label-md); font-weight:700; }
-.asset-rack-chip { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.asset-rack-chip em { font-family:var(--gw-font-mono); font-style:normal; color:var(--faint); }
-.asset-rack-chip:hover { border-color:var(--line-2); color:var(--text); }
-.asset-rack-chip.is-active { background:var(--strong); border-color:var(--strong); color:var(--strong-text); }
-.asset-rack-chip.is-active em { color:var(--strong-text); opacity:.75; }
-.asset-rack-presets { display:flex; flex-wrap:wrap; gap:3px; }
-.asset-rack-preset { display:inline-flex; align-items:center; max-width:100%; border-radius:999px; border:1px solid var(--line); background:var(--soft); overflow:hidden; }
-.asset-rack-preset > button[data-registry-preset] { max-width:110px; height:20px; padding:0 7px; background:transparent; color:var(--muted); font-size:var(--gw-type-label-md); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.asset-rack-preset:hover > button[data-registry-preset] { color:var(--text); }
 
 /* ============================================================================
  * QIN-527 · 双模机架覆盖自定义资源库看板

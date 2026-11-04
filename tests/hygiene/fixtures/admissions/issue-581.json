@@ -1,0 +1,25 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 581,
+  "authorization_basis": "GitHub Issue #581 (QIN-533), 2026-11-04",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "web/js/controllers/assets-controller.js",
+    "tests/frontend/qin-524-asset-nav-redesign.test.mjs",
+    "tests/frontend/qin-527-custom-library-rack.test.mjs",
+    "tests/frontend/qin-533-asset-rack-folders-only.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-581.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-533-asset-rack-folders-only.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #581 (QIN-533), 2026-11-04",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-533：统一资产库中栏删除智能筛选页与双段拨片，只保留目录层级并默认收起；看板分组目录/参考画布入口迁到目录层级页底部；只改中栏前端结构与样式，不动筛选数据通道与后端契约。分片按 GitHub 票号 581 命名（issue-533 已被另一张票占用）。"
+}

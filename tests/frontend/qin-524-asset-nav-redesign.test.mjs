@@ -53,29 +53,33 @@ function functionSource(name){
     assert.fail(`函数未闭合：${name}`);
 }
 
-test('AC1: 顶部双段拨片切换目录层级与智能筛选，状态写入 localStorage', () => {
-    const segmented = functionSource('renderAssetRackSegmented');
-    assert.match(segmented, /目录层级/, '必须提供「目录层级」模式入口');
-    assert.match(segmented, /智能筛选/, '必须提供「智能筛选」模式入口');
-    assert.match(segmented, /role="tablist"/, '双段控件必须声明 tablist 语义');
-    assert.match(segmented, /data-asset-rack-mode="\$\{option\.mode\}"/, '模式按钮必须带 data-asset-rack-mode');
-    assert.match(segmented, /aria-selected="\$\{active\}"/, '必须回写 aria-selected');
+test('AC1: 中栏只剩目录层级入口，双段拨片已由 QIN-533 下线', () => {
+    // QIN-533 更新：双段拨片与智能筛选页整体删除，本用例改为守住「只剩目录层级」的现状
+    assert.ok(!MANAGER.includes('renderAssetRackSegmented'), '双段拨片渲染必须下线');
+    assert.ok(!MANAGER.includes('data-asset-rack-mode'), '模式切换按钮与点击委托必须下线');
+    assert.ok(!MANAGER.includes('asset_registry_rack_mode_v1'), '模式记忆键必须下线');
+    const title = functionSource('renderAssetRackTitle');
+    assert.match(title, /目录层级/, '中栏头部必须保留目录层级标题');
 
-    // 记忆：默认目录层级，切换即持久化
-    assert.match(MANAGER, /const ASSET_RACK_MODE_KEY = 'asset_registry_rack_mode_v1';/);
-    const readMode = functionSource('readAssetRackMode');
-    assert.match(readMode, /localStorage\.getItem\(ASSET_RACK_MODE_KEY\)/);
-    assert.match(readMode, /'folders'/, '缺省模式必须是目录层级');
-    const setMode = functionSource('setAssetRackMode');
-    assert.match(setMode, /saveAssetRackMode\(next\)/, '切换后必须持久化模式');
-    assert.match(setMode, /render\(\);/, '切换只重渲染中栏所在视图，不做整页跳转');
-    assert.doesNotMatch(setMode, /location\.(reload|href)/, '禁止整页刷新');
+    // 记忆：缺省收起，用户显式展开后才保持展开
+    const readCollapsed = functionSource('readAssetRackCollapsed');
+    assert.match(readCollapsed, /localStorage\.getItem\(ASSET_RACK_COLLAPSED_KEY\)/);
+    assert.match(readCollapsed, /stored === null \? true/, '缺少记录时必须默认收起');
+    const setCollapsed = functionSource('setAssetRackCollapsed');
+    assert.match(setCollapsed, /saveAssetRackCollapsed\(assetRackCollapsed\)/, '收起/展开后必须持久化');
+    assert.match(setCollapsed, /render\(\);/, '收起/展开只重渲染中栏所在视图，不做整页跳转');
+    assert.doesNotMatch(setCollapsed, /location\.(reload|href)/, '禁止整页刷新');
 
     // 点击派发登记
     assert.match(
         MANAGER,
-        /const assetRackModeBtn = target\.closest\?\.\('\[data-asset-rack-mode\]'\);\s*\n\s*if\(assetRackModeBtn\)\{ setAssetRackMode\(assetRackModeBtn\.dataset\.assetRackMode \|\| ''\); return; \}/,
-        '模式按钮点击必须走统一委托'
+        /if\(target\.closest\?\.\('\[data-asset-rack-collapse\]'\)\)\{ setAssetRackCollapsed\(true\); return; \}/,
+        '收起按钮必须走统一委托'
+    );
+    assert.match(
+        MANAGER,
+        /if\(target\.closest\?\.\('\[data-asset-rack-expand\]'\)\)\{ setAssetRackCollapsed\(false\); return; \}/,
+        '展开按钮必须走统一委托'
     );
 });
 
@@ -128,30 +132,31 @@ test('AC2: 目录层级只呈现登记根目录与真实物理子目录，点击
     );
 });
 
-test('AC3: 智能筛选收敛为紧凑硬件胶囊（时间单行 / 类型双列 / 标签云）', () => {
-    const filters = functionSource('renderAssetRackFilters');
-    assert.match(filters, /时间跨度/, '必须提供时间跨度分组');
-    assert.match(filters, /素材类型/, '必须提供素材类型分组');
-    assert.match(filters, /标签与 AI 分类/, '必须提供标签与 AI 分类分组');
-    assert.match(filters, /data-registry-clear="all"/, '必须提供清空智能筛选');
-
-    const recent = functionSource('renderAssetRackRecentCapsules');
-    for(const label of ['全部', '近7天', '近30天']){
-        assert.ok(recent.includes(label), `时间跨度必须包含「${label}」`);
+test('AC3: 智能筛选页已由 QIN-533 下线，机架不再渲染任何筛选分组', () => {
+    // QIN-533 更新：中栏只保留目录层级，智能筛选专属渲染与样式必须整体清理
+    for(const removed of [
+        'renderAssetRackFilters',
+        'renderAssetRackRecentCapsules',
+        'renderAssetRackKindBadges',
+        'renderAssetRackTagCloud',
+        'renderAssetRackCollections',
+        'renderAssetRackPresets',
+    ]){
+        assert.ok(!MANAGER.includes(removed), `智能筛选专属渲染必须删除：${removed}`);
     }
-    assert.match(recent, /data-registry-recent="\$\{option\.value\}"/, '时间跨度必须复用既有 recent 过滤通道');
-    assert.match(CSS, /\.asset-rack-capsules \{ display:flex; gap:3px;/, '时间跨度必须是单行胶囊');
+    for(const label of ['时间跨度', '标签与 AI 分类']){
+        assert.ok(!MANAGER.includes(label), `机架不得再输出筛选分组：${label}`);
+    }
+    for(const render of ['renderAssetRack', 'renderSystemBoardRack']){
+        assert.ok(!functionSource(render).includes('role="tablist"'), `${render} 不得再有模式拨片 tablist`);
+    }
+    assert.ok(!MANAGER.includes('data-asset-rack-mode'), '中栏不得再有模式切换按钮');
+    for(const cssRule of ['.asset-rack-capsules', '.asset-rack-kind-grid', '.asset-rack-pill', '.asset-rack-presets', '.asset-rack-seg']){
+        assert.ok(!CSS.includes(cssRule), `智能筛选专属样式必须清理：${cssRule}`);
+    }
 
-    const kinds = functionSource('renderAssetRackKindBadges');
-    assert.match(kinds, /data-registry-kind="\$\{escapeAttr\(value\)\}"/, '类型徽标必须复用既有 kind 过滤通道');
-    assert.match(CSS, /\.asset-rack-kind-grid \{ display:grid; grid-template-columns:1fr 1fr;/, '类型徽标必须双列展示');
-
-    const cloud = functionSource('renderAssetRackTagCloud');
-    assert.match(cloud, /data-registry-tag="\$\{escapeAttr\(tag\.id\)\}"/, '标签云必须支持点击包含');
-    assert.match(cloud, /data-registry-tag-exclude="\$\{escapeAttr\(tag\.id\)\}"/, '标签云必须支持点击排除');
-
-    // 紧凑化：不保留任何整段说明性长文
-    assert.doesNotMatch(filters, /个结果已包含智能信息/, '必须清理冗余说明长文');
+    // 清空筛选能力保留，入口收敛到折叠图标条
+    assert.match(functionSource('renderAssetRackRail'), /data-registry-clear="all"/, '图标条必须保留清空筛选');
 });
 
 test('AC4: 中栏 240px、可折叠为 44px 图标条、只用黑金令牌', () => {
@@ -177,8 +182,8 @@ test('AC4: 中栏 240px、可折叠为 44px 图标条、只用黑金令牌', () 
     assert.match(rack, /renderAssetRackRail\(\)/, '折叠态必须渲染图标条');
     const rail = functionSource('renderAssetRackRail');
     assert.match(rail, /data-asset-rack-expand/, '图标条必须能展开中栏');
-    assert.match(rail, /data-asset-rack-mode="folders"/, '图标条必须保留目录层级入口');
-    assert.match(rail, /data-asset-rack-mode="filters"/, '图标条必须保留智能筛选入口');
+    assert.match(rail, /'folder-tree', '目录层级'/, '图标条必须保留目录层级入口');
+    assert.match(rail, /data-registry-clear="all"/, '图标条必须保留清空筛选');
 
     assert.match(functionSource('setAssetRackCollapsed'), /saveAssetRackCollapsed\(assetRackCollapsed\)/);
     assert.match(
