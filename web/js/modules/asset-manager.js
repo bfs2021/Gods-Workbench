@@ -10823,7 +10823,7 @@ async function loadAssetRackRegisteredFolders(force=false){
     // 总览态同样合并磁盘真实子目录（含空目录；admin 可读，editor 静默降级）
     const rootIds = assetRackRoots().map(root => String(root.id || '')).filter(Boolean);
     const diskResults = await Promise.all(rootIds.map(rootId => loadAssetRackDiskFolders(rootId)));
-    if((activeTab === 'registry' || assetRackBoard()) && assetRackMode === 'folders' && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
+    if((activeTab === 'registry' || assetRackBoard()) && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
 }
 let assetRackDirectoryIndexPromise = null;
 function resetAssetRackDirectoryIndex(){
