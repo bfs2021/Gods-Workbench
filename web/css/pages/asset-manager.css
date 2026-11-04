@@ -2447,7 +2447,7 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-structure-remove-overlay { z-index:140; }
 .registry-structure-remove-dialog { width:min(480px,calc(100vw - 28px)); border:1px solid var(--sf-line-strong,var(--line-2)); border-radius:6px; background:var(--sf-raised,var(--panel)); color:var(--sf-text,var(--text)); box-shadow:0 8px 18px rgba(0,0,0,.22); overflow:hidden; }
 .registry-structure-remove-dialog > header { min-height:66px; padding:12px 14px; border-bottom:1px solid var(--sf-line,var(--line)); display:grid; grid-template-columns:36px minmax(0,1fr) 30px; align-items:center; gap:10px; }
-.registry-structure-remove-dialog > header > span { width:36px; height:36px; background:color-mix(in srgb,var(--sf-coral,var(--danger)) 14%,transparent); color:var(--sf-coral,var(--danger)); display:grid; place-items:center; }
+.registry-structure-remove-dialog > header > span { width:36px; height:36px; border-radius:6px; border:1px solid rgb(140 0 0 / .45); background:linear-gradient(180deg,#1c1214 0%,#0f0a0c 100%); color:rgb(229 163 163); display:grid; place-items:center; }
 .registry-structure-remove-dialog > header > span svg { width:17px; height:17px; }
 .registry-structure-remove-dialog > header > div { min-width:0; }
 .registry-structure-remove-dialog > header strong,.registry-structure-remove-dialog > header small { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -2459,10 +2459,36 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-structure-remove-dialog > header > button svg { width:14px; height:14px; }
 .registry-structure-remove-body { padding:16px 18px; }
 .registry-structure-remove-body p { margin:0; color:var(--sf-text,var(--text)); font-size: var(--gw-type-label-md); line-height:1.55; font-weight:750; }
-.registry-structure-remove-error { margin-top:11px; padding:9px 10px; border:1px solid var(--sf-coral,var(--danger)); color:var(--sf-coral,var(--danger)); font-size: var(--gw-type-label-md); line-height:1.45; font-weight:850; }
+.registry-structure-remove-error { margin-top:11px; padding:9px 10px; border:1px solid rgb(140 0 0 / .55); background:#181113; color:rgb(229 163 163); font-size: var(--gw-type-label-md); line-height:1.45; font-weight:850; }
 .registry-structure-remove-dialog > footer { min-height:56px; padding:10px 14px; border-top:1px solid var(--sf-line,var(--line)); display:flex; justify-content:flex-end; gap:8px; }
 .registry-structure-remove-dialog > footer .hw-btn { min-width:92px; height:36px; }
-.registry-structure-remove-confirm { border-color:var(--sf-coral,var(--danger))!important; background:var(--sf-coral,var(--danger))!important; color:#fff!important; }
+/* QIN-534：对齐退出登录按钮的黑金硬件危险质感（黑曜石暗黑底 + 暗红描边 + 胭脂浅红文字），去除浅粉红实底 */
+.registry-structure-remove-confirm {
+    background: linear-gradient(180deg, #181113 0%, #0d0a0b 100%) !important;
+    border: 1px solid rgb(140 0 0 / .55) !important;
+    color: rgb(229 163 163) !important;
+    text-shadow: none;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .08), 0 2px 5px rgb(0 0 0 / .7);
+}
+.registry-structure-remove-confirm:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: linear-gradient(180deg, #241315 0%, #150a0c 100%) !important;
+    border-color: var(--gw-danger-cap, #b80000) !important;
+    color: #ffcccc !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .15), 0 0 10px rgb(140 0 0 / .35);
+}
+.registry-structure-remove-confirm:active:not(:disabled):not([aria-disabled="true"]) {
+    background: #0d0a0b !important;
+    border-color: rgb(140 0 0 / .75) !important;
+    color: rgb(229 163 163) !important;
+    transform: translateY(1.5px);
+}
+.registry-structure-remove-confirm:is(:disabled, [aria-disabled="true"]) {
+    background: var(--gw-button-disabled-danger-bg, #241619) !important;
+    border-color: var(--gw-border-disabled-danger, #4a1c22) !important;
+    color: var(--gw-text-disabled-danger, #855359) !important;
+    cursor: wait;
+    opacity: 0.7;
+}
 .registry-structure-remove-confirm [data-lucide="loader-2"] { animation:asset-spin 1s linear infinite; }
 @media(max-width:620px){
     .registry-structure-context-menu { width:min(236px,calc(100vw - 20px)); }

@@ -397,3 +397,16 @@ test('AC2-反馈 4: 建立关联后把服务端返回的关系对端写回本地
     assert.match(source, /from_asset_id/);
     assert.match(source, /related_assets/);
 });
+
+test('AC2-反馈 7: 解开版本和解开组弹窗确认按钮采用退出登录黑金质感，去除浅粉红实底', () => {
+    const css = readFileSync(
+        new URL('../../web/css/pages/asset-manager.css', import.meta.url),
+        'utf8'
+    );
+    // 弹窗确认按钮不得再出现浅粉色珊瑚色覆盖
+    assert.doesNotMatch(css, /\.registry-structure-remove-confirm[^{]*\{[^}]*--sf-coral/);
+    // 必须具备退出登录危险按钮的标准黑金质感（黑曜石暗黑渐变底 + 暗红边界 + 胭脂红字）
+    assert.match(css, /\.registry-structure-remove-confirm\s*\{[^}]*linear-gradient\(180deg,\s*#181113/);
+    assert.match(css, /\.registry-structure-remove-confirm\s*\{[^}]*rgb\(140 0 0/);
+    assert.match(css, /\.registry-structure-remove-confirm\s*\{[^}]*rgb\(229 163 163\)/);
+});
