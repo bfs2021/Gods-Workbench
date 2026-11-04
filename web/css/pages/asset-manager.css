@@ -2595,7 +2595,7 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
+    font-size: var(--gw-type-label-md);
     line-height: 11px;
     font-weight: 700;
     font-family: var(--gw-font-mono, monospace);
