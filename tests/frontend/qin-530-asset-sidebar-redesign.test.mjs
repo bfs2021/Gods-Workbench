@@ -164,7 +164,6 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
     ['canvas-assets', '画布资产', false, 'layout-dashboard'],
     ['prompts', '提示词', false, 'text-cursor-input'],
     ['local', '上传资源', false, 'cloud-upload'],
-    ['governance', '治理建议', false, 'list-checks'],
     ['custom-brand', '品牌素材', false, 'folder'],
     ['source_library_root', '已登记库', false, 'database'],
   ]);
@@ -173,8 +172,8 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   const systemButtons = walk(groups[0]).filter(node => node.dataset.assetBoardLevel === 'primary');
   const nestedButtons = walk(groups[0]).filter(node => node.dataset.assetBoardLevel === 'nested');
   const userButtons = walk(groups[1]).filter(node => node.dataset.assetBoardLevel === 'primary');
-  assert.deepEqual(systemButtons.map(button => button.dataset.assetBoard), ['projects', 'assets', 'canvas-assets', 'prompts', 'local', 'governance']);
-  assert.deepEqual(systemButtons.map(button => button.textContent), ['项目制片', '托管资产', '画布资产', '提示词', '上传资源', '治理建议']);
+  assert.deepEqual(systemButtons.map(button => button.dataset.assetBoard), ['projects', 'assets', 'canvas-assets', 'prompts', 'local']);
+  assert.deepEqual(systemButtons.map(button => button.textContent), ['项目制片', '托管资产', '画布资产', '提示词', '上传资源']);
   assert.deepEqual(nestedButtons.map(button => button.dataset.assetBoard), ['scripts', 'workflows']);
   assert.deepEqual(userButtons.map(button => button.dataset.assetBoard), ['custom-brand', 'source_library_root']);
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => !/^\s*\d+\s*$/.test(button.textContent)));
