@@ -9946,11 +9946,19 @@ function customBoardFolderTree(items=[], directories=[], summary=null, category=
             }
         });
     });
+    // QIN-542 AC2 修复：reset 计数前先按全类型口径记录「本目录是否有已索引素材」，
+    // 供空目录标记判定（QA 复验缺陷：有文件无子目录的目录曾被误标「空」）
+    map.forEach(node => { node.hasIndexedAssets = node.count > 0; });
     if(Array.isArray(summary)){
         map.forEach(node => { node.count = 0; node.selfCount = 0; });
         summary.forEach(entry => {
             const folder = String(entry.path || '');
             ensureFolder(folder);
+            // 后端 entry.count 是全类型本层文件数，与看板分类无关；有文件即非空目录
+            if(Number(entry.count || 0) > 0){
+                const selfNode = map.get(folder);
+                if(selfNode) selfNode.hasIndexedAssets = true;
+            }
             const selfC = category ? Number(entry.categories?.[category] || 0) : Number(entry.count || 0);
             folder.split('/').filter(Boolean).forEach((_name, index, segments) => {
                 const path = segments.slice(0, index + 1).join('/');
@@ -11319,6 +11327,7 @@ function renderAssetRackFolderNode(rootId, node, depth=0){
     const diskEmpty = registryDiskFolderCache.has(`${root}::${node.path}`)
         && !(registryDiskFolderCache.get(`${root}::${node.path}`) || []).length
         && !node.children.length
+        && !node.hasIndexedAssets
         && !registryDiskFolderPermissionDenied;
     const emptyBadge = diskEmpty ? '<em title="空目录：无已索引素材与子目录">空</em>' : '';
     const selfBadge = Number(node.selfCount || 0) > 0 ? `<em title="仅本层文件数">本层${Number(node.selfCount)}</em>` : '';

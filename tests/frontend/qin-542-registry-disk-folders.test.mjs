@@ -73,14 +73,56 @@ test('AC1/AC2: 全部节点保留展开入口，叶子不再是无操作占位',
     assert.match(node, /const expandable = true;/, '全部节点保留展开入口');
 });
 
-test('AC2: 已确认的空目录标明「空」徽标', () => {
+test('AC2: 已确认的空目录标明「空」徽标，有已索引素材的目录不得误标', () => {
     const node = functionSource('renderAssetRackFolderNode');
     assert.match(node, /registryDiskFolderCache\.has\(`\$\{root\}::\$\{node\.path\}`\)/,
         '空标记必须以磁盘缓存已加载为前提');
+    assert.match(node, /!node\.hasIndexedAssets/,
+        'QA 复验缺陷修复：有已索引素材（无子目录）的目录不得标「空」，判定必须包含素材计数');
     assert.match(node, /registryDiskFolderPermissionDenied/,
         '权限被拒（403）时不得把空缓存误标为空目录');
     assert.match(node, /空目录：无已索引素材与子目录/, '空徽标必须有自解释提示');
     assert.match(node, />空<\/em>/, '空目录必须以「空」徽标呈现');
+
+    // 动态行为验证：QA 场景回归 —— 有文件无子目录的目录（c 2 本层2 / files_only 5 本层5）不得再标「空」
+    const renderNode = new Function(
+        'assetRackBoard',
+        'registryDiskFolderCache',
+        'registryDiskFolderPermissionDenied',
+        'assetRackExpandedFolders',
+        'escapeAttr',
+        'escapeHtml',
+        'customBoardFolderIsHidden',
+        'boardHiddenFolders',
+        'boardSourceSelection',
+        'boardFolderSelection',
+        'registryNavFolder',
+        `
+            ${functionSource('renderAssetRackFolderNode')}
+            return renderAssetRackFolderNode;
+        `
+    )(
+        () => null,
+        new Map([['rootA::docs', []], ['rootA::vacant', []]]),
+        false,
+        new Set(),
+        value => String(value),
+        value => String(value),
+        () => false,
+        {},
+        {},
+        {},
+        {rootId:'', path:''},
+    );
+    const withFiles = {path:'docs', name:'docs', count:2, selfCount:2, children:[], hasIndexedAssets:true};
+    assert.ok(!renderNode('rootA', withFiles).includes('>空</em>'),
+        '有 2 个已索引文件、无子目录的目录不得标「空」（QA：c 2 本层2 空）');
+    const withMoreFiles = {path:'files_only', name:'files_only', count:5, selfCount:5, children:[], hasIndexedAssets:true};
+    assert.ok(!renderNode('rootA', withMoreFiles).includes('>空</em>'),
+        '有 5 个已索引文件、无子目录的目录不得标「空」（QA：files_only 5 本层5 空）');
+    const vacant = {path:'vacant', name:'vacant', count:0, selfCount:0, children:[], hasIndexedAssets:false};
+    assert.ok(renderNode('rootA', vacant).includes('>空</em>'),
+        '磁盘浏览确认无子目录且无已索引素材的空目录必须标「空」');
 });
 
 test('AC3: 计数双口径（含子目录总数 + 本层文件数）在节点徽标区分', () => {
