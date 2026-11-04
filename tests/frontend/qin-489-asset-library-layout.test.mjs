@@ -9,6 +9,45 @@ const manager = readFileSync(new URL('../../web/js/modules/asset-manager.js', im
 const vaultCss = readFileSync(new URL('../../web/css/pages/asset-vault.css', import.meta.url), 'utf8');
 const managerCss = readFileSync(new URL('../../web/css/pages/asset-manager.css', import.meta.url), 'utf8');
 
+test('QIN-540: 三种模式的首次高度估算遵循方形与原图比例', () => {
+    const source = manager.slice(manager.indexOf('function registryVirtualCardHeight('), manager.indexOf('function registryVirtualHeightCacheKey('));
+    const build = new Function('registryVisualType', 'assetSupportsImagePreview', 'registryAspect', 'registrySimple', `${source}\nreturn registryVirtualCardHeight;`);
+    const item = {kind:'image',width:400,height:200};
+    const square = build(x => x.kind, () => false, 'square', false)(item, 202);
+    const original = build(x => x.kind, () => false, 'original', false)(item, 202);
+    const simple = build(x => x.kind, () => false, 'original', true)(item, 202);
+    assert.equal(square, 306);
+    assert.equal(original, 206);
+    assert.equal(simple, 114);
+});
+
+test('QIN-540: 缺宽高的图片加载后写入比例，已有元数据和方形模式保持不变', () => {
+    const build = new Function('registryAspect', `${functionSource('applyRegistryVirtualPreviewAspect')}\nreturn applyRegistryVirtualPreviewAspect;`);
+    const values = new Map();
+    const thumb = {style:{getPropertyValue:key => values.get(key) || '',setProperty:(key,value) => values.set(key,value)}};
+    const image = {naturalWidth:300,naturalHeight:600,closest:() => thumb};
+    build('original')(image);
+    assert.equal(values.get('--asset-media-aspect'), '0.5');
+    values.set('--asset-media-aspect', '2');
+    build('original')(image);
+    assert.equal(values.get('--asset-media-aspect'), '2');
+    values.clear();
+    build('square')(image);
+    assert.equal(values.size, 0);
+});
+
+test('QIN-540: 高度变化后按可见卡片恢复滚动锚点', () => {
+    const scrollRoot = {scrollTop:150,clientWidth:500,clientHeight:300};
+    const grid = {clientWidth:500,closest:() => scrollRoot,style:{setProperty(){}},querySelectorAll:() => [],innerHTML:''};
+    const root = {querySelector:() => grid};
+    const oldLayout = {key:'key',width:500,cols:1,itemLayouts:[{top:0,height:100},{top:110,height:100}],start:0,end:2,totalHeight:210};
+    const newLayout = {width:500,cols:1,itemLayouts:[{top:0,height:200},{top:210,height:100}],totalHeight:310};
+    const build = new Function('root','registryVirtualState','registryVirtualItemsForActiveBoard','registryVirtualizationEnabled','registryVirtualStateKey','registryVirtualLayout','registryVirtualRange','captureRegistryPreviewImages','registryVirtualGridMarkup','restoreRegistryPreviewImages','applyRegistryVirtualPreviewAspect','refreshIcons','observeRegistryVirtualCards','scheduleRegistryPreviewImages', `${functionSource('updateRegistryVirtualWindow')}\nreturn updateRegistryVirtualWindow;`);
+    const update = build(root,oldLayout,() => ({items:[{id:'a'},{id:'b'}]}),() => true,() => 'key',() => newLayout,() => ({start:0,end:2}),() => new Map(),() => '',() => {},() => {},() => {},() => {},() => {});
+    assert.equal(update(true), true);
+    assert.equal(scrollRoot.scrollTop, 250);
+});
+
 function functionSource(name){
     const start = manager.indexOf(`function ${name}(`);
     assert.ok(start >= 0, `缺少函数：${name}`);
