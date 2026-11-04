@@ -1285,38 +1285,23 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
 }
 
 
-/* --- Black-Gold Hardware Design Alignments & Parametric SVG Support (QIN-535) --- */
-.asset-detail-actions .primary,
-.asset-detail-actions .hw-btn-gold {
-    background: linear-gradient(180deg, #d8ac5a 0%, #b88628 100%) !important;
-    border: 1px solid #dfc384 !important;
-    color: #121008 !important;
-    font-weight: 900 !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+/* --- Black-Gold Hardware Design Alignments & Native Gold Keycap Contract (QIN-536) --- */
+:is(.asset-detail-actions, .asset-detail-media-canvas-toolbar) :is(.primary, .hw-btn-gold) {
+    background: linear-gradient(180deg, var(--gw-keycap-gold, #dfc384) 0%, #b89354 100%) !important;
+    border: 1px solid var(--gw-keycap-flare, #fae2c8) !important;
+    border-bottom-color: #8c6828 !important;
+    color: var(--gw-engraved-text, #171107) !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 6px rgb(0 0 0 / .75), inset 0 1px 0 rgb(255 255 255 / .9), inset 0 -2px 3px rgb(140 104 40 / .6) !important;
 }
-.asset-detail-actions .primary:hover,
-.asset-detail-actions .hw-btn-gold:hover {
-    background: linear-gradient(180deg, #e6c070 0%, #c99732 100%) !important;
-    border-color: #f3dc9f !important;
-    color: #0b0a06 !important;
+:is(.asset-detail-actions, .asset-detail-media-canvas-toolbar) :is(.primary, .hw-btn-gold):hover:not(:disabled) {
+    filter: brightness(1.12) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 7px 14px rgb(0 0 0 / .85), inset 0 1.5px 0 #fff, inset 0 -1px 2px rgb(140 104 40 / .5) !important;
 }
 .asset-detail-media-canvas-toolbar {
     background: #0d1016 !important;
     border-bottom: 1px solid rgba(223, 195, 132, 0.2) !important;
-}
-.asset-detail-media-canvas-toolbar button.primary,
-.asset-detail-media-canvas-toolbar button.hw-btn-gold {
-    background: linear-gradient(180deg, #d8ac5a 0%, #b88628 100%) !important;
-    border-color: #dfc384 !important;
-    color: #121008 !important;
-    font-weight: 900 !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.45);
-}
-.asset-detail-media-canvas-toolbar button.primary:hover:not(:disabled),
-.asset-detail-media-canvas-toolbar button.hw-btn-gold:hover:not(:disabled) {
-    background: linear-gradient(180deg, #e6c070 0%, #c99732 100%) !important;
-    border-color: #f3dc9f !important;
-    color: #0b0a06 !important;
 }
 .asset-detail-parametric-svg {
     width: 100%;
