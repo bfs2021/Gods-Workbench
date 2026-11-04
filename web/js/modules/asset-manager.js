@@ -5623,7 +5623,7 @@ function renderRegistryStructureContextMenu(assetIds=[], options={}){
     const structureDisabled = imageOnly ? '' : ' disabled';
     const structureHint = imageOnly ? '切换最终版本' : '仅支持图片素材';
     return `<div class="registry-structure-context-menu" data-registry-structure-menu role="menu" aria-label="合并已选素材">
-        <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span>${count} 项素材</span></div>
+        <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span><b>${count}</b> 项素材</span></div>
         <button type="button" role="menuitem" data-registry-structure-create="version"${structureDisabled}><i data-lucide="git-branch"></i><span>合并为版本结构</span><small>${structureHint}</small></button>
         <button type="button" role="menuitem" data-registry-structure-create="relation"><i data-lucide="link-2"></i><span>合并为关联结构</span><small>建立素材互相关联</small></button>
         <button type="button" role="menuitem" data-registry-structure-create="group"${structureDisabled}><i data-lucide="layers-2"></i><span>合并为组结构</span><small>${imageOnly ? '叠放缩略图，双击进入组 Coverflow' : '仅支持图片素材'}</small></button>

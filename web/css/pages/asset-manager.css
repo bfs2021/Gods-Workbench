@@ -2361,18 +2361,26 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card-source em { flex:0 0 auto; padding:2px 4px; background:color-mix(in srgb,var(--asset-type-color) 18%,transparent); color:inherit; font-size: var(--gw-type-label-md); line-height:1; font-style:normal; font-weight:950; }
 
 /* 服务端 asset-structures 的只读卡片投影。成员关系和当前版本始终由 structure_id 返回。 */
-/* 【QIN-534】右键上下文菜单改黑金硬件语言：深黑微透毛玻璃容器 + 暗金描边与图标，
-   禁用态明确降级，不再用 --sf-cyan 这类与金库壳不一致的强调色。 */
-.registry-structure-context-menu { position:fixed; z-index:110; width:min(252px,calc(100vw - 20px)); border:1px solid rgba(223,195,132,.3); border-radius:10px; background:rgba(11,13,19,.96); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); color:var(--text); box-shadow:0 14px 34px rgba(0,0,0,.66),inset 0 1px rgba(255,255,255,.08); overflow:hidden; }
-.registry-structure-context-title { min-height:32px; padding:0 10px; border-bottom:1px solid rgba(223,195,132,.22); display:flex; align-items:center; gap:7px; color:#dfc384; font-size: var(--gw-type-label-md); font-weight:800; }
+/* 【QIN-534 重设计】右键上下文菜单按黑金硬件设计系统重做：
+   深灰拉丝底座 + 1px 香槟金发丝边 + 8px 硬朗微倒角；菜单行是「硬件键帽」，
+   悬浮用左侧金色通道条（不再是整行金色横带），键盘焦点走独立的焦点环；
+   禁用行整体下沉，图标与说明文字明确降级。严禁臃肿投影与大圆角。 */
+.registry-structure-context-menu { position:fixed; z-index:110; width:min(268px,calc(100vw - 20px)); padding:5px; border:1px solid rgba(223,195,132,.26); border-radius:8px; background:linear-gradient(180deg,#171b23 0%,#0d0f14 100%); color:var(--text); box-shadow:0 6px 16px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.06); overflow:hidden; }
+.registry-structure-context-title { min-height:30px; padding:0 8px 0 7px; border-bottom:1px solid rgba(223,195,132,.18); display:flex; align-items:center; gap:7px; color:#dfc384; font-size: var(--gw-type-label-md); font-weight:800; }
 .registry-structure-context-title svg { width:13px; height:13px; color:#dfc384; }
-.registry-structure-context-menu > button { width:100%; min-height:50px; padding:8px 10px; border:0; background:transparent; color:inherit; display:grid; grid-template-columns:16px minmax(0,1fr); grid-template-rows:auto auto; column-gap:8px; align-items:center; text-align:left; cursor:pointer; }
+.registry-structure-context-title span { font-family:var(--gw-font-body); }
+.registry-structure-context-title b { margin-right:4px; color:#dfc384; font-family:var(--gw-font-mono); font-weight:800; }
+.registry-structure-context-menu > button { position:relative; width:100%; min-height:50px; padding:7px 10px 7px 11px; border:0; border-left:2px solid transparent; background:transparent; color:inherit; display:grid; grid-template-columns:18px minmax(0,1fr); grid-template-rows:auto auto; column-gap:9px; align-items:center; text-align:left; cursor:pointer; transition:background .12s ease,border-color .12s ease,color .12s ease; }
 .registry-structure-context-menu > button > svg { grid-row:1 / 3; width:15px; height:15px; color:#dfc384; }
-.registry-structure-context-menu > button > span { min-width:0; font-size: var(--gw-type-label-md); font-weight:850; }
+.registry-structure-context-menu > button > span { min-width:0; color:var(--text); font-size: var(--gw-type-label-md); font-weight:850; }
 .registry-structure-context-menu > button > small { margin-top:2px; color:var(--muted); font-size: var(--gw-type-label-md); font-weight:750; }
-.registry-structure-context-menu > button:hover,.registry-structure-context-menu > button:focus-visible { background:rgba(223,195,132,.14); outline:none; }
-.registry-structure-context-menu > button:disabled { cursor:not-allowed; opacity:.45; }
-.registry-structure-context-menu > button:disabled > svg { color:var(--muted); }
+.registry-structure-context-menu > button:hover:not(:disabled) { background:linear-gradient(90deg,rgba(223,195,132,.16),rgba(223,195,132,.03)); border-left-color:#dfc384; }
+.registry-structure-context-menu > button:hover:not(:disabled) > svg { color:#f3dfb6; }
+.registry-structure-context-menu > button:focus-visible { outline:1px solid rgba(223,195,132,.7); outline-offset:-1px; }
+.registry-structure-context-menu > button:disabled { cursor:not-allowed; }
+.registry-structure-context-menu > button:disabled > svg { color:#5d6773; }
+.registry-structure-context-menu > button:disabled > span { color:#7c8794; }
+.registry-structure-context-menu > button:disabled > small { color:#5d6773; }
 
 .registry-structure-card { --asset-type-color:var(--asset-type-image); position:relative; overflow:hidden; background:var(--card); }
 .registry-structure-card::before { background:var(--sf-cyan,var(--asset-type-color)); }
