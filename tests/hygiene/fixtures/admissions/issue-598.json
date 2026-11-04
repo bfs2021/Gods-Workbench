@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 598,
+  "authorization_basis": "GitHub Issue #598 (QIN-542), 2026-11-04",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "gw/asset_registry/repository.py",
+    "tests/api/test_qin_542_folder_counts.py",
+    "tests/frontend/qin-542-registry-disk-folders.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-598.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-542-registry-disk-folders.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #598 (QIN-542), 2026-11-04",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-542：目录树消费全部已加载层级的磁盘目录缓存并支持任意深度逐层懒加载；空目录加载确认后标明「空」；计数双口径（total_count 含子目录总数 / count 本层直接文件）并在节点徽标区分；非 admin 403 显式提示。分片按票号命名规则取 issue-598.json。"
+}

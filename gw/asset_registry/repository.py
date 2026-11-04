@@ -1926,8 +1926,24 @@ def folders(root_id: Optional[str]) -> Dict[str, Any]:
             summary["count"] += 1
             category = _asset_category(asset)
             summary["categories"][category] = summary["categories"].get(category, 0) + 1
-    indexed_folders = [{"root_id": source, "path": path, **summary}
-                       for (source, path), summary in sorted(indexed.items())]
+    # QIN-542 AC3：自底向上把每层直接文件数累加到全部祖先目录，得到含子目录的递归 totals
+    totals: dict[tuple[str, str], int] = {}
+    for (source, path), summary in indexed.items():
+        direct = int(summary["count"])
+        segments = path.split("/")
+        for depth in range(1, len(segments) + 1):
+            key = (source, "/".join(segments[:depth]))
+            totals[key] = totals.get(key, 0) + direct
+    indexed_folders = []
+    for (source, path), summary in sorted(indexed.items()):
+        # QIN-542 AC3：count 保持「仅本层直接文件」口径；total_count 为含子目录的递归总数
+        indexed_folders.append({
+            "root_id": source,
+            "path": path,
+            "count": summary["count"],
+            "total_count": totals.get((source, path), int(summary["count"])),
+            "categories": summary["categories"],
+        })
     return {"folders": items, "indexed_folders": indexed_folders,
             "root_id": root_id, "revision": raw["revision"],
             "data_status": DATA_STATUS_OK, "data_gaps": []}
