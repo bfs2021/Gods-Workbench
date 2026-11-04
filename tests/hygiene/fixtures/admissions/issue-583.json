@@ -1,0 +1,26 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 583,
+  "authorization_basis": "GitHub Issue #583 (QIN-534), 2026-11-04；用户授权后端补 related_assets 只读契约与「只移出选中项」的解除粒度",
+  "files": [
+    "gw/asset_registry/repository.py",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "web/css/pages/asset-vault.css",
+    "tests/contracts/assets/test_phase11_b3_asset_registry.py",
+    "tests/frontend/qin-534-asset-structure-actions.test.mjs",
+    "tests/frontend/qin-489-asset-library-layout.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-583.json"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-534-asset-structure-actions.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #583 (QIN-534), 2026-11-04",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-534：统一资产库多选交互与批量抽屉黑金重构。选中卡片黑金微光高亮且缩略图不加遮罩；多选右键菜单按素材状态切换「合并为版本/关联/组结构」与「解除版本/关联/组结构」；底部批量抽屉去掉亮黄实底改黑金毛玻璃硬件容器。本轮按用户反馈补齐解除语义：后端素材列表与详情新增 related_assets 只读字段（单向登记，只回填来源素材可见的对端），前端据此判定「已关联」并给出解除入口；解除结构只把选中素材移出结构、其余成员保留，剩余不足两个时整体删除结构。"
+}

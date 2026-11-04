@@ -193,6 +193,37 @@ def test_a2_tags_relations_and_reference_resolve(client, assets):
     assert client.delete(f"/api/asset-registry/assets/{first}/tags/{tag_ids[0]}", headers=AUTH).status_code == 404
 
 
+def test_asset_responses_expose_related_assets(client, assets):
+    """素材列表与详情都回填已关联素材，前端据此判定「已关联」并给出解除入口。
+
+    关系是单向登记（来源 → 目标）：只有来源素材能看到对端，目标素材不反向可见，
+    避免凭空造出对称关系；解除后两侧都不再带 related_assets。
+    """
+    first, second = assets
+    created = client.post("/api/asset-registry/assets/relations", headers=AUTH,
+                          json={"asset_ids": [first, second], "relation_type": "related"})
+    assert created.status_code == 200 and created.json()["count"] == 1
+
+    detail = client.get(f"/api/asset-registry/assets/{first}", headers=AUTH).json()["asset"]
+    related = detail["related_assets"]
+    assert [item["asset_id"] for item in related] == [second]
+    assert related[0]["name"] == "场景.mp4"
+    assert related[0]["kind"] == "video"
+
+    reverse = client.get(f"/api/asset-registry/assets/{second}", headers=AUTH).json()["asset"]
+    assert reverse["related_assets"] == []
+
+    listed = client.get("/api/asset-registry/assets?limit=50", headers=AUTH).json()
+    by_id = {item["asset_id"]: item for item in listed["assets"]}
+    assert [item["asset_id"] for item in by_id[first]["related_assets"]] == [second]
+    assert by_id[second]["related_assets"] == []
+
+    removed = client.delete(f"/api/asset-registry/assets/{first}/relations/{second}", headers=AUTH)
+    assert removed.status_code == 200
+    after = client.get(f"/api/asset-registry/assets/{first}", headers=AUTH).json()["asset"]
+    assert after["related_assets"] == []
+
+
 def test_a2_image_versions_lifecycle(client, assets):
     asset_id = assets[0]
     created = client.post(f"/api/asset-registry/assets/{asset_id}/image-versions", headers=AUTH,

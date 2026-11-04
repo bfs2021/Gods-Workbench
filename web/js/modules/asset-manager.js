@@ -5618,18 +5618,129 @@ function closeRegistryStructureMenu(){
     registryStructureMenu = null;
     document.querySelector('[data-registry-structure-menu]')?.remove();
 }
+// 【QIN-534 反馈 4】素材的关联与结构状态判定。
+// 关联关系是单向登记（来源 → 目标），后端在素材响应里回填 related_assets；
+// 结构状态来自 asset-structures 集合投影，成员覆盖全部选中项时才可解除。
+function registryRelatedAssetIds(item={}){
+    return (Array.isArray(item?.related_assets) ? item.related_assets : [])
+        .map(asset => String(asset?.id || asset?.asset_id || '').trim())
+        .filter(Boolean);
+}
+function registrySelectedAssetMap(assetIds=[]){
+    const wanted = new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean));
+    const found = new Map();
+    registryAssets.forEach(item => {
+        const id = String(item?.id || '');
+        if(wanted.has(id)) found.set(id, item);
+    });
+    return found;
+}
+// 选中集合内部是否已经存在关联：任一方向的已登记关系成立即视为已关联。
+function registrySelectionRelationState(assetIds=[]){
+    const ids = [...new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean))];
+    if(ids.length < 2) return false;
+    const selected = new Set(ids);
+    const items = registrySelectedAssetMap(ids);
+    return ids.some(id => registryRelatedAssetIds(items.get(id) || {}).some(targetId => selected.has(targetId)));
+}
+// 找到覆盖全部选中项的同类型结构：只有它才能被整批解除。
+function registryOwningStructures(assetIds=[]){
+    const ids = new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean));
+    const pick = (type) => [...registryAssetStructures.values()]
+        .filter(structure => structure.structure_type === type && structure.members.length >= 2)
+        .find(structure => structure.members.every(member => ids.has(member.asset_id))) || null;
+    return {version:pick('version'), group:pick('group')};
+}
+// 【QIN-534 反馈 4】解除结构只把选中素材移出结构，其余成员保留；
+// 剩余成员不足两个时结构失去意义，整体删除。CAS 使用结构自身版本号。
+async function releaseRegistryStructureMembers(structure, assetIds=[]){
+    if(!structure || !['version','group'].includes(structure.structure_type)) throw new Error('待解除的结构不存在');
+    const removing = new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean));
+    const remaining = structure.members.map(member => member.asset_id).filter(id => !removing.has(id));
+    const isGroup = structure.structure_type === 'group';
+    registryStructureMutationId = structure.id;
+    try {
+        if(remaining.length >= 2){
+            const payload = {asset_ids:remaining, expected_version:structure.version};
+            // 当前代表素材被移出时必须改指剩余成员，否则服务端按非法成员拒绝。
+            if(!remaining.includes(structure.current_asset_id)) payload.current_asset_id = remaining[0];
+            const data = await apiJsonResponse(assetManagerHttp.request(
+                `/api/asset-registry/asset-structures/${encodeURIComponent(structure.id)}`,
+                {method:'PATCH', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
+            ));
+            const updated = normalizeRegistryAssetStructure(data?.structure || {});
+            if(updated.id) registryAssetStructures.set(updated.id, updated);
+            setStatus(`已移出 ${removing.size} 项素材，${isGroup ? '组结构' : '版本结构'}保留 ${remaining.length} 项`);
+        } else {
+            const deleted = await apiJsonResponse(assetManagerApi.deleteAssetStructure(structure.id, structure.version));
+            const latestRevision = Number(deleted?.revision);
+            if(Number.isFinite(latestRevision) && latestRevision >= 1) registryAssetStructuresRevision = latestRevision;
+            registryAssetStructures.delete(structure.id);
+            setStatus(`已解除${isGroup ? '组结构' : '版本结构'}`);
+        }
+    } catch(err) {
+        // CAS 冲突时先回读结构真值，让下一次提交以服务端最新版本进行。
+        await reloadRegistryAssetStructure(structure.id).catch(() => null);
+        throw err;
+    } finally {
+        registryStructureMutationId = '';
+    }
+    closeRegistryStructureMenu();
+    render();
+}
+// 【QIN-534 反馈 4】解除关联：关系是单向登记（来源 → 目标），
+// 因此按选中集合内的有序对逐条解除；本就没有关联的对返回 404，直接跳过。
+async function releaseRegistryRelations(assetIds=[]){
+    const ids = [...new Set(assetIds.map(value => String(value || '').trim()).filter(Boolean))];
+    if(ids.length < 2) throw new Error('至少选择两个素材才能解除关联');
+    const removedPairs = [];
+    for(const from of ids){
+        for(const to of ids){
+            if(from === to) continue;
+            try {
+                await apiJsonResponse(assetManagerApi.removeRegistryAssetRelation(from, to));
+                removedPairs.push(`${from}->${to}`);
+            } catch(err) {
+                if(err?.code === 'RELATION_NOT_FOUND' || err?.status === 404) continue;
+                throw err;
+            }
+        }
+    }
+    // 本地同步已解除的对端，菜单状态与详情面板立即反映真实结果。
+    if(removedPairs.length){
+        const removed = new Set(removedPairs);
+        registryAssets.forEach(item => {
+            if(!Array.isArray(item.related_assets)) return;
+            const id = String(item.id || '');
+            item.related_assets = item.related_assets.filter(asset => !removed.has(`${id}->${String(asset?.id || '')}`));
+        });
+    }
+    setStatus(removedPairs.length ? `已解除 ${removedPairs.length} 条素材关联` : '选中素材之间没有可解除的关联');
+    render();
+}
 // 【QIN-534】多选右键菜单不再限定 kind==='image'：版本/组结构按「是否全为图片」决定可用性，
 // 关联结构对任意多模态素材可用，避免右键菜单被旧限制静默拦掉。
+// 【QIN-534 反馈 4】三项动作按素材当前状态切换「合并 / 解除」语义：
+// 已存在版本结构、组结构或关联时给出解除入口，避免重复合并产生第二个结构。
 function renderRegistryStructureContextMenu(assetIds=[], options={}){
     const count = assetIds.length;
     const imageOnly = options.imageOnly !== false;
-    const structureDisabled = imageOnly ? '' : ' disabled';
-    const structureHint = imageOnly ? '切换最终版本' : '仅支持图片素材';
+    const owning = options.owning || {version:null, group:null};
+    const related = Boolean(options.related);
+    const versionStructure = owning.version || null;
+    const groupStructure = owning.group || null;
+    const versionDisabled = imageOnly ? '' : ' disabled';
+    const versionLabel = versionStructure ? '解除版本结构' : '合并为版本结构';
+    const versionHint = versionStructure ? '移出该版本结构，保留其余成员' : (imageOnly ? '切换最终版本' : '仅支持图片素材');
+    const groupLabel = groupStructure ? '解除组结构' : '合并为组结构';
+    const groupHint = groupStructure ? '移出该组结构，保留其余成员' : (imageOnly ? '叠放缩略图，双击进入组 Coverflow' : '仅支持图片素材');
+    const relationLabel = related ? '解除关联结构' : '合并为关联结构';
+    const relationHint = related ? '断开选中素材之间的关联' : '建立素材互相关联';
     return `<div class="registry-structure-context-menu" data-registry-structure-menu role="menu" aria-label="合并已选素材">
         <div class="registry-structure-context-title"><i data-lucide="layers-3"></i><span><b>${count}</b> 项素材</span></div>
-        <button type="button" role="menuitem" data-registry-structure-create="version"${structureDisabled}><i data-lucide="git-branch"></i><span>合并为版本结构</span><small>${structureHint}</small></button>
-        <button type="button" role="menuitem" data-registry-structure-create="relation"><i data-lucide="link-2"></i><span>合并为关联结构</span><small>建立素材互相关联</small></button>
-        <button type="button" role="menuitem" data-registry-structure-create="group"${structureDisabled}><i data-lucide="layers-2"></i><span>合并为组结构</span><small>${imageOnly ? '叠放缩略图，双击进入组 Coverflow' : '仅支持图片素材'}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${versionStructure ? 'release' : 'create'}="version"${versionStructure ? '' : versionDisabled}><i data-lucide="git-branch"></i><span>${versionLabel}</span><small>${versionHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${related ? 'release' : 'create'}="relation"><i data-lucide="link-2"></i><span>${relationLabel}</span><small>${relationHint}</small></button>
+        <button type="button" role="menuitem" data-registry-structure-${groupStructure ? 'release' : 'create'}="group"${groupStructure ? '' : versionDisabled}><i data-lucide="layers-2"></i><span>${groupLabel}</span><small>${groupHint}</small></button>
     </div>`;
 }
 // 【QIN-534】触发修复：多选后右键点击「任意已选卡片」或「网格空白区」都要弹出同一套黑金菜单；
@@ -5649,8 +5760,12 @@ function openRegistryStructureContextMenu(event){
     event.stopPropagation();
     closeRegistryStructureMenu();
     const menuHost = document.createElement('div');
+    const selectedIds = selected.map(item => item.id);
     const imageOnly = selected.every(isRegistryStructureImage);
-    menuHost.innerHTML = renderRegistryStructureContextMenu(selected.map(item => item.id), {imageOnly});
+    // 【QIN-534 反馈 4】按素材当前状态决定给出「合并」还是「解除」入口。
+    const owning = registryOwningStructures(selectedIds);
+    const related = registrySelectionRelationState(selectedIds);
+    menuHost.innerHTML = renderRegistryStructureContextMenu(selectedIds, {imageOnly, owning, related});
     const menu = menuHost.firstElementChild;
     if(!menu) return;
     document.body.appendChild(menu);
@@ -5736,6 +5851,14 @@ async function runRegistryStructureAction(type='', assetIds=[]){
     if(type === 'version') return createRegistryVersionStructure(ids);
     if(type === 'group') return createRegistryGroupStructure(ids);
     if(type === 'relation') return relateSelectedRegistryAssets(ids);
+    // 【QIN-534 反馈 4】解除语义：只把选中素材移出结构，其余成员保留。
+    if(type === 'release-version' || type === 'release-group'){
+        const owning = registryOwningStructures(ids);
+        const structure = type === 'release-version' ? owning.version : owning.group;
+        if(!structure) throw new Error('选中素材不属于同一个结构，无法解除');
+        return releaseRegistryStructureMembers(structure, ids);
+    }
+    if(type === 'release-relation') return releaseRegistryRelations(ids);
     return undefined;
 }
 function registryCoverflowBoard(board=assetBoardById(activeTab)){
@@ -8042,6 +8165,29 @@ async function relateSelectedRegistryAssets(assetIds=[]){
     if(ids.length < 2){ setStatus('至少选择两个素材才能建立关联'); return; }
     const data = await apiJsonResponse(assetManagerApi.relateRegistryAssets({asset_ids:ids,relation_type:'related'}));
     (data.assets || []).forEach(mergeRegistryAssetUpdate);
+    // 【QIN-534 反馈 4】建立关联后立刻把服务端返回的关系对端写回本地状态，
+    // 否则菜单判不出「已关联」，会一直停在「合并为关联结构」。
+    const anchor = ids[0];
+    const relations = Array.isArray(data?.relations) ? data.relations : [];
+    const relatedTargets = relations
+        .filter(relation => String(relation?.from_asset_id || '') === anchor)
+        .map(relation => String(relation?.to_asset_id || '').trim())
+        .filter(Boolean);
+    if(relatedTargets.length){
+        const anchorItem = registryAssets.find(item => String(item.id || '') === anchor);
+        if(anchorItem){
+            const existing = new Set(registryRelatedAssetIds(anchorItem));
+            const summaries = relatedTargets
+                .filter(targetId => !existing.has(targetId))
+                .map(targetId => {
+                    const target = registryAssets.find(item => String(item.id || '') === targetId);
+                    return target
+                        ? {id:target.id, asset_id:target.id, name:target.name, kind:target.kind}
+                        : {id:targetId, asset_id:targetId};
+                });
+            if(summaries.length) anchorItem.related_assets = [...(anchorItem.related_assets || []), ...summaries];
+        }
+    }
     if(detailViewerState.open && detailViewerState.source === 'registry') renderDetailViewer();
     else render();
     setStatus(`已关联 ${ids.length} 个素材`);
@@ -10222,6 +10368,16 @@ function renderRegistrySelectionBar(board=null){
     const imageOnly = selected.length >= 2 && selected.every(isRegistryStructureImage);
     const mergeDisabled = imageOnly ? '' : ' disabled';
     const mergeTitle = imageOnly ? '' : ' title="仅支持至少两张已选图片"';
+    // 【QIN-534 反馈 4】底部批量栏与右键菜单同口径：按素材当前状态切换「合并 / 解除」。
+    const selectedIds = selected.map(item => item.id);
+    const owning = registryOwningStructures(selectedIds);
+    const related = registrySelectionRelationState(selectedIds);
+    const versionLabel = owning.version ? '解除版本' : '合并为版本';
+    const groupLabel = owning.group ? '解除组' : '合并为组';
+    const relationLabel = related ? '解除关联' : '建立关联';
+    const versionIcon = owning.version ? 'unlink' : 'git-branch';
+    const groupIcon = owning.group ? 'unlink' : 'layers-2';
+    const relationIcon = related ? 'unlink' : 'link-2';
     return `<div class="registry-selection-dock">
         ${renderRegistryBulkPanel(board)}
         <div class="registry-selection-bar">
@@ -10229,9 +10385,9 @@ function renderRegistrySelectionBar(board=null){
             <div class="registry-selection-actions">
                 <button class="hw-btn${registryBulkPanel === 'canvas' ? ' is-active' : ''}" type="button" data-registry-bulk-panel="canvas"><i data-lucide="layout-dashboard"></i><span>加入画布</span></button>
                 <button class="hw-btn${registryBulkPanel === 'tags' ? ' is-active' : ''}" type="button" data-registry-bulk-panel="tags"><i data-lucide="tags"></i><span>添加标签</span></button>
-                <button class="hw-btn" type="button" data-registry-structure-merge="version"${mergeDisabled}${mergeTitle}><i data-lucide="git-branch"></i><span>合并为版本</span></button>
-                <button class="hw-btn" type="button" data-registry-structure-merge="group"${mergeDisabled}${mergeTitle}><i data-lucide="layers-2"></i><span>合并为组</span></button>
-                <button class="hw-btn" type="button" data-registry-relate ${selected.length < 2 ? 'disabled' : ''}><i data-lucide="link-2"></i><span>建立关联</span></button>
+                <button class="hw-btn" type="button" data-registry-${owning.version ? 'bulk-release' : 'structure-merge'}="version"${owning.version ? '' : mergeDisabled}${owning.version ? '' : mergeTitle}><i data-lucide="${versionIcon}"></i><span>${versionLabel}</span></button>
+                <button class="hw-btn" type="button" data-registry-${owning.group ? 'bulk-release' : 'structure-merge'}="group"${owning.group ? '' : mergeDisabled}${owning.group ? '' : mergeTitle}><i data-lucide="${groupIcon}"></i><span>${groupLabel}</span></button>
+                <button class="hw-btn" type="button" data-registry-${related ? 'bulk-release' : 'relate'}="relation"${selected.length < 2 ? 'disabled' : ''}><i data-lucide="${relationIcon}"></i><span>${relationLabel}</span></button>
                 <button class="hw-btn" type="button" data-registry-archive ${registryArchiveBusy ? 'disabled' : ''}><i data-lucide="package"></i><span>打包导出</span></button>
                 <button class="hw-btn" type="button" data-registry-export-pdf ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>
             </div>
@@ -13114,6 +13270,13 @@ async function handleClick(event){
         // 【QIN-534】底部批量栏的「合并为版本 / 合并为组」：用当前选择集，与右键菜单共用同一实现。
         const mergeBtn = target.closest('[data-registry-structure-merge]');
         await runRegistryStructureAction(mergeBtn.dataset.registryStructureMerge || '', registryActiveSelectedIds(assetBoardById(activeTab)));
+        return;
+    }
+    if(target.closest?.('[data-registry-bulk-release]')){
+        // 【QIN-534 反馈 4】底部批量栏的「解除版本 / 解除组 / 解除关联」：
+        // 用独立属性，避免与右键菜单的 data-registry-structure-release 互相命中导致重复触发。
+        const releaseBtn = target.closest('[data-registry-bulk-release]');
+        await runRegistryStructureAction(`release-${releaseBtn.dataset.registryBulkRelease || ''}`, registryActiveSelectedIds(assetBoardById(activeTab)));
         return;
     }
     if(target.closest?.('[data-registry-archive]')){ await downloadSelectedRegistryArchive(assetBoardById(activeTab)); return; }
@@ -20413,6 +20576,15 @@ document.addEventListener('click', event => {
         const ids = registryStructureMenu?.assetIds || [];
         closeRegistryStructureMenu();
         runRegistryStructureAction(type, ids).catch(err => setStatus(err.message || '结构创建失败'));
+        return;
+    }
+    const structureRelease = event.target.closest?.('[data-registry-structure-release]');
+    if(structureRelease){
+        // 【QIN-534 反馈 4】右键菜单的解除入口：菜单挂在 body 上，根级点击处理不会命中，这里独占处理。
+        const type = structureRelease.dataset.registryStructureRelease || '';
+        const ids = registryStructureMenu?.assetIds || [];
+        closeRegistryStructureMenu();
+        runRegistryStructureAction(`release-${type}`, ids).catch(err => setStatus(err.message || '结构解除失败'));
         return;
     }
     if(event.target.closest?.('[data-registry-structure-remove-dialog-close]')){
