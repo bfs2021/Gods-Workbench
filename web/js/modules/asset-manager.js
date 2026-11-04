@@ -14724,12 +14724,12 @@ function renderMediaNodeParametricSvg(item, edit, url, previewFallback=''){
             return `<g class="asset-detail-parametric-brush">${paths}</g>`;
         }
         if(layer.type === 'text'){
-            const fontSize = Math.max(10, Number(layer.fontSize || layer.font_size || 32));
+            const fontSize = Math.max(8, Number(layer.fontSize || layer.font_size || 32));
             const color = layer.color || '#ffffff';
             const lines = String(layer.text || '').split('\n');
             const texts = lines.map((line, idx) => {
                 const y = Number(layer.y || 0) + (idx + 1) * fontSize * 1.05;
-                return `<text x="${Number(layer.x || 0).toFixed(1)}" y="${y.toFixed(1)}" fill="${escapeAttr(color)}" font-size="${fontSize}" font-family="Microsoft YaHei, sans-serif" font-weight="600" stroke="rgba(0,0,0,0.55)" stroke-width="${Math.max(1, fontSize / 14)}" paint-order="stroke fill">${escapeHtml(line)}</text>`;
+                return `<text x="${Number(layer.x || 0).toFixed(1)}" y="${y.toFixed(1)}" fill="${escapeAttr(color)}" font-family="Microsoft YaHei, sans-serif" font-weight="600" style="font-size:${fontSize}px;stroke:rgba(0,0,0,0.55);stroke-width:${Math.max(1, fontSize / 14)}" paint-order="stroke fill">${escapeHtml(line)}</text>`;
             }).join('');
             return `<g class="asset-detail-parametric-text">${texts}</g>`;
         }
