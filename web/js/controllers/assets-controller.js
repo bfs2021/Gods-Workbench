@@ -656,6 +656,28 @@ window.WorkbenchAssets = (() => {
     if (frame.contentDocument?.readyState === 'complete') initFrame();
   }
 
+  function saveBrowseStateBeforeRoute(event) {
+    const currentFrame = document.getElementById('assetVaultFrame');
+    if (!currentFrame) return;
+    if (event?.type === 'click') {
+      const link = event.target?.closest?.('.nav-pill-btn[href], .tree-node-card[href]');
+      if (!link) return;
+      const target = new URL(link.getAttribute('href') || '', location.href);
+      if (target.origin !== location.origin || target.pathname === location.pathname) return;
+    }
+    try {
+      const browseSession = currentFrame.contentWindow?.GWAssetBrowseSession;
+      if (event?.type === 'pagehide') browseSession?.save?.();
+      else browseSession?.saveForRoute?.();
+    } catch (_) {}
+  }
+  if (!window.__gwAssetBrowseRouteSaveBound) {
+    document.addEventListener('click', saveBrowseStateBeforeRoute, true);
+    window.addEventListener('popstate', saveBrowseStateBeforeRoute, true);
+    window.addEventListener('pagehide', saveBrowseStateBeforeRoute);
+    window.__gwAssetBrowseRouteSaveBound = true;
+  }
+
   function showIndexJobStatus(job) {
     const view = window.GWAssetJobStatus.view(job);
     setVaultStatus(view);

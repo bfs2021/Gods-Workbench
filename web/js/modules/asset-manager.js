@@ -21510,32 +21510,40 @@ Object.defineProperties(window, {
     openRegistryAssetFromGlobalSearch:{configurable:true, value:openRegistryAssetFromGlobalSearch},
 });
 const REGISTRY_SESSION_KEY = 'gw.registry.browse.session';
+const REGISTRY_ROUTE_PENDING_KEY = 'gw.registry.browse.route.pending';
 let registryBrowseInteracted = false;
 let registrySessionReady = false;
 document.addEventListener('pointerdown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 document.addEventListener('keydown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 function saveRegistryBrowseSession(){
-    if(!registrySessionReady) return;
-    if(activeTab !== 'registry' && assetBoardById(activeTab)?.system !== false) return;
+    if(!registrySessionReady || !assetBoardById(activeTab)) return false;
     try {
         sessionStorage.setItem(REGISTRY_SESSION_KEY, JSON.stringify({
             tab:activeTab, folder:registryNavFolder, sources:boardSourceSelection,
             folders:boardFolderSelection, scroll:root.querySelector('.registry-assets-scroll')?.scrollTop || 0,
         }));
-    } catch(_) {}
+        return true;
+    } catch(_) { return false; }
 }
+function saveRegistryBrowseSessionForRoute(){
+    if(!saveRegistryBrowseSession()) return;
+    try { sessionStorage.setItem(REGISTRY_ROUTE_PENDING_KEY, '1'); } catch(_) {}
+}
+window.GWAssetBrowseSession = Object.freeze({save:saveRegistryBrowseSession, saveForRoute:saveRegistryBrowseSessionForRoute});
 async function restoreRegistryBrowseSession(){
     try {
         const navigation = performance.getEntriesByType?.('navigation')?.[0];
         const saved = JSON.parse(sessionStorage.getItem(REGISTRY_SESSION_KEY) || 'null');
+        const restoreForShellRoute = sessionStorage.getItem(REGISTRY_ROUTE_PENDING_KEY) === '1';
         sessionStorage.removeItem(REGISTRY_SESSION_KEY);
+        sessionStorage.removeItem(REGISTRY_ROUTE_PENDING_KEY);
         const parentNavigation = window.parent !== window ? window.parent.performance.getEntriesByType?.('navigation')?.[0] : navigation;
-        if(!saved || navigation?.type === 'reload' || parentNavigation?.type === 'reload' || registryBrowseInteracted) return;
+        if(!saved || navigation?.type === 'reload' || (parentNavigation?.type === 'reload' && !restoreForShellRoute) || registryBrowseInteracted) return;
         registryNavFolder = saved.folder || {rootId:'', path:''};
         boardSourceSelection = saved.sources || {};
         boardFolderSelection = saved.folders || {};
         if(saved.tab === 'registry' && (registryNavFolder.rootId || registryNavFolder.path)) await refreshRegistryAssets(false);
-        if(saved.tab && saved.tab !== 'registry' && assetBoardById(saved.tab)?.system === false){
+        if(saved.tab && saved.tab !== 'registry' && assetBoardById(saved.tab)){
             await activateAssetBoard(saved.tab);
             if(registryLoading) await refreshRegistryAssets(false);
         }
@@ -21549,11 +21557,19 @@ async function restoreRegistryBrowseSession(){
             scroll = root.querySelector('.registry-assets-scroll');
         }
         savedScrollPositions.registry = desired;
-        requestAnimationFrame(() => {
-            const area = root.querySelector('.registry-assets-scroll');
-            if(area){ area.scrollTop = desired; scheduleRegistryVirtualWindow(); }
-        });
+        return desired;
     } catch(_) {}
+}
+async function applyRegistryBrowseSessionScroll(desired){
+    const deadline = Date.now() + 1500;
+    let area = null;
+    while(Date.now() < deadline){
+        area = root.querySelector('.registry-assets-scroll');
+        if(area && (desired <= 0 || desired <= area.scrollHeight - area.clientHeight)) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    area = root.querySelector('.registry-assets-scroll');
+    if(area){ area.scrollTop = desired; scheduleRegistryVirtualWindow(); }
 }
 window.addEventListener('pagehide', saveRegistryBrowseSession);
 document.addEventListener('click', () => {
@@ -21563,5 +21579,11 @@ if(!directorySettingsPage) renderBoardNavigation();
 document.addEventListener('DOMContentLoaded', () => {
     if(directorySettingsPage){ loadGlobalDirectorySettings(); return; }
     loadRegistryPrincipal();
-    loadAll().then(async () => { await restoreRegistryBrowseSession(); registrySessionReady = true; saveRegistryBrowseSession(); startRegistryAutomaticIndexPolling(); }).catch(err => setStatus(err.message || '加载失败'));
+    loadAll().then(async () => {
+        const restoredScroll = await restoreRegistryBrowseSession();
+        registrySessionReady = true;
+        if(Number.isFinite(restoredScroll)) await applyRegistryBrowseSessionScroll(restoredScroll);
+        saveRegistryBrowseSession();
+        startRegistryAutomaticIndexPolling();
+    }).catch(err => setStatus(err.message || '加载失败'));
 });

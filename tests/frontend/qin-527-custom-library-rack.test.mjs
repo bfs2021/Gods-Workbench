@@ -24,6 +24,10 @@ const SHELL_HTML = readFileSync(
     new URL('../../web/pages/assets.html', import.meta.url),
     'utf8'
 );
+const ASSETS_CONTROLLER = readFileSync(
+    new URL('../../web/js/controllers/assets-controller.js', import.meta.url),
+    'utf8'
+);
 const NODE_FILES = readFileSync(
     new URL('./node-files.txt', import.meta.url),
     'utf8'
@@ -308,4 +312,28 @@ test('QIN-532: 看板来源和自动归档范围随分页查询发送', () => {
     assert.deepEqual(JSON.parse(params.get('board_sources')), {
         visible:['a'], known:['a','b','c'], automatic:true, automatic_only:true,
     });
+});
+
+test('QIN-532 AC3: 路由离开前同步保存，并恢复任一资产看板', () => {
+    const save = functionSource('saveRegistryBrowseSession');
+    assert.match(save, /if\(!registrySessionReady \|\| !assetBoardById\(activeTab\)\) return false;/, '所有有效系统/自定义看板都必须保存会话');
+    assert.doesNotMatch(save, /system !== false/, '系统看板不得被会话保存过滤掉');
+    assert.match(MANAGER, /window\.GWAssetBrowseSession = Object\.freeze\(\{save:saveRegistryBrowseSession, saveForRoute:saveRegistryBrowseSessionForRoute\}\)/, '宿主必须能同步触发素材页保存并标记工作台路由');
+    assert.match(MANAGER, /REGISTRY_ROUTE_PENDING_KEY = 'gw\.registry\.browse\.route\.pending'/, '工作台离页必须使用独立的一次性恢复标记');
+
+    const restore = functionSource('restoreRegistryBrowseSession');
+    assert.match(restore, /saved\.tab && saved\.tab !== 'registry' && assetBoardById\(saved\.tab\)/, '恢复时必须重新激活任何仍有效的看板');
+    assert.doesNotMatch(restore, /assetBoardById\(saved\.tab\)\?\.system === false/, '系统看板不得被恢复过滤掉');
+    assert.match(restore, /parentNavigation\?\.type === 'reload' && !restoreForShellRoute/, '父页面曾刷新时仍允许明确发生过的工作台路由往返');
+    assert.match(restore, /sessionStorage\.removeItem\(REGISTRY_ROUTE_PENDING_KEY\)/, '一次性路由标记必须在恢复尝试后消费');
+    assert.match(restore, /return desired/, '恢复流程必须把滚动值交给初始化收尾阶段');
+    assert.match(functionSource('applyRegistryBrowseSessionScroll'), /desired <= area\.scrollHeight - area\.clientHeight/, '必须等待滚动容器完成布局后再应用原位置');
+    assert.match(functionSource('applyRegistryBrowseSessionScroll'), /area\.scrollTop = desired/, '布局完成后必须写回原滚动位置');
+    assert.match(MANAGER, /registrySessionReady = true;\s*if\(Number\.isFinite\(restoredScroll\)\) await applyRegistryBrowseSessionScroll\(restoredScroll\);\s*saveRegistryBrowseSession\(\)/, '最终 session 写入必须发生在还原滚动之后');
+
+    assert.match(ASSETS_CONTROLLER, /document\.addEventListener\('click', saveBrowseStateBeforeRoute, true\)/, '宿主导航点击捕获阶段必须先保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('popstate', saveBrowseStateBeforeRoute, true\)/, '浏览器前进/后退必须先保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /browseSession\?\.saveForRoute\?\.\(\)/, '工作台路由离开必须同步保存并标记恢复');
+    assert.match(ASSETS_CONTROLLER, /window\.addEventListener\('pagehide', saveBrowseStateBeforeRoute\)/, '整页离开时必须保存 iframe 状态');
+    assert.match(ASSETS_CONTROLLER, /browseSession\?\.save\?\.\(\)/, '整页刷新只保存状态，不标记为工作台路由');
 });
