@@ -6683,10 +6683,8 @@ function registryVirtualCardHeight(item={}, cardWidth=176){
                     ? innerWidth / (16 / 9)
                     : 96
         : 150;
-    // 【QIN-541】首次估算仅用于占位，渲染后以卡片实测高度为准。标准卡正文重排后为两行紧凑
-    // 结构（文件名 22px + 「大小 · 尺寸」17px + 金库壳正文上内边距 5px），正文估算由 92 收敛到 44；
-    // 简洁模式正文隐藏仍为 0。方形模式与标准卡共用同一正文模板，随本估算同步收敛。
-    const bodyHeight = registrySimple ? 0 : 44;
+      // 【QIN-541】仅标准模式正文收敛到 44px；方形模式保留原正文及 92px 估算，简洁模式为 0。
+      const bodyHeight = registrySimple ? 0 : registryAspect === 'square' ? 92 : 44;
     return Math.ceil(mediaHeight + bodyHeight + 14);
 }
 function registryVirtualHeightCacheKey(item, index=0, cacheMode=''){
@@ -10465,15 +10463,22 @@ function renderRegistryCard(item){
     const sublineHeight = Number(item.height || item.metadata?.height || 0);
     if(sublineWidth > 0 && sublineHeight > 0) measureParts.push(`${sublineWidth}×${sublineHeight}`);
     const subline = measureParts.length ? `<span class="registry-card-subline">${escapeHtml(measureParts.join(' · '))}</span>` : '';
+    const cardBody = registryAspect === 'square'
+        ? `<div class="asset-card-body">
+            <div class="registry-card-caption"><div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div><span class="registry-card-measure">${escapeHtml(item.kind === 'video' ? formatMediaDuration(item.duration || item.metadata?.duration) : formatFileSize(item.size || 0))}</span></div>
+            <div class="asset-card-meta"><span>${escapeHtml(registryAssetTypeLabel(item))}</span><span>${escapeHtml(formatDate(item.created_at))}</span></div>
+            <div class="registry-card-source" title="${escapeAttr(registrySourceNames(item).join(' · '))}"><i data-lucide="${registrySourceNames(item).length > 1 ? 'database-zap' : 'database'}"></i><span>${escapeHtml(registrySourceNames(item).join(' · '))}${registryRootIsOffline(item) ? ' · 离线' : ''}</span>${registrySourceNames(item).length > 1 ? `<em>${registrySourceNames(item).length} 库</em>` : ''}</div>
+        </div>`
+        : `<div class="asset-card-body">
+            <div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div>
+            <div class="registry-card-caption">${subline}${registryCardSourceBadge(item, assetBoardById(activeTab))}</div>
+        </div>`;
     return `<article class="asset-card registry-card asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" ${referenceCanvasId ? `data-reference-canvas-open="${escapeAttr(referenceCanvasId)}"` : ''} tabindex="0" role="button" aria-label="查看资产 ${escapeAttr(name)}">
         <input class="asset-card-check" type="checkbox" aria-label="选择 ${escapeAttr(name)}" data-registry-check="${escapeAttr(item.id)}" ${selected ? 'checked' : ''}>
         <span class="registry-card-format" aria-label="文件格式 ${escapeAttr(format)}">${escapeHtml(format)}</span>
         ${renderRegistryRecycleButton(item)}
         <div class="asset-thumb"${mediaAspectStyle ? ` style="${mediaAspectStyle}"` : ''}>${deferRegistryPreviewThumb(assetThumb(item))}${segmentBadge}<span class="registry-card-selection-overlay" aria-hidden="true"></span></div>
-        <div class="asset-card-body">
-            <div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div>
-            <div class="registry-card-caption">${subline}${registryCardSourceBadge(item, assetBoardById(activeTab))}</div>
-        </div>
+        ${cardBody}
     </article>`;
 }
 const REGISTRY_TAG_RECOMMENDATIONS = {
