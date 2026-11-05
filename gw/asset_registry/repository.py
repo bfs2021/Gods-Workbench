@@ -867,6 +867,7 @@ _ASSET_CATEGORY_EXTENSIONS = {
         "ckpt", "safetensors", "pt", "pth", "onnx", "gguf",
     }),
     "font": frozenset({"ttf", "otf", "ttc", "otc", "woff", "woff2"}),
+    "lut": frozenset({"cube"}),
 }
 _ASSET_CATEGORY_BY_EXTENSION = {
     extension: category

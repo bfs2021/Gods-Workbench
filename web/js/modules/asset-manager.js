@@ -842,9 +842,8 @@ const SYSTEM_ASSET_BOARDS = [
     {id:'prompts', name:'提示词', icon:'text-cursor-input', system:true},
     {id:'canvas-assets', name:'画布资产', icon:'layout-dashboard', system:true},
     {id:'local', name:'上传资源', icon:'cloud-upload', system:true},
-    {id:'governance', name:'治理建议', icon:'list-checks', system:true},
 ];
-// 【QIN-527】接入机架外壳的系统看板（治理建议保留治理专用面板，不在此列）
+// QIN-549：治理建议由资产工具栏顶栏入口打开，不再占用左侧看板。
 const SYSTEM_BOARD_RACK_TABS = ['scripts','projects','assets','workflows','prompts','canvas-assets','local'];
 const SCRIPT_ASSET_STORAGE_KEY = 'gwb_script_assets_v1';
 let scriptArchiveItems = [];
@@ -957,6 +956,7 @@ const ASSET_LIBRARY_PRESETS = [
     {id:'model', name:'模型库', description:'三维模型与生成模型', icon:'box', category:'model', kinds:[], extensions:[...ASSET_3D_PREVIEW_EXTENSIONS,'blend','c4d','max','ma','mb','ckpt','safetensors','pt']},
     {id:'image', name:'图片库', description:'图片、插画与视觉参考', icon:'images', category:'image', kinds:['image'], extensions:[...ASSET_PREVIEW_EXTENSIONS]},
     {id:'video', name:'视频库', description:'视频、样片与动态参考', icon:'clapperboard', category:'video', kinds:['video'], extensions:[...ASSET_VIDEO_EXTENSIONS]},
+    {id:'lut', name:'LUT库', description:'色彩查找表（.cube）', icon:'palette', category:'other', kinds:['lut'], extensions:['cube']},
     {id:'other', name:'其他资源', description:'其他', icon:'package-open', category:'', kinds:[], extensions:[]},
 ];
 function defaultBoardNavigationState(){
@@ -1129,13 +1129,6 @@ async function activateAssetBoard(id){
     }
     if(board.id === 'local' && !localAssetsLoaded){
         const loading = loadLocalAssets();
-        render();
-        await loading;
-        if(activeTab === id) render();
-        return;
-    }
-    if(board.id === 'governance' && !governanceSuggestionsData && !governanceSuggestionsLoading){
-        const loading = loadGovernanceSuggestions();
         render();
         await loading;
         if(activeTab === id) render();
@@ -2191,7 +2184,11 @@ async function waitForAssetIndexJob(jobId, sourceName='素材库'){
             }
             if(['failed','cancelled','interrupted'].includes(job.status)){
                 markIndexState('failed');
-                setStatus(`素材库“${sourceName}”索引失败：${job.error_code || job.status}`);
+                const message = ({
+                    LUT_CUBE_INVALID:'LUT 文件格式无效，请检查文件头和采样数据',
+                    LUT_CUBE_TOO_LARGE:'LUT 文件超过 64 MiB 上限',
+                })[job.error_code] || job.error_code || job.status;
+                setStatus(`素材库“${sourceName}”索引失败：${message}`);
                 return job;
             }
             const phase = job.progress?.phase || job.status;
@@ -6652,7 +6649,7 @@ function registryCardSourceBadge(item={}, board=null){
     return `<span class="registry-card-source" title="${escapeAttr(title)}"><i data-lucide="${icon}"></i></span>`;
 }
 function registryKindIcon(kind=''){
-    return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box'})[String(kind || '').toLowerCase()] || 'file';
+    return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box',lut:'palette'})[String(kind || '').toLowerCase()] || 'file';
 }
 function registryCanRecycle(item={}){
     return typeof item.can_recycle === 'boolean'
@@ -9153,91 +9150,274 @@ function restoreRegistryPreviewImages(cache){
         image.replaceWith(entry.image);
     });
 }
-// ===== MVP1-T5 治理建议清单视图（只建议 + 逐条确认，系统不改源文件、不自动删除） =====
+// ===== MVP1-T5 / QIN-549 治理建议：顶栏入口与分组抽屉 =====
 let governanceSuggestionsData = null;
 let governanceSuggestionsLoading = false;
+let governanceSuggestionsError = null;
+let governanceDrawerOpen = false;
+let governanceDrawerReturnFocus = null;
 const GOVERNANCE_SUGGESTION_KIND_LABELS = {
-    naming:'命名建议', tagging:'受控打标', duplicate_files:'文件查重',
-    duplicate_shots:'镜头查重', vector_duplicates:'向量近重', similar_names:'相似名（仅提示）',
+    naming:'命名建议',
+    similar_names:'相似名（仅提示）',
+    duplicate_files:'文件查重',
+    duplicate_shots:'镜头查重',
+    vector_duplicates:'向量近重',
+    tagging:'受控打标',
 };
+const GOVERNANCE_SUGGESTION_GROUPS = [
+    {id:'naming', label:'命名建议', icon:'text-search', description:'发现不符合统一命名要求的素材名称。', action:'打开素材后按命名规则改名，或确认系统给出的建议名称。'},
+    {id:'similar_names', label:'相似名（仅提示）', icon:'scan-search', description:'发现规范化后名称相近的素材。', action:'打开素材人工核对后改名；此类仅作提示，不会自动合并。'},
+    {id:'duplicate_files', label:'文件查重', icon:'files', description:'发现文件内容哈希相同的素材。', action:'打开素材核对内容，确认后可建立重复素材关联。'},
+    {id:'duplicate_shots', label:'镜头查重', icon:'film', description:'发现不同素材中内容相同的镜头片段。', action:'打开相关视频核对时间片段，确认后可建立镜头关联。'},
+    {id:'vector_duplicates', label:'向量近重', icon:'scan-search', description:'发现向量相似度达到阈值的素材对。', action:'打开素材人工复核，确认后可建立近重关联。'},
+    {id:'tagging', label:'受控打标', icon:'tags', description:'发现可映射到受控词表的自由标签。', action:'打开素材手动打标，或确认写入建议的受控标签。'},
+];
 const GOVERNANCE_INFORMATIONAL_KINDS = new Set(['similar_names']);
 async function loadGovernanceSuggestions(force=false){
     if(governanceSuggestionsLoading) return;
+    if(!force && (governanceSuggestionsData || governanceSuggestionsError)) return;
+    if(force){
+        governanceSuggestionsData = null;
+        governanceSuggestionsError = null;
+    }
     governanceSuggestionsLoading = true;
-    if(force) governanceSuggestionsData = null;
-    if(!force) render();
+    updateGovernanceTrigger();
+    if(governanceDrawerOpen) renderGovernanceDrawer();
     try {
         governanceSuggestionsData = await apiJsonResponse(fetch('/api/asset-registry/governance/suggestions', {
             headers:{'Accept':'application/json'},
         }));
+        governanceSuggestionsError = null;
+    } catch(error) {
+        governanceSuggestionsData = null;
+        governanceSuggestionsError = error;
     } finally {
         governanceSuggestionsLoading = false;
+        updateGovernanceTrigger();
+        if(governanceDrawerOpen) renderGovernanceDrawer();
     }
 }
 async function refreshGovernanceSuggestions(){
     await loadGovernanceSuggestions(true);
-    if(activeTab === 'governance') render();
-    setStatus('治理建议已刷新');
+    if(governanceSuggestionsError){
+        setStatus(governanceSuggestionsError.status === 403 ? '需要治理权限' : (governanceSuggestionsError.message || '治理建议读取失败'));
+    } else {
+        setStatus('治理建议已刷新');
+    }
 }
 function governanceSuggestionEntries(){
     const suggestions = governanceSuggestionsData?.suggestions || {};
-    return Object.entries(suggestions).flatMap(([kind, entries]) => (
-        (Array.isArray(entries) ? entries : []).map(entry => ({...entry, kind}))
+    return GOVERNANCE_SUGGESTION_GROUPS.flatMap(group => (
+        (Array.isArray(suggestions[group.id]) ? suggestions[group.id] : []).map(entry => ({...entry, kind:group.id}))
     ));
 }
-function renderGovernanceSuggestionCard(item){
-    const kindLabel = GOVERNANCE_SUGGESTION_KIND_LABELS[item.kind] || item.kind;
-    const informational = GOVERNANCE_INFORMATIONAL_KINDS.has(item.kind);
-    let detail = '';
-    if(item.kind === 'naming'){
-        detail = `<p>资产 <code>${escapeHtml(item.name || '')}</code>：${(item.violations || []).map(v => escapeHtml(v.message || v.code || '')).join('；') || '命名不符合规范'}</p><p>建议名称：<code>${escapeHtml(item.suggested_name || '')}</code></p>`;
-    } else if(item.kind === 'tagging'){
-        detail = `<p>来源标签 ${(item.source_tags || []).map(t => `<code>${escapeHtml(t)}</code>`).join('、')} 可归入受控词表：${(item.suggested_tags || []).map(t => `<strong>${escapeHtml(t)}</strong>`).join('、')}</p>`;
-    } else if(item.kind === 'duplicate_files'){
-        detail = `<p>相同内容哈希 <code>${escapeHtml(String(item.content_hash || '').slice(0, 16))}…</code>：</p><ul>${(item.members || []).map(m => `<li>${escapeHtml(m.path || '')}（${Number(m.size_bytes || 0)} 字节）</li>`).join('')}</ul>`;
-    } else if(item.kind === 'duplicate_shots'){
-        detail = `<p>相同镜头内容哈希 <code>${escapeHtml(String(item.content_hash || '').slice(0, 16))}…</code>：</p><ul>${(item.members || []).map(m => `<li>${escapeHtml(m.asset_id || '')} #${escapeHtml(String(m.shot_index ?? ''))}（${Number(m.start_sec || 0).toFixed(2)}s ~ ${Number(m.end_sec || 0).toFixed(2)}s）</li>`).join('')}</ul>`;
-    } else if(item.kind === 'vector_duplicates'){
-        detail = `<p>嵌入相似度 <strong>${escapeHtml(String(item.similarity ?? ''))}</strong>：<code>${escapeHtml(item.left_asset_id || '')}</code> 与 <code>${escapeHtml(item.right_asset_id || '')}</code></p>`;
-    } else if(item.kind === 'similar_names'){
-        detail = `<p>规范化名称 <code>${escapeHtml(item.normalized_name || '')}</code>：</p><ul>${(item.members || []).map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>`;
-    }
-    const action = informational ? '<span class="nav-hint">仅提示，不提供写入动作</span>'
-        : `<button class="hw-btn" type="button" data-governance-confirm="${escapeAttr(item.suggestion_id || '')}"><i data-lucide="check"></i><span>确认写入</span></button>`;
-    return `<article class="asset-panel governance-suggestion-card" data-governance-suggestion="${escapeAttr(item.suggestion_id || '')}" data-governance-kind="${escapeAttr(item.kind || '')}" role="listitem">
-        <div class="panel-head"><div class="panel-title"><strong>${escapeHtml(kindLabel)}</strong><span>${escapeHtml(item.suggestion_id || '')}</span></div></div>
-        ${detail}
-        <div class="content-toolbar">${action}</div>
-    </article>`;
+function governanceSuggestionAssetIds(item={}){
+    const memberIds = (Array.isArray(item.members) ? item.members : []).map(member => (
+        typeof member === 'string' ? '' : String(member?.asset_id || '')
+    ));
+    const ids = [
+        item.asset_id,
+        ...(Array.isArray(item.asset_ids) ? item.asset_ids : []),
+        item.left_asset_id,
+        item.right_asset_id,
+        ...memberIds,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return [...new Set(ids)];
 }
-function renderGovernanceSuggestionsManager(){
-    const loading = governanceSuggestionsLoading;
-    const data = governanceSuggestionsData;
-    const entries = data ? governanceSuggestionEntries() : [];
-    const counts = data?.counts || {};
-    const gaps = Array.isArray(data?.data_gaps) ? data.data_gaps : [];
-    const cards = entries.length
-        ? entries.map(renderGovernanceSuggestionCard).join('')
-        : `<div class="nav-hint" data-governance-empty>${loading ? '正在加载治理建议…' : '暂无治理建议：当前登记数据未发现命名、打标或查重候选。'}</div>`;
-    root.innerHTML = `
-        <aside class="asset-panel asset-nav">
-            <div class="panel-head"><div class="panel-title"><strong>治理建议</strong><span>只建议，确认后才写入</span></div><span class="library-board-mark"><i data-lucide="list-checks"></i></span></div>
-            <div class="nav-scroll">
-                <div class="nav-hint">命名与打标建议基于登记数据与受控词表；查重候选来自内容哈希与向量嵌入。系统永不自动删除，也不改源文件；确认动作全程携带版本校验并留确认记录。</div>
-                <section class="asset-context-tree"><div class="nav-section-title">建议分类</div><div class="nav-tree" data-governance-counts role="group" aria-label="建议分类计数">
-                    ${Object.keys(GOVERNANCE_SUGGESTION_KIND_LABELS).map(kind => `<div class="nav-tree-item"><span>${escapeHtml(GOVERNANCE_SUGGESTION_KIND_LABELS[kind])}</span><strong>${Number(counts[kind] || 0)}</strong></div>`).join('')}
-                </div></section>
-                ${gaps.length ? `<div class="nav-hint" data-governance-degraded>数据降级：${escapeHtml(gaps.join('、'))}，查重候选可能不完整。</div>` : ''}
-            </div>
-        </aside>
-        <section class="asset-panel asset-content" data-governance-suggestions role="list" aria-label="治理建议清单">
-            <div class="content-toolbar">
-                <div class="panel-title"><strong>建议清单</strong><span>注册表版本 v${escapeHtml(String(data?.revision ?? '—'))}</span></div>
-                <button class="hw-btn" type="button" data-governance-refresh><i data-lucide="refresh-cw"></i><span>刷新建议</span></button>
-            </div>
-            <div class="nav-scroll governance-suggestion-list">${cards}</div>
-        </section>`;
+function governanceAssetType(assetId){
+    const asset = registryAssets.find(item => String(item.id || item.asset_id || '') === String(assetId || ''));
+    return asset ? registryVisualType(asset) : 'other';
+}
+function governanceAssetTypeForIds(assetIds=[]){
+    const known = assetIds.map(governanceAssetType).find(type => type && type !== 'other');
+    return known || 'other';
+}
+function governanceSuggestionTotal(){
+    return governanceSuggestionEntries().length;
+}
+function governanceTriggerLabel(){
+    if(governanceSuggestionsError?.status === 403) return '治理建议：需要治理权限，打开查看';
+    if(governanceSuggestionsError) return '治理建议读取失败，打开查看错误并重试';
+    if(governanceSuggestionsLoading) return '治理建议正在加载';
+    if(!governanceSuggestionsData) return '打开治理建议';
+    return '治理建议，待处理 ' + governanceSuggestionTotal() + ' 条';
+}
+function updateGovernanceTrigger(){
+    const total = governanceSuggestionTotal();
+    const badgeText = governanceSuggestionsError ? '!' : governanceSuggestionsLoading ? '…' : governanceSuggestionsData ? String(total) : '—';
+    root?.querySelectorAll?.('[data-governance-open]').forEach(button => {
+        const badge = button.querySelector('[data-governance-total]');
+        if(badge) badge.textContent = badgeText;
+        button.classList.toggle('has-error', Boolean(governanceSuggestionsError));
+        button.setAttribute('aria-label', governanceTriggerLabel());
+        button.setAttribute('title', governanceTriggerLabel());
+        button.setAttribute('aria-expanded', String(governanceDrawerOpen));
+    });
+}
+function renderGovernanceSuggestionCard(item){
+    const kind = String(item.kind || '');
+    const kindLabel = GOVERNANCE_SUGGESTION_KIND_LABELS[kind] || kind;
+    const assetIds = governanceSuggestionAssetIds(item);
+    const assetType = governanceAssetTypeForIds(assetIds);
+    const informational = GOVERNANCE_INFORMATIONAL_KINDS.has(kind);
+    let detail = '';
+    if(kind === 'naming'){
+        detail = '<p>资产 <code>' + escapeHtml(item.name || '') + '</code>：'
+            + ((item.violations || []).map(v => escapeHtml(v.message || v.code || '')).join('；') || '命名不符合规范')
+            + '</p><p>建议名称：<code>' + escapeHtml(item.suggested_name || '') + '</code></p>';
+    } else if(kind === 'tagging'){
+        detail = '<p>来源标签 ' + (item.source_tags || []).map(tag => '<code>' + escapeHtml(tag) + '</code>').join('、')
+            + ' 可归入受控词表：' + (item.suggested_tags || []).map(tag => '<strong>' + escapeHtml(tag) + '</strong>').join('、') + '</p>';
+    } else if(kind === 'duplicate_files'){
+        detail = '<p>相同内容哈希 <code>' + escapeHtml(String(item.content_hash || '').slice(0, 16))
+            + '…</code>：</p><ul>' + (item.members || []).map(member => '<li>' + escapeHtml(member.path || '')
+                + '（' + Number(member.size_bytes || 0) + ' 字节）</li>').join('') + '</ul>';
+    } else if(kind === 'duplicate_shots'){
+        detail = '<p>相同镜头内容哈希 <code>' + escapeHtml(String(item.content_hash || '').slice(0, 16))
+            + '…</code>：</p><ul>' + (item.members || []).map(member => '<li>' + escapeHtml(member.asset_id || '')
+                + ' #' + escapeHtml(String(member.shot_index ?? '')) + '（' + Number(member.start_sec || 0).toFixed(2)
+                + 's ~ ' + Number(member.end_sec || 0).toFixed(2) + 's）</li>').join('') + '</ul>';
+    } else if(kind === 'vector_duplicates'){
+        detail = '<p>嵌入相似度 <strong>' + escapeHtml(String(item.similarity ?? '')) + '</strong>：<code>'
+            + escapeHtml(item.left_asset_id || '') + '</code> 与 <code>' + escapeHtml(item.right_asset_id || '') + '</code></p>';
+    } else if(kind === 'similar_names'){
+        detail = '<p>规范化名称 <code>' + escapeHtml(item.normalized_name || '') + '</code>：</p><ul>'
+            + (item.members || []).map(member => '<li>' + escapeHtml(typeof member === 'string' ? member : (member?.path || member?.name || '')) + '</li>').join('')
+            + '</ul>';
+    }
+    const openAsset = assetIds.length
+        ? '<button class="hw-btn" type="button" data-governance-open-asset="' + escapeAttr(assetIds[0]) + '"><i data-lucide="folder-open"></i><span>打开素材</span></button>'
+        : '';
+    const confirm = informational || !item.suggestion_id
+        ? '<span class="governance-suggestion-readonly">仅提示，不提供写入动作</span>'
+        : '<button class="hw-btn hw-btn-gold" type="button" data-governance-confirm="' + escapeAttr(item.suggestion_id) + '"><i data-lucide="check"></i><span>确认建议</span></button>';
+    const group = GOVERNANCE_SUGGESTION_GROUPS.find(entry => entry.id === kind);
+    return '<article class="governance-suggestion-card" data-governance-suggestion="' + escapeAttr(item.suggestion_id || '')
+        + '" data-governance-kind="' + escapeAttr(kind) + '" data-governance-asset-type="' + escapeAttr(assetType) + '" role="listitem">'
+        + '<div class="governance-suggestion-card-head"><strong>' + escapeHtml(kindLabel) + '</strong><span>' + escapeHtml(item.suggestion_id || '') + '</span></div>'
+        + detail
+        + '<div class="governance-suggestion-card-meta"><span>' + assetIds.length + ' 个相关素材</span><span>'
+        + escapeHtml(group?.action || '') + '</span></div>'
+        + '<footer class="governance-suggestion-card-actions">' + openAsset + confirm + '</footer></article>';
+}
+function renderGovernanceSuggestionGroup(group){
+    const source = governanceSuggestionsData?.suggestions?.[group.id];
+    const entries = Array.isArray(source) ? source.map(entry => ({...entry,kind:group.id})) : [];
+    const ids = [...new Set(entries.flatMap(governanceSuggestionAssetIds))];
+    const assetType = governanceAssetTypeForIds(ids);
+    const empty = entries.length === 0;
+    return '<details class="governance-suggestion-group" data-governance-group="' + escapeAttr(group.id)
+        + '" data-governance-asset-type="' + escapeAttr(assetType) + '"' + (empty ? '' : ' open') + '>'
+        + '<summary><span class="governance-suggestion-group-icon"><i data-lucide="' + escapeAttr(group.icon) + '"></i></span>'
+        + '<span class="governance-suggestion-group-copy"><strong>' + escapeHtml(group.label) + '</strong>'
+        + '<span>' + escapeHtml(group.description) + '</span><small>可以怎么处理：' + escapeHtml(group.action) + '</small></span>'
+        + '<span class="governance-suggestion-group-count">' + entries.length + ' 条建议</span>'
+        + '<span class="governance-suggestion-group-assets">' + ids.length + ' 个素材</span>'
+        + (empty ? '<em class="governance-suggestion-no-issue">无问题</em>' : '')
+        + '</summary>'
+        + (empty ? '' : '<div class="governance-suggestion-group-items" role="list" aria-label="' + escapeAttr(group.label) + '">'
+            + entries.map(renderGovernanceSuggestionCard).join('') + '</div>')
+        + '</details>';
+}
+function renderGovernanceDrawerBody(){
+    if(governanceSuggestionsLoading){
+        return '<div class="governance-drawer-state" role="status" data-governance-loading><i data-lucide="loader-circle"></i><span>正在加载治理建议…</span></div>';
+    }
+    if(governanceSuggestionsError){
+        const forbidden = governanceSuggestionsError.status === 403;
+        const title = forbidden ? '需要治理权限' : '治理建议读取失败';
+        const message = forbidden ? '当前账户需要 admin 或 governor 角色才能查看治理建议。'
+            : (governanceSuggestionsError.message || '服务暂时无法读取建议清单。');
+        return '<section class="governance-drawer-state is-error" role="alert" data-governance-error>'
+            + '<i data-lucide="' + (forbidden ? 'shield-alert' : 'triangle-alert') + '"></i><div><strong>'
+            + title + '</strong><p>' + escapeHtml(message) + '</p></div>'
+            + '<button class="hw-btn" type="button" data-governance-retry><i data-lucide="refresh-cw"></i><span>重试</span></button></section>';
+    }
+    if(!governanceSuggestionsData){
+        return '<section class="governance-drawer-state" role="status" data-governance-empty><p>治理建议尚未加载。</p>'
+            + '<button class="hw-btn" type="button" data-governance-retry><i data-lucide="refresh-cw"></i><span>重试</span></button></section>';
+    }
+    const total = governanceSuggestionTotal();
+    const gaps = Array.isArray(governanceSuggestionsData.data_gaps) ? governanceSuggestionsData.data_gaps : [];
+    return '<div class="governance-suggestion-groups" role="list" aria-label="治理建议清单">'
+        + (total === 0 ? '<p class="governance-drawer-empty" data-governance-empty>暂无待处理建议；系统永不自动删除，也不改源文件。</p>' : '')
+        + (gaps.length ? '<p class="governance-drawer-warning" data-governance-degraded>数据降级：'
+            + escapeHtml(gaps.join('、')) + '，查重候选可能不完整。</p>' : '')
+        + GOVERNANCE_SUGGESTION_GROUPS.map(renderGovernanceSuggestionGroup).join('')
+        + '</div>';
+}
+function closeGovernanceDrawerFromDismissal(){
+    const host = document.querySelector('[data-governance-drawer-host]');
+    host?.remove();
+    governanceDrawerOpen = false;
+    const trigger = governanceDrawerReturnFocus;
+    governanceDrawerReturnFocus = null;
+    if(trigger?.isConnected) requestAnimationFrame(() => trigger.focus({preventScroll:true}));
+    updateGovernanceTrigger();
+}
+function closeGovernanceDrawer(){
+    const host = document.querySelector('[data-governance-drawer-host]');
+    if(host && window.FloatingDismissal?.closeSurface?.(host)) return;
+    closeGovernanceDrawerFromDismissal();
+}
+function renderGovernanceDrawer(){
+    if(!governanceDrawerOpen) return;
+    let host = document.querySelector('[data-governance-drawer-host]');
+    let created = false;
+    if(!host){
+        host = document.createElement('div');
+        host.className = 'governance-drawer-overlay';
+        host.dataset.governanceDrawerHost = '';
+        host.innerHTML = '<section class="governance-suggestion-drawer" data-governance-drawer-dialog role="dialog" aria-modal="true" aria-labelledby="governanceDrawerTitle" tabindex="-1">'
+            + '<header><div><span class="governance-drawer-kicker">ASSET GOVERNANCE</span><h2 id="governanceDrawerTitle">治理建议</h2>'
+            + '<p>六类清单仅供复核；确认操作按注册表版本校验。</p></div>'
+            + '<button class="hw-btn hw-btn-icon" type="button" data-governance-drawer-close aria-label="关闭治理建议" title="关闭"><i data-lucide="x"></i></button></header>'
+            + '<div class="governance-suggestion-drawer-body" data-governance-drawer-body></div></section>';
+        document.body.appendChild(host);
+        markAssetFloatingSurface(host, {
+            surface:'asset-governance-drawer',
+            kind:'drawer',
+            content:'[data-governance-drawer-dialog]',
+            close:closeGovernanceDrawerFromDismissal,
+            trigger:governanceDrawerReturnFocus,
+        });
+        host.addEventListener('click', async event => {
+            if(event.target === host || event.target.closest?.('[data-governance-drawer-close]')){
+                closeGovernanceDrawer();
+                return;
+            }
+            if(event.target.closest?.('[data-governance-retry]')){
+                await refreshGovernanceSuggestions();
+                renderGovernanceDrawer();
+                return;
+            }
+            const assetButton = event.target.closest?.('[data-governance-open-asset]');
+            if(assetButton){
+                const assetId = assetButton.dataset.governanceOpenAsset || '';
+                closeGovernanceDrawer();
+                openRegistryAssetFromGlobalSearch(assetId).catch(error => setStatus(error.message || '无法打开素材'));
+                return;
+            }
+            const confirmButton = event.target.closest?.('[data-governance-confirm]');
+            if(confirmButton){
+                await confirmGovernanceSuggestion(confirmButton.dataset.governanceConfirm || '');
+            }
+        });
+        created = true;
+    }
+    const body = host.querySelector('[data-governance-drawer-body]');
+    if(body) body.innerHTML = renderGovernanceDrawerBody();
     refreshIcons();
+    if(created) requestAnimationFrame(() => host.querySelector('[data-governance-drawer-close]')?.focus());
+}
+function openGovernanceDrawer(trigger){
+    governanceDrawerReturnFocus = trigger || null;
+    governanceDrawerOpen = true;
+    updateGovernanceTrigger();
+    renderGovernanceDrawer();
+    if(!governanceSuggestionsData && !governanceSuggestionsError && !governanceSuggestionsLoading){
+        loadGovernanceSuggestions();
+    }
 }
 async function confirmGovernanceSuggestion(suggestionId){
     const id = String(suggestionId || '').trim();
@@ -9254,11 +9434,10 @@ async function confirmGovernanceSuggestion(suggestionId){
             body:JSON.stringify({suggestion_id:id, expected_version:revision}),
         }));
         showAssetNotice('建议已确认并写入注册表');
-    } catch(err) {
-        setStatus(err.message || '确认失败');
+    } catch(error) {
+        setStatus(error.message || '确认失败');
     }
-    await loadGovernanceSuggestions(true).catch(() => null);
-    if(activeTab === 'governance') render();
+    await loadGovernanceSuggestions(true);
 }
 function render(){
     const registryPreviewCache = captureRegistryPreviewImages();
@@ -9311,7 +9490,6 @@ function render(){
     else if(activeTab === 'workflows') renderWorkflowManager();
     else if(activeTab === 'local') renderLocalManager();
     else if(activeTab === 'canvas-assets') renderCanvasAssetsManager();
-    else if(activeTab === 'governance') renderGovernanceSuggestionsManager();
     else if(assetBoardById(activeTab)?.system === false) renderCustomAssetLibrary(assetBoardById(activeTab));
     else renderAssetManager();
     if(document.documentElement.classList.contains('vault-shell-embedded')){
@@ -9929,13 +10107,13 @@ function renderLocalDetail(item){
     `;
 }
 function registryKindLabel(kind=''){
-    return {image:'图片',video:'视频',audio:'音频',workflow:'工作流',document:'文档',project_file:'工程文件'}[kind] || kind || '其他';
+    return {image:'图片',video:'视频',audio:'音频',workflow:'工作流',document:'文档',project_file:'工程文件',lut:'LUT'}[kind] || kind || '其他';
 }
 const REGISTRY_FILE_TYPE_LABELS = {
     jpg:'JPEG 图片', jpeg:'JPEG 图片', png:'PNG 图片', gif:'GIF 图片', webp:'WebP 图片', bmp:'BMP 图片',
     tiff:'TIFF 图片', tif:'TIFF 图片', heic:'HEIC 图片', heif:'HEIF 图片', avif:'AVIF 图片', raw:'RAW 图像',
     svg:'SVG 矢量图', eps:'EPS 矢量图', psd:'Photoshop 工程', ai:'Illustrator 工程', cdr:'CorelDRAW 工程',
-    hdr:'HDR 图像', exr:'EXR 图像',
+    hdr:'HDR 图像', exr:'EXR 图像', cube:'Cube LUT 色彩查找表（.cube）',
     txt:'TXT 文本', csv:'CSV 表格', tsv:'TSV 表格', json:'JSON 文件', xml:'XML 文件', html:'HTML 文档', htm:'HTML 文档',
     md:'Markdown 文档', markdown:'Markdown 文档', rtf:'RTF 文档', doc:'Word 文档', docx:'Word 文档', odt:'OpenDocument 文档',
     ppt:'PowerPoint 演示文稿', pptx:'PowerPoint 演示文稿', odp:'OpenDocument 演示文稿',
@@ -9956,7 +10134,7 @@ function registryAssetTypeLabel(item={}){
     return registryKindLabel(item.kind);
 }
 function registryAssetTypeIcon(item={}){
-    return registryKindIcon(detailViewerType('registry', item));
+    return registryKindIcon(registryAssetCategory(item) === 'lut' ? 'lut' : detailViewerType('registry', item));
 }
 function registryFacetKindCount(...kinds){
     const wanted = new Set(kinds);
@@ -9967,7 +10145,7 @@ function registryCategoryCount(category){
     return Number(item?.count || 0);
 }
 function registryCategoryLabel(category=''){
-    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',other:'其他'}[category] || '全部资产';
+    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',lut:'LUT',other:'其他'}[category] || '全部资产';
 }
 function renderRegistryOverviewStats(){
     const globalTotal = (registryFacets.categories || []).reduce((total, item) => total + Number(item.count || 0), 0) || (registryFacets.kinds || []).reduce((total, item) => total + Number(item.count || 0), 0) || registryTotal;
@@ -9981,6 +10159,7 @@ function renderRegistryOverviewStats(){
         {id:'document', name:'文档', value:registryCategoryCount('document'), icon:'files'},
         {id:'model', name:'模型', value:registryCategoryCount('model'), icon:'box'},
         {id:'font', name:'字体', value:registryCategoryCount('font'), icon:'type'},
+        {id:'lut', name:'LUT', value:registryCategoryCount('lut'), icon:'palette'},
         // 【QIN-531】卡片更名「画布」；data-registry-stat 仍沿用 reference-canvas，既有跳转不动。
         {id:'reference-canvas', name:'画布', value:canvasTotal, icon:'map'},
         {id:'other', name:'其他', value:registryCategoryCount('other'), icon:'package-open'},
@@ -10030,6 +10209,7 @@ const REGISTRY_ASSET_CATEGORY_EXTENSIONS = Object.freeze({
     document:new Set(['txt','csv','tsv','json','xml','html','htm','md','markdown','rtf','doc','docx','odt','ppt','pptx','odp','xls','xlsx','ods','pdf','srt','vtt','zip']),
     model:new Set(['stl','3mf','obj','fbx','gltf','glb','usd','usdz','step','stp','iges','igs','dxf','ply','3ds','dae','ifc','wrl','vrml','blend','c4d','max','ma','mb','ckpt','safetensors','pt','pth','onnx','gguf']),
     font:new Set(['ttf','otf','ttc','otc','woff','woff2']),
+    lut:new Set(['cube']),
 });
 function registryAssetCategory(item={}){
     const extension = registryAssetExtension(item);
@@ -10038,9 +10218,9 @@ function registryAssetCategory(item={}){
     }
     const type = detailViewerType('registry', item);
     if(type === 'text') return 'document';
-    if(['image','video','audio','document','model','font'].includes(type)) return type;
+    if(['image','video','audio','document','model','font','lut'].includes(type)) return type;
     const kind = String(item.kind || item.media_type || item.type || '').toLowerCase();
-    if(['image','video','audio','document','model','font'].includes(kind)) return kind;
+    if(['image','video','audio','document','model','font','lut'].includes(kind)) return kind;
     return kind === 'text' ? 'document' : 'other';
 }
 function customAssetLibraryIncludesAsset(board,item={}){
@@ -10627,7 +10807,9 @@ function renderRegistryCard(item){
     }
     const selected = registrySelectedIds.has(item.id);
     const name = item.name || 'asset';
-    const format = registryAssetExtension(item).toUpperCase() || 'FILE';
+    const isLut = String(item.kind || item.media_type || item.type || '').toLowerCase() === 'lut'
+        || registryAssetExtension(item).toLowerCase() === 'cube';
+    const format = isLut ? 'LUT' : (registryAssetExtension(item).toUpperCase() || 'FILE');
     const referenceCanvasId = boardReferenceCanvasSelection[activeTab] || '';
     const mediaAspectStyle = registryMediaAspectStyle(item);
     const matchedSegment = item.kind === 'video' ? findMatchedVideoSegment(item, registryQuery) : null;
@@ -10865,11 +11047,14 @@ function renderRegistryToolbar(board, title, subtitle, options={}){
         </div>
     </div>` : `<button class="hw-btn" type="button" data-registry-group-selected ${selectedIds.length ? '' : 'disabled'}><i data-lucide="folder-plus"></i><span>加入分组</span></button>
             <button class="hw-btn" type="button" data-registry-group-remove ${selectedGroupIds.length ? '' : 'disabled'}><i data-lucide="folder-minus"></i><span>移出分组</span></button>`;
+    const governanceTotal = governanceSuggestionTotal();
+    const governanceBadge = governanceSuggestionsError ? '!' : governanceSuggestionsLoading ? '…' : governanceSuggestionsData ? String(governanceTotal) : '—';
+    const governanceTrigger = '<button class="hw-btn governance-topbar-entry' + (governanceSuggestionsError ? ' has-error' : '') + '" type="button" data-governance-open aria-haspopup="dialog" aria-expanded="' + String(governanceDrawerOpen) + '" aria-label="' + escapeAttr(governanceTriggerLabel()) + '" title="' + escapeAttr(governanceTriggerLabel()) + '"><i data-lucide="list-checks"></i><span>治理建议</span><span class="governance-topbar-count" data-governance-total>' + escapeHtml(governanceBadge) + '</span></button>';
     return `<div class="content-toolbar registry-toolbar">
         ${options.hideHeading ? '' : `<div class="content-heading"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></div>`}
         <div class="registry-toolbar-controls">
             ${!board && document.documentElement.classList.contains('vault-shell-embedded') ? '<button class="hw-btn hw-btn-icon vault-filters-toggle" type="button" popovertarget="registryFacetPopover" title="目录层级" aria-label="目录层级"><i data-lucide="folder-tree"></i></button>' : ''}
-            ${coverflowControl}
+            ${governanceTrigger}${coverflowControl}
             <button class="hw-btn registry-refresh" type="button" data-refresh-assets title="刷新资产" aria-label="刷新资产"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
             <label class="asset-search-wrap"><i data-lucide="search"></i><input id="registrySearch" class="asset-search" type="search" aria-label="搜索 ${escapeAttr(searchLabel)}" value="${escapeAttr(registryQuery)}" placeholder="搜索文件名 / 标签 / ID"></label>
             <div class="registry-layout-switch btn-segmented-deck" role="group" aria-label="显示方式"><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'grid' ? 'is-active' : ''}" type="button" data-registry-layout="grid" title="方格视图" aria-label="方格视图" aria-pressed="${registryLayout === 'grid'}"><i data-lucide="grid-2x2"></i></button><button class="btn-segmented-item btn-size-sm hw-btn-icon ${registryLayout === 'list' ? 'is-active' : ''}" type="button" data-registry-layout="list" title="列表视图" aria-label="列表视图" aria-pressed="${registryLayout === 'list'}"><i data-lucide="list"></i></button></div>
@@ -13378,6 +13563,11 @@ async function handleClick(event){
     const target = event.target;
     // 【QIN-531 修复】排序/分组自绘下拉：点击胶囊（含图标与标签）经 label 转发到触发器，
     // 菜单项单独处理，避免原生 select 的系统蓝底与焦点方框。
+    const governanceOpenTarget = target.closest?.('[data-governance-open]');
+    if(governanceOpenTarget){
+        openGovernanceDrawer(governanceOpenTarget);
+        return;
+    }
     const registrySelectTrigger = target.closest?.('[data-registry-select-trigger]');
     if(registrySelectTrigger){
         event.preventDefault();
@@ -13390,10 +13580,6 @@ async function handleClick(event){
         event.preventDefault();
         event.stopPropagation();
         applyRegistrySelectValue(registrySelectOption.dataset.registrySelectKind || '', registrySelectOption.dataset.registrySelectOption || '');
-        return;
-    }
-    if(target.closest?.('[data-governance-refresh]')){
-        await refreshGovernanceSuggestions();
         return;
     }
     const governanceConfirmTarget = target.closest?.('[data-governance-confirm]');
@@ -22883,6 +23069,7 @@ if(!directorySettingsPage) renderBoardNavigation();
 document.addEventListener('DOMContentLoaded', () => {
     if(directorySettingsPage){ loadGlobalDirectorySettings(); return; }
     loadRegistryPrincipal();
+    loadGovernanceSuggestions();
     loadAll().then(async () => {
         const restoredScroll = await restoreRegistryBrowseSession();
         registrySessionReady = true;

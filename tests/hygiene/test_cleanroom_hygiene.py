@@ -313,7 +313,7 @@ def test_static_layer_has_no_legacy_integration_markers(repo_root: Path):
 # 任何票增删自己的分片都不需要重算下面这个常量，也就不会形成并行 PR 的热点。
 ADMISSION_METADATA_PATH = ADMISSION_BASE_METADATA_PATH
 ADMISSION_BASE_METADATA_SHA256 = (
-    "96ed2c238d4698d9f8f021ae76b8a37ff99c897ef057dbde5d789b7c6f0271d7"
+    "197f601440c641d4e67aeb74b91204d7f4ff7eb6151adf344500ad5f1555daca"
 )
 QUARANTINED_PROMPT_ORIGINAL_PATH = (
     "web/system-prompts/infinite-canvas-prompt-templates.md"
@@ -1210,6 +1210,32 @@ def test_qin_550_registry_upload_preview_files_are_registered(repo_root: Path):
         "tests/frontend/qin-550-registry-upload-preview.mjs",
         "tests/frontend/node-files.txt",
         "tests/hygiene/fixtures/admissions/issue-610.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }
+
+
+def test_qin_552_lut_library_files_are_registered(repo_root: Path):
+    """QIN-552 LUT 索引、呈现与窄测文件按本票分片登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 617
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #617 (QIN-552), 2026-11-05"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/asset_registry/index_jobs.py",
+        "gw/asset_registry/lut_cube.py",
+        "gw/asset_registry/repository.py",
+        "gw/asset_registry/service.py",
+        "web/js/modules/asset-manager.js",
+        "tests/contracts/assets/test_qin_552_lut_cube.py",
+        "tests/frontend/qin-552-lut-library.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-617.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
 
