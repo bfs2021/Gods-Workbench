@@ -9593,17 +9593,21 @@ function localUploadItemsForClassFilter(key=activeLocalUploadClassFilter){
 }
 function renderLocalUploadFolderBranch(folder, depth=0){
     if(!folder) return '';
-    const path = folder.path || '';
+    const path = String(folder.path || '');
+    const children = Array.isArray(folder.children) ? folder.children : [];
     const active = !activeLocalUploadClassFilter && path === activeLocalUploadFolder;
-    const contains = !active && (folder.children || []).some(child => localUploadFolderContainsActive(child));
-    return `<div class="tree-branch">
-        <button class="tree-row ${depth ? 'tree-child' : 'tree-parent'} ${active ? 'active' : ''} ${contains ? 'contains-active' : ''}" type="button" data-localup-folder="${escapeAttr(path)}">
-            ${depth ? '<span class="tree-elbow"></span>' : ''}
-            <span class="tree-row-icon"><i data-lucide="${active ? 'folder-open' : (depth ? 'folder' : 'upload-cloud')}"></i></span>
-            <span class="tree-row-name">${escapeHtml(folder.name || '文件夹')}</span>
-            <span class="tree-row-count">${Number(folder.count || 0)}</span>
+    const contains = !active && children.some(child => localUploadFolderContainsActive(child));
+    const isPath = active || contains;
+    const hasChildren = children.length > 0;
+    return `<div class="asset-tree-node ${active ? 'is-selected' : ''} ${isPath ? 'is-path' : 'is-path-dim'}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${active}" aria-expanded="${hasChildren}" aria-level="${depth + 1}">
+        <button class="asset-tree-row" type="button" data-localup-folder="${escapeAttr(path)}" aria-label="${escapeAttr(folder.name || '文件夹')}">
+            <span class="asset-tree-twisty">${hasChildren ? '<i data-lucide="chevron-down"></i>' : ''}</span>
+            <span class="asset-tree-dot"></span>
+            <i class="asset-tree-icon" data-lucide="${active ? 'folder-open' : (depth ? 'folder' : 'upload-cloud')}"></i>
+            <span class="asset-tree-name" title="${escapeAttr(folder.name || '文件夹')}">${escapeHtml(folder.name || '文件夹')}</span>
+            <span class="asset-tree-count">${Number(folder.count || 0)}</span>
         </button>
-        ${(folder.children || []).length ? `<div class="tree-children">${folder.children.map(child => renderLocalUploadFolderBranch(child, depth + 1)).join('')}</div>` : ''}
+        ${hasChildren ? `<div role="group">${children.map(child => renderLocalUploadFolderBranch(child, depth + 1)).join('')}</div>` : ''}
     </div>`;
 }
 function localUploadFolderContainsActive(folder){
@@ -9611,6 +9615,20 @@ function localUploadFolderContainsActive(folder){
     if(activeLocalUploadClassFilter) return false;
     if(String(folder.path || '') === activeLocalUploadFolder) return true;
     return (folder.children || []).some(child => localUploadFolderContainsActive(child));
+}
+function renderLocalUploadFolderPanel(){
+    const tree = localUploadTree || {id:'__root__', path:'', name:'根目录', count:0, children:[]};
+    const canRename = Boolean(activeLocalUploadFolder) && !activeLocalUploadClassFilter;
+    return `<aside class="asset-panel asset-nav asset-tree-panel" aria-label="上传文件夹">
+        <div class="asset-tree-tabs" role="group" aria-label="上传目录操作">
+            <div class="asset-tree-tab active" role="heading" aria-level="2">上传文件夹</div>
+            <button class="asset-tree-tab" type="button" data-localup-folder-new title="新建文件夹" aria-label="新建文件夹"><i data-lucide="folder-plus"></i><span>新建</span></button>
+        </div>
+        <div class="asset-tree-scroll" role="tree" aria-label="上传文件夹树" tabindex="0">${renderLocalUploadFolderBranch(tree)}</div>
+        <div class="asset-tree-footer">
+            <button class="hw-btn" type="button" data-localup-folder-rename ${canRename ? '' : 'disabled'} title="重命名当前文件夹"><i data-lucide="pencil"></i><span>重命名文件夹</span></button>
+        </div>
+    </aside>`;
 }
 function renderLocalUploadSmartClassTree(){
     const entries = localUploadClassEntries();
@@ -9670,7 +9688,7 @@ function renderLocalManager(){
     const imageCount = selectedLocalUploadImageItems().length;
     const folderTitle = localUploadFolderTitle();
     root.innerHTML = `
-        ${renderAssetTreePanel()}}
+        ${renderLocalUploadFolderPanel()}
         <section class="asset-panel asset-content ${localUploadManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
