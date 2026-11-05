@@ -20,12 +20,15 @@
 
 from __future__ import annotations
 
+import base64
+from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request, status
 
 from gw.asset_library import repository as repo
 from gw.core.auth import require_authenticated, require_edit_access
+from gw.core.errors import CleanroomException
 
 router = APIRouter(tags=["local-assets-b4"])
 
@@ -58,6 +61,70 @@ def _ids(payload: dict[str, Any], key: str = "paths") -> list[str]:
     return [str(item) for item in value] if isinstance(value, list) else []
 
 
+def _local_asset_item(item: dict[str, Any]) -> dict[str, Any]:
+    """补齐前端目录树使用的稳定 ID 与相对文件夹字段。"""
+    result = dict(item)
+    display_path = str(result.get("display_path") or result.get("file") or "")
+    normalized_path = display_path.replace("\\", "/")
+    parent = PurePosixPath(normalized_path).parent.as_posix()
+    result.setdefault("id", str(result.get("asset_id") or normalized_path))
+    result.setdefault("file", normalized_path)
+    result["folder"] = "" if parent in {"", "."} else parent
+    return result
+
+
+def _all_local_asset_items(kind: str | None) -> list[dict[str, Any]]:
+    """读取完整索引用于构建跨分页的目录树。"""
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        page = repo.list_local_assets(kind, limit=500, cursor=cursor)
+        items.extend(page.get("items") or [])
+        next_cursor = page.get("next_cursor")
+        if not page.get("has_more") or not next_cursor or next_cursor == cursor:
+            break
+        cursor = str(next_cursor)
+    return [_local_asset_item(item) for item in items]
+
+
+def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
+    root: dict[str, Any] = {
+        "id": "__root__",
+        "path": "",
+        "name": "根目录",
+        "count": len(items),
+        "items": [],
+        "children": [],
+    }
+    nodes = {"": root}
+    for item in items:
+        parent_path = str(item.get("folder") or "")
+        current_parts: list[str] = []
+        parent = root
+        for part in PurePosixPath(parent_path).parts:
+            if part in {"", ".", "/", ".."}:
+                continue
+            current_parts.append(part)
+            path = "/".join(current_parts)
+            node = nodes.get(path)
+            if node is None:
+                node = {
+                    "id": path,
+                    "path": path,
+                    "name": part,
+                    "count": 0,
+                    "items": [],
+                    "children": [],
+                }
+                nodes[path] = node
+                parent["children"].append(node)
+            node["count"] += 1
+            parent = node
+    for node in nodes.values():
+        node["children"].sort(key=lambda child: str(child["name"]).casefold())
+    return root
+
+
 @router.get("/api/local-assets", status_code=status.HTTP_200_OK)
 def list_local_assets(
     kind: str | None = Query(None),
@@ -68,7 +135,10 @@ def list_local_assets(
 ):
     """列出真实本地素材索引；无条目返回空集合。"""
     _read(authorization, x_user_role)
-    return repo.list_local_assets(kind, limit=limit, cursor=cursor)
+    result = repo.list_local_assets(kind, limit=limit, cursor=cursor)
+    result["items"] = [_local_asset_item(item) for item in result.get("items", [])]
+    result["tree"] = _local_asset_tree(_all_local_asset_items(kind))
+    return result
 
 
 @router.post("/api/local-assets/upload", status_code=status.HTTP_201_CREATED)
@@ -79,6 +149,41 @@ async def upload_local_assets(
 ):
     """真实写入允许根目录内的目标文件并登记索引。"""
     _write(authorization, x_user_role)
+    if "multipart/form-data" in (request.headers.get("content-type") or "").lower():
+        form = await request.form()
+        uploads = [item for item in form.getlist("files") if hasattr(item, "read")]
+        if not uploads:
+            raise CleanroomException(400, "INVALID_REQUEST", "缺少 files 上传字段")
+        root_path = str(form.get("path") or "").strip()
+        if not root_path:
+            raise CleanroomException(400, "INVALID_REQUEST", "缺少素材来源目录")
+        raw_folder = str(form.get("folder") or "").strip().replace("\\", "/")
+        folder = PurePosixPath(raw_folder)
+        if folder.is_absolute() or ".." in folder.parts:
+            raise CleanroomException(400, "INVALID_PATH", "上传目录必须是素材来源内的相对路径")
+        folder_parts = [part for part in folder.parts if part not in {"", "."}]
+        kind = str(form.get("kind") or "auto").strip() or "auto"
+        uploaded_paths: list[tuple[str, str]] = []
+        for upload in uploads:
+            raw_name = str(getattr(upload, "filename", "") or "").replace("\\", "/")
+            filename = PurePosixPath(raw_name).name
+            if filename in {"", ".", ".."}:
+                raise CleanroomException(400, "INVALID_REQUEST", "上传文件名无效")
+            content = await upload.read(repo.MAX_UPLOAD_BYTES + 1)
+            if len(content) > repo.MAX_UPLOAD_BYTES:
+                raise CleanroomException(400, "CONTENT_TOO_LARGE", "上传内容超过上限")
+            target = PurePosixPath(root_path, *folder_parts, filename)
+            result = repo.upload_and_index_local_asset(
+                str(target), base64.b64encode(content).decode("ascii"), kind
+            )
+            uploaded_paths.append((str(result.get("display_path") or ""), filename))
+        all_items = _all_local_asset_items(kind)
+        by_path = {str(item.get("display_path") or ""): item for item in all_items}
+        files = [
+            by_path.get(path, {"name": name, "display_path": path})
+            for path, name in uploaded_paths
+        ]
+        return {"files": files, "count": len(files), "tree": _local_asset_tree(all_items)}
     payload = await _body(request)
     target = str(payload.get("path") or "")
     return repo.upload_and_index_local_asset(
@@ -149,12 +254,24 @@ async def update_local_asset_folder(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """重命名数据目录内的真实文件夹。"""
+    """重命名数据目录或素材来源内的真实文件夹并返回当前目录树。"""
     _write(authorization, x_user_role)
     payload = await _body(request)
-    return repo.rename_local_folder(
-        str(payload.get("name") or ""), str(payload.get("new_name") or "")
+    kind = str(payload.get("kind") or "").strip() or None
+    result = repo.rename_local_folder(
+        str(payload.get("name") or ""),
+        str(payload.get("new_name") or ""),
+        root_path=str(payload.get("root_path") or "").strip() or None,
     )
+    items = _all_local_asset_items(kind)
+    result.update(
+        {
+            "items": items,
+            "tree": _local_asset_tree(items),
+            "folder": {"path": str(result.get("to") or "")},
+        }
+    )
+    return result
 
 
 @router.post("/api/local-assets/classify", status_code=status.HTTP_200_OK)
