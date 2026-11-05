@@ -227,6 +227,108 @@ def test_auth_and_permissions(api_env):
     assert viewer_res.status_code == 403
 
 
+def test_folder_create_with_explicit_organize_parameters_uses_cas(api_env):
+    """显式 root_id/expected_version 参数应走整理接口并遵守 CAS。"""
+    client = api_env["client"]
+    root = api_env["user_root"]
+    local_assets = storage.data_root() / "local_assets"
+
+    stale = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "must_not_fall_back", "root_id": api_env["user_root_id"], "expected_version": 999},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "VERSION_CONFLICT"
+    assert not (root / "must_not_fall_back").exists()
+    assert not (local_assets / "must_not_fall_back").exists()
+
+    created = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={
+            "name": "organized_folder",
+            "root_id": api_env["user_root_id"],
+            "expected_version": _v(client),
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert (root / "organized_folder").is_dir()
+    assert not (local_assets / "organized_folder").exists()
+
+
+def test_legacy_folder_create_rejects_external_symlink(api_env, tmp_path, monkeypatch):
+    """旧接口不应把指向根外的最终目录软链接当成成功。"""
+    local_assets = storage.data_root() / "local_assets"
+    local_assets.mkdir(parents=True, exist_ok=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+    link = local_assets / "outside_link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        # Windows 无软链接权限时，模拟 resolve() 得到软链接的根外目标。
+        real_resolve = Path.resolve
+
+        def resolve_external_link(path, *args, **kwargs):
+            if path == link:
+                return outside
+            return real_resolve(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", resolve_external_link)
+
+    response = api_env["client"].post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "outside_link"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "PATH_OUTSIDE_ALLOWED_ROOTS"
+    assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_legacy_folder_create_maps_file_collision_to_conflict(api_env):
+    local_assets = storage.data_root() / "local_assets"
+    local_assets.mkdir(parents=True, exist_ok=True)
+    (local_assets / "occupied").write_text("file", encoding="utf-8")
+
+    response = api_env["client"].post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "occupied"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "TARGET_EXISTS"
+
+
+def test_legacy_folder_create_and_rename_use_strict_shared_names(api_env):
+    client = api_env["client"]
+    local_assets = storage.data_root() / "local_assets"
+    local_assets.mkdir(parents=True, exist_ok=True)
+
+    for name, code in (
+        ("CON", "RESERVED_NAME_FORBIDDEN"),
+        ("bad?name", "INVALID_CHARACTERS"),
+        ("中" * 86, "NAME_TOO_LONG"),
+    ):
+        created = client.post(
+            "/api/local-assets/folders", headers=AUTH, json={"name": name}
+        )
+        assert created.status_code == 400
+        assert created.json()["detail"]["code"] == code
+
+    (local_assets / "rename_source").mkdir()
+    renamed = client.patch(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "rename_source", "new_name": "CON.txt"},
+    )
+    assert renamed.status_code == 400
+    assert renamed.json()["detail"]["code"] == "RESERVED_NAME_FORBIDDEN"
+    assert (local_assets / "rename_source").is_dir()
+
+
 def test_legacy_parent_folder_create_keeps_frontend_response_contract(api_env, monkeypatch):
     """旧前端只发送 parent 时走本地资源接口，并返回刷新树所需字段。"""
     client = api_env["client"]

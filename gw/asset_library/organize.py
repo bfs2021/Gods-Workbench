@@ -33,6 +33,11 @@ from typing import Any
 from gw.asset_library import repository as asset_lib_repo
 from gw.core import storage
 from gw.core.errors import CleanroomException
+from gw.asset_library.naming import (
+    _handle_os_path_error,
+    validate_folder_component_name,
+    validate_target_path,
+)
 from gw.settings.service import default_storage_settings_service
 
 logger = logging.getLogger(__name__)
@@ -50,102 +55,6 @@ def _is_file_locked_error(exc: Exception) -> bool:
         if errno_val in (13, 16):  # EACCES, EBUSY
             return True
     return False
-
-
-WINDOWS_RESERVED_NAMES = frozenset({
-    "CON", "PRN", "AUX", "NUL",
-    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-})
-ILLEGAL_CHARACTERS = frozenset('<>:"/\\|?*')
-MAX_NAME_BYTES = 255
-MAX_PATH_LENGTH = 4096
-
-
-def _handle_os_path_error(exc: OSError) -> None:
-    """将底层的 OSError（如 ENAMETOOLONG / winerror 206）映射为可读的 CleanroomException。"""
-    err = getattr(exc, "errno", None)
-    winerr = getattr(exc, "winerror", None)
-    is_long = (
-        err in (errno.ENAMETOOLONG, 36, 63)
-        or winerr in (206, 111)
-    )
-    if is_long:
-        raise CleanroomException(400, "NAME_TOO_LONG", "文件或文件夹名称过长") from exc
-
-
-def validate_folder_component_name(name: str) -> str:
-    """按相国拍板口径校验文件夹单个名称段。
-
-    规则：
-    1. 允许 Unicode（含中文）；
-    2. 拦截 Windows 保留名（CON、PRN、AUX、NUL、COM1–COM9、LPT1–LPT9，不区分大小写，带扩展名也算）；
-    3. 拦截非法字符 <>:"/\\|?* 及控制字符（0x00-0x1F, 0x7F）；
-    4. 拦截以点或空格结尾的名字；
-    5. 拦截超长名字（按 UTF-8 字节数算，不超过 255 字节）。
-    """
-    if not isinstance(name, str):
-        raise CleanroomException(400, "INVALID_PATH", "文件夹名称必须为字符串")
-
-    clean = name.strip()
-    if not clean:
-        raise CleanroomException(400, "INVALID_PATH", "文件夹名称不能为空")
-
-    encoded = name.encode("utf-8")
-    if len(encoded) > MAX_NAME_BYTES:
-        raise CleanroomException(
-            400,
-            "NAME_TOO_LONG",
-            f"文件夹名称超过最大字节限制（最多 {MAX_NAME_BYTES} 字节，当前为 {len(encoded)} 字节）",
-        )
-
-    if name.endswith(" ") or name.endswith("."):
-        raise CleanroomException(400, "INVALID_NAME_END", f"文件夹名称 '{name}' 不能以点或空格结尾")
-
-    for char in name:
-        if char in ILLEGAL_CHARACTERS or ord(char) < 32 or ord(char) == 127:
-            raise CleanroomException(
-                400,
-                "INVALID_CHARACTERS",
-                f"文件夹名称 '{name}' 包含非法字符或控制字符（禁止包含 <>:\"/\\|?* 及控制字符）",
-            )
-
-    # Windows 保留名：带扩展名也算（例如 CON.txt, aux.dir, NUL 等）
-    base_name = name.split(".")[0].strip().upper()
-    full_name = name.upper()
-    if base_name in WINDOWS_RESERVED_NAMES or full_name in WINDOWS_RESERVED_NAMES:
-        raise CleanroomException(
-            400,
-            "RESERVED_NAME_FORBIDDEN",
-            f"文件夹名称 '{name}' 命中 Windows 系统保留名称（如 CON, PRN, AUX, NUL, COM1-9, LPT1-9），禁止使用",
-        )
-
-    return name
-
-
-def validate_target_path(target: Path, root: Path) -> None:
-    """校验目标相对根目录的各级子目录名以及绝对路径总长。"""
-    try:
-        resolved_target = target.resolve()
-        resolved_root = root.resolve()
-    except OSError as exc:
-        _handle_os_path_error(exc)
-        raise
-
-    encoded_path = str(resolved_target).encode("utf-8")
-    if len(encoded_path) > MAX_PATH_LENGTH:
-        raise CleanroomException(400, "PATH_TOO_LONG", f"目标路径长度超过系统最大限制（{MAX_PATH_LENGTH} 字节）")
-
-    if resolved_target == resolved_root:
-        return
-
-    try:
-        rel = resolved_target.relative_to(resolved_root)
-    except ValueError:
-        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径超出允许的根目录范围")
-
-    for part in rel.parts:
-        validate_folder_component_name(part)
 
 
 def _safe_folder_name(name: str) -> str:
@@ -1316,17 +1225,12 @@ def undo_operation(
             a_restored = bool(record.get("a_restored", False))
             b_restored = bool(record.get("b_restored", False))
 
-            # 前置预检：若存在被覆盖文件的备份且尚未恢复，校验暂存文件有效
+            # 前置预检必须先确认 B 的暂存文件存在；curr 此时通常仍是 A，不能据此推断 B 已恢复。
             if overwritten_backup and not b_restored:
                 if not isinstance(overwritten_backup, dict):
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖备份记录损坏")
                 stashed_raw = overwritten_backup.get("stashed_path")
-                # 若目标位置 curr 已经恢复存在且暂存路径不存在，推断此前已完成物理恢复
-                if curr.exists() and (not stashed_raw or not Path(str(stashed_raw)).exists()):
-                    b_restored = True
-                    record["b_restored"] = True
-                    _save_undo_record(record)
-                elif not stashed_raw or not Path(str(stashed_raw)).exists():
+                if not stashed_raw or not Path(str(stashed_raw)).is_file():
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖暂存文件丢失，无法安全撤销")
 
             # 第一阶段：将 A 迁回原位置 orig 并更新 A 的索引
@@ -1375,15 +1279,8 @@ def undo_operation(
                         record["b_restored"] = True
                         _save_undo_record(record)
                     except Exception as exc:
-                        # 检查目标位置是否已存在且暂存文件已移走（物理恢复已完成但清理失败等边角情况）
-                        stashed_raw = overwritten_backup.get("stashed_path")
-                        if curr.exists() and (not stashed_raw or not Path(str(stashed_raw)).exists()):
-                            b_restored = True
-                            record["b_restored"] = True
-                            _save_undo_record(record)
-                        else:
-                            logger.error("撤销恢复被覆盖文件失败（账本保留以供重试）: %s", exc)
-                            raise CleanroomException(500, "UNDO_FAILED", "恢复被覆盖文件失败，撤销账本已保留供重试") from exc
+                        logger.error("撤销恢复被覆盖文件失败（账本保留以供重试）: %s", exc)
+                        raise CleanroomException(500, "UNDO_FAILED", "恢复被覆盖文件失败，撤销账本已保留供重试") from exc
 
                 if overwritten_stashed_index:
                     try:

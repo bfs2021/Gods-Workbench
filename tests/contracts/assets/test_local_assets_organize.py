@@ -1113,6 +1113,52 @@ def test_move_file_self_move_rejection(organize_env):
     assert res_dir.json()["detail"]["code"] == "INVALID_MOVE_DESTINATION"
 
 
+def test_move_file_overwrite_undo_missing_backup_fails_before_moving_a(organize_env):
+    """缺少 B 的暂存备份时，首次撤销失败且保留账本与当前文件。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+    file_a = root1 / "missing_backup_a.txt"
+    file_b = root1 / "missing_backup_b.txt"
+    file_a.write_text("content-a", encoding="utf-8")
+    file_b.write_text("content-b", encoding="utf-8")
+
+    move_res = client.post(
+        "/api/local-assets/move",
+        headers=AUTH,
+        json={
+            "source": file_a.name,
+            "target": file_b.name,
+            "source_root_id": rid1,
+            "conflict_resolution": "overwrite",
+            "expected_version": _v(client),
+        },
+    )
+    assert move_res.status_code == 200, move_res.text
+    undo = move_res.json()["undo"]
+    undo_file = organize._undo_records_dir() / f"{undo['undo_id']}.json"
+    record = json.loads(undo_file.read_text(encoding="utf-8"))
+    stashed_path = Path(record["overwritten_backup"]["stashed_path"])
+    stashed_path.unlink()
+    version = _v(client)
+
+    undo_res = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": undo, "expected_version": version},
+    )
+
+    assert undo_res.status_code == 500
+    assert undo_res.json()["detail"]["code"] == "UNDO_FAILED"
+    assert file_b.read_text(encoding="utf-8") == "content-a"
+    assert not file_a.exists()
+    assert undo_file.exists()
+    saved_record = json.loads(undo_file.read_text(encoding="utf-8"))
+    assert saved_record.get("b_restored") is not True
+    assert saved_record.get("a_file_moved") is not True
+    assert _v(client) == version
+
+
 def test_move_file_overwrite_undo_retryable(organize_env):
     """验证 move_file 覆盖撤销若第二步恢复失败，账本保留且支持再次撤销重试。"""
     client = organize_env["client"]

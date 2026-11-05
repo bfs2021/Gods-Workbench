@@ -292,7 +292,12 @@ async def create_local_asset_folder(
     auth = _write(authorization, x_user_role)
     operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
-    if "path" in payload or payload.get("organize") is True:
+    if (
+        "path" in payload
+        or payload.get("organize") is True
+        or "root_id" in payload
+        or "expected_version" in payload
+    ):
         result = organize.create_folder(
             raw_path=payload.get("path"),
             name=payload.get("name"),
