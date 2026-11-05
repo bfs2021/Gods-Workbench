@@ -1,0 +1,33 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 602,
+  "authorization_basis": "GitHub Issue #602 (QIN-546), 2026-11-05",
+  "files": [
+    "gw/api/routes_local_assets.py",
+    "gw/asset_library/reveal.py",
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "tests/api/test_local_assets_reveal_api.py",
+    "tests/frontend/qin-546-asset-organize.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+    "tests/hygiene/fixtures/admissions/issue-602.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/api/test_local_assets_reveal_api.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #602 (QIN-546), 2026-11-05",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-546-asset-organize.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #602 (QIN-546), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-546 我的资源整理交互：右键菜单、双击改名、分组新建、拖拽移动（素材多选/文件夹整树）、重名跳过/改名/覆盖、文件占用提示、Ctrl+Z 撤销与 toast，以及仅回环管理员可用的「在系统中打开」后端端点。"
+}

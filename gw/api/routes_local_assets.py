@@ -20,17 +20,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request, status
 
-from gw.asset_library import organize
+from gw.asset_library import organize, reveal
 from gw.asset_library import repository as repo
 from gw.asset_registry.organize_sync import AssetRegistryOrganizeListener
+from gw.core import storage
 from gw.core.auth import require_authenticated, require_edit_access
-from gw.core.errors import CleanroomException
+from gw.core.errors import CleanroomException, ForbiddenException
 organize.register_sync_listener(AssetRegistryOrganizeListener())
 
 router = APIRouter(tags=["local-assets-b4"])
@@ -60,6 +62,13 @@ def _read(authorization: str | None, x_user_role: str):
 
 def _write(authorization: str | None, x_user_role: str):
     return require_edit_access(authorization, x_user_role)
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """仅服务器本机回环会话允许唤起系统文件管理器（与原生目录选择器同一口径）。"""
+    client = request.client
+    host = str(client.host or "").lower() if client else ""
+    return host in {"127.0.0.1", "::1", "localhost"}
 
 
 def _root_hint(payload: dict[str, Any], key: str = "root_id") -> str | None:
@@ -402,6 +411,40 @@ async def delete_local_asset_folder(
         operator=operator,
         expected_version=_expected_version(payload),
     )
+
+
+@router.post("/api/local-assets/folders/open", status_code=status.HTTP_200_OK)
+async def open_local_asset_folder_in_system(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """在系统文件管理器中打开用户挂载目录内的文件夹。
+
+    仅回环管理员可用：唤起外部进程属于服务端副作用，与原生目录选择器同一边界。
+    不是整理写操作，因此不要求 expected_version，也不套用只读根拒绝。
+    """
+    auth = _read(authorization, x_user_role)
+    if auth.role != "admin":
+        raise ForbiddenException(message="仅管理员可唤起系统文件管理器")
+    if not _is_loopback_request(request):
+        raise CleanroomException(
+            403,
+            "REVEAL_NON_LOOPBACK",
+            "系统文件管理器仅限服务器本机会话使用",
+        )
+    payload = await _body(request)
+    target, root_id = reveal.resolve_browsable_path(
+        str(payload.get("path") or ""),
+        root_id=_root_hint(payload),
+    )
+    result = await asyncio.to_thread(reveal.open_in_file_manager, target)
+    return {
+        "status": result.get("status"),
+        "reason": result.get("reason"),
+        "display_path": storage.relative_display(target),
+        "root_id": root_id,
+    }
 
 
 @router.post("/api/local-assets/undo", status_code=status.HTTP_200_OK)

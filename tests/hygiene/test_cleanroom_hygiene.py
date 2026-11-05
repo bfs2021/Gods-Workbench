@@ -1283,3 +1283,29 @@ def test_qin_545_disk_organization_files_are_registered(repo_root: Path):
         "tests/hygiene/fixtures/admissions/issue-601.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
+
+
+def test_qin_546_my_resource_organize_files_are_registered(repo_root: Path):
+    """QIN-546 我的资源整理交互所涉文件按本票登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 602
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #602 (QIN-546), 2026-11-05"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/api/routes_local_assets.py",
+        "gw/asset_library/reveal.py",
+        "web/js/modules/asset-manager.js",
+        "web/css/pages/asset-manager.css",
+        "tests/api/test_local_assets_reveal_api.py",
+        "tests/frontend/qin-546-asset-organize.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+        "tests/hygiene/fixtures/admissions/issue-602.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }

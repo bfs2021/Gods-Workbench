@@ -264,6 +264,16 @@ const assetTreeExpanded = new Set(); // 展开的树节点 key
 let assetTreeSelectedKey = ''; // 当前选中树节点 key
 const assetTreeProjectData = new Map(); // projectId -> QIN-543 项目详情（entities/groups）
 let registryProjectEntityFilter = null; // 项目条目素材过滤 {projectId, entityTypes:Set, entityId}
+/* 【QIN-546】我的资源整理交互状态：右键菜单 / 内联改名 / 拖拽落点 / 重名与删除弹窗 / 撤销栈 */
+let assetOrganizeMenu = null; // {key, rootId, path, isRoot, trigger}
+let assetOrganizeDialog = null; // {kind:'create'|'delete'|'conflict', ...}
+let assetOrganizeInline = null; // {key, value, busy}
+let assetOrganizeDrag = null; // {kind:'assets'|'folder', assetIds, rootId, path, key}
+let assetOrganizeDropHint = null; // {row, zone, key}
+let assetOrganizeVersion = 0; // 整理 CAS 版本缓存；0 表示尚未读取
+const assetOrganizeUndoStack = []; // 最近操作的反向描述（会话内）
+const ASSET_ORGANIZE_UNDO_LIMIT = 20;
+let assetOrganizeToastTimer = 0;
 // 目录层级模式下的目录过滤（rootId + 物理相对路径），纯前端过滤，不触发网络请求
 let registryNavFolder = {rootId:'', path:''};
 let registryRegisteredFolders = [];
@@ -6686,7 +6696,7 @@ function renderRegistryListRow(item){
     const selected = registrySelectedIds.has(item.id);
     const name = item.name || 'asset';
     const tags = Array.isArray(item.tags) ? item.tags.slice(0, 4) : [];
-    return `<article class="registry-list-row asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" tabindex="0" role="row" aria-label="查看资产 ${escapeAttr(name)}">
+    return `<article class="registry-list-row asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" draggable="true" data-registry-drag="${escapeAttr(item.id)}" tabindex="0" role="row" aria-label="查看资产 ${escapeAttr(name)}">
         <span class="registry-list-check" role="cell"><input type="checkbox" aria-label="选择 ${escapeAttr(name)}" data-registry-check="${escapeAttr(item.id)}" ${selected ? 'checked' : ''}></span>
         <span class="registry-list-name" role="cell"><span class="registry-list-thumb">${deferRegistryPreviewThumb(assetThumb(item))}</span><strong data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</strong></span>
         <span class="registry-list-type" role="cell"><i data-lucide="${escapeAttr(registryAssetTypeIcon(item))}"></i>${escapeHtml(registryAssetTypeLabel(item))}</span>
@@ -10835,7 +10845,7 @@ function renderRegistryCard(item){
             <div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div>
             <div class="registry-card-caption">${subline}${registryCardSourceBadge(item, assetBoardById(activeTab))}</div>
         </div>`;
-    return `<article class="asset-card registry-card asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" ${referenceCanvasId ? `data-reference-canvas-open="${escapeAttr(referenceCanvasId)}"` : ''} tabindex="0" role="button" aria-label="查看资产 ${escapeAttr(name)}">
+    return `<article class="asset-card registry-card asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" draggable="true" data-registry-drag="${escapeAttr(item.id)}" ${referenceCanvasId ? `data-reference-canvas-open="${escapeAttr(referenceCanvasId)}"` : ''} tabindex="0" role="button" aria-label="查看资产 ${escapeAttr(name)}">
         <input class="asset-card-check" type="checkbox" aria-label="选择 ${escapeAttr(name)}" data-registry-check="${escapeAttr(item.id)}" ${selected ? 'checked' : ''}>
         <span class="registry-card-format" aria-label="文件格式 ${escapeAttr(format)}">${escapeHtml(format)}</span>
         ${renderRegistryRecycleButton(item)}
@@ -11839,7 +11849,7 @@ function assetTreeSystemBoards(){
     // AC2：系统资源树顶层节点（剧本/画布/提示词）；工作流入口删除（独立页面），系统资源只读
     return ['scripts', 'canvas-assets', 'prompts'].map(id => assetBoardById(id)).filter(Boolean);
 }
-function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false}){
+function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false, draggable=false}){
     // AC6 管线样式：竖线与节点圆点由 CSS 依 --tree-depth 定位；is-path=根到选中支路，
     // is-selected=选中淡金底，is-empty=数量为 0 的目录变暗，is-group-label=分组标题小号灰字。
     const pathKeys = assetTreeSelectedPathKeys();
@@ -11849,7 +11859,7 @@ function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expa
     const showCount = hasCount && countValue > 0;
     const zeroDim = hasCount && countValue === 0;
     return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'} ${zeroDim ? 'is-empty' : ''}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
-        <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" aria-label="${escapeAttr(name)}">
+        <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" ${draggable ? `draggable="true" data-asset-tree-drag="${escapeAttr(key)}"` : ''} aria-label="${escapeAttr(name)}">
             <span class="asset-tree-twisty" ${hasChildren ? `data-asset-tree-toggle="${escapeAttr(key)}" aria-expanded="${Boolean(expanded)}" title="${expanded ? '折叠' : '展开'}"` : ''}>${hasChildren ? `<i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i>` : ''}</span>
             <span class="asset-tree-dot"></span>
             <i class="asset-tree-icon" data-lucide="${escapeAttr(icon || 'folder')}"></i>
@@ -11940,7 +11950,7 @@ function assetTreeFolderNodeFor(rootId, node, depth=0){
         : '';
     return renderAssetTreeNode({
         key, icon:'folder', name:node.name, count:node.count, depth,
-        children, expanded, hasChildren:true,
+        children, expanded, hasChildren:true, draggable:true,
     });
 }
 function renderAssetTreeMineTree(){
@@ -11960,10 +11970,11 @@ function renderAssetTreeMineTree(){
             : '';
         return renderAssetTreeNode({
             key, icon:'hard-drive', name:root.name, count:root.count, depth:1,
-            children, expanded, hasChildren:true,
+            children, expanded, hasChildren:true, draggable:assetOrganizeWritableRoot(root.id),
         });
     }).join('');
-    const mountLabel = `<div class="asset-tree-group-label">挂载文件夹</div>`;
+    // 【QIN-546 AC1】分组标题悬停出现「+」：直接在该分组下新建子文件夹
+    const mountLabel = `<div class="asset-tree-group-label"><span>挂载文件夹</span><button class="asset-tree-group-add" type="button" data-asset-organize-group-new aria-label="新建文件夹" title="新建文件夹"><i data-lucide="plus"></i></button></div>`;
     const emptyGuide = roots.length ? '' : `<div class="asset-tree-empty-guide"><p>尚未挂载文件夹</p><small>挂载后按真实磁盘子目录浏览</small></div>`;
     return `<div class="asset-tree-scroll" role="tree" aria-label="我的资源目录树" tabindex="0" data-asset-tree-view="mine">${inboxNode}<div class="asset-tree-mount-section">${mountLabel}${rootNodes}${emptyGuide}</div></div>`;
 }
@@ -12090,6 +12101,662 @@ function selectAssetTreeNode(key){
     }
     if(value.startsWith('system:')){ activateAssetBoard(value.slice('system:'.length)); return; }
     render();
+}
+/* ---------------------------------------------------------------------------
+ * QIN-546 我的资源整理交互：右键菜单、内联改名、拖拽移动、重名处理与 Ctrl+Z 撤销。
+ * 约束：
+ * - 只有「我的资源」标签页内的挂载根与真实磁盘子目录可整理；系统资源、收集箱、
+ *   聚合根（__automatic__）与无物理路径的根一律不响应任何整理操作。
+ * - 所有写操作都走 QIN-545 的 organize 接口并强制携带 expected_version，
+ *   版本冲突时回读一次再重试，绝不做静默覆盖。
+ * - 新建的 body 级浮层（菜单/弹窗/toast）必须登记到文档级点击委托清单。
+ * ------------------------------------------------------------------------- */
+function assetOrganizeIsMineTree(){
+    return assetTreeTab === 'mine';
+}
+function assetOrganizeWritableRoot(rootId){
+    // 聚合根没有单一物理目录；离线根没有可写路径；其余挂载根按真实磁盘路径判定
+    const id = String(rootId || '');
+    if(!id || id === '__automatic__') return false;
+    return Boolean(assetRackRootDiskPath(id));
+}
+function assetOrganizeTargetFromKey(key){
+    if(!assetOrganizeIsMineTree()) return null;
+    const value = String(key || '');
+    if(!value.startsWith('mine:root:')) return null;
+    const body = value.slice('mine:root:'.length);
+    const separator = body.indexOf('::');
+    const rootId = separator > 0 ? body.slice(0, separator) : body;
+    const rawPath = separator > 0 ? body.slice(separator + 2) : '';
+    if(!assetOrganizeWritableRoot(rootId)) return null;
+    const path = rawPath === '__root__' ? '' : rawPath;
+    return {key:value, rootId, path, isRoot:!path};
+}
+function assetOrganizeAbsPath(rootId, relPath=''){
+    const base = String(assetRackRootDiskPath(rootId) || '').replace(/\\/g, '/').replace(/\/+$/g, '');
+    if(!base) return '';
+    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    return rel ? `${base}/${rel}` : base;
+}
+function assetOrganizeParentPath(relPath=''){
+    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const index = rel.lastIndexOf('/');
+    return index > 0 ? rel.slice(0, index) : '';
+}
+function assetOrganizeLeafName(relPath=''){
+    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const index = rel.lastIndexOf('/');
+    return index >= 0 ? rel.slice(index + 1) : rel;
+}
+function assetOrganizeFolderLabel(target){
+    if(!target) return '';
+    if(target.isRoot){
+        return assetRackRoots().find(root => String(root.id || '') === target.rootId)?.name || '挂载文件夹';
+    }
+    return assetOrganizeLeafName(target.path) || '文件夹';
+}
+function assetOrganizeRevealReason(reason){
+    return ({
+        'spawn-failed':'系统未允许启动文件管理器',
+        'launch-failed':'启动文件管理器失败',
+        'target-missing':'目标文件夹已不存在',
+    })[String(reason || '')] || '当前环境不支持唤起系统文件管理器';
+}
+function showAssetOrganizeToast(text, {undoable=false}={}){
+    // AC4：整理结果用独立 toast 呈现；toast 挂在 body 上，按钮由文档级委托处理
+    document.getElementById('assetOrganizeToast')?.remove();
+    const host = document.createElement('div');
+    host.id = 'assetOrganizeToast';
+    host.className = 'asset-organize-toast';
+    host.setAttribute('role', 'status');
+    host.innerHTML = `<i data-lucide="folder-cog"></i><span>${escapeHtml(text)}</span>${undoable ? '<button type="button" class="asset-organize-toast-undo" data-asset-organize-undo-now><i data-lucide="undo-2"></i><span>撤销</span></button>' : ''}`;
+    document.body.appendChild(host);
+    refreshIcons();
+    clearTimeout(assetOrganizeToastTimer);
+    assetOrganizeToastTimer = window.setTimeout(() => host.remove(), 4200);
+}
+function assetOrganizeRequestUrl(url, payload, {method='POST'}={}){
+    return assetManagerHttp.request(url, {
+        method,
+        credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),
+    });
+}
+async function assetOrganizeEnsureVersion(force=false){
+    if(!force && assetOrganizeVersion > 0) return assetOrganizeVersion;
+    const data = await apiJsonResponse(assetManagerHttp.request('/api/local-assets/organize/version', {method:'GET', credentials:'same-origin'}));
+    const version = Number(data?.version);
+    if(!Number.isFinite(version) || version <= 0) throw new Error('整理版本状态不可用，已拒绝写入');
+    assetOrganizeVersion = version;
+    return version;
+}
+async function assetOrganizeRequest(url, payload, {method='POST', retry=true}={}){
+    // CAS：每次写操作都带 expected_version；冲突时回读一次最新版本再重试
+    const version = await assetOrganizeEnsureVersion();
+    try {
+        const data = await apiJsonResponse(assetOrganizeRequestUrl(url, {...payload, expected_version:version}, {method}));
+        const next = Number(data?.version);
+        if(Number.isFinite(next) && next > 0) assetOrganizeVersion = next;
+        return data;
+    } catch(err) {
+        if(retry && err?.code === 'VERSION_CONFLICT'){
+            await assetOrganizeEnsureVersion(true);
+            return assetOrganizeRequest(url, payload, {method, retry:false});
+        }
+        throw err;
+    }
+}
+function assetOrganizePushUndo(data, label, rootId=''){
+    const undo = data?.undo;
+    if(!undo || !undo.undo_id) return;
+    assetOrganizeUndoStack.push({undo, label, rootId:String(data?.root_id || rootId || '')});
+    while(assetOrganizeUndoStack.length > ASSET_ORGANIZE_UNDO_LIMIT) assetOrganizeUndoStack.shift();
+}
+async function assetOrganizeUndoLast(){
+    const entry = assetOrganizeUndoStack.pop();
+    if(!entry){
+        showAssetOrganizeToast('没有可撤销的整理操作');
+        return;
+    }
+    try {
+        await assetOrganizeRequest('/api/local-assets/undo', {undo:entry.undo});
+        showAssetOrganizeToast(`已撤销：${entry.label}`, {undoable:assetOrganizeUndoStack.length > 0});
+        setStatus(`已撤销：${entry.label}`);
+        await assetOrganizeRefresh(entry.rootId);
+    } catch(err) {
+        showAssetOrganizeToast(err?.message || '撤销失败');
+        setStatus(err?.message || '撤销失败');
+    }
+}
+function assetOrganizeInvalidateDiskFolders(rootId){
+    // 目录树读的是逐层磁盘缓存；整理后必须让受影响根整棵缓存失效，否则看到的还是旧层级
+    const prefix = `${rootId}::`;
+    [...registryDiskFolderCache.keys()].forEach(key => {
+        if(key.startsWith(prefix)) registryDiskFolderCache.delete(key);
+    });
+    [...registryDiskFolderLoading.keys()].forEach(key => {
+        if(key.startsWith(prefix)) registryDiskFolderLoading.delete(key);
+    });
+}
+async function assetOrganizeRefresh(rootId=''){
+    const id = String(rootId || '');
+    if(id) assetOrganizeInvalidateDiskFolders(id);
+    resetAssetRackDirectoryIndex();
+    try {
+        if(id){
+            assetTreeExpanded.add(`mine:root:${id}`);
+            await loadAssetRackDiskFolders(id, '');
+        }
+        await loadAssetRackRegisteredFolders(true);
+    } catch(_) {}
+    await refreshRegistryAssets().catch(() => null);
+    render();
+}
+/* ----- 右键菜单 ----- */
+function renderAssetOrganizeMenu(target){
+    const label = assetOrganizeFolderLabel(target);
+    return `<div class="asset-organize-menu" id="assetOrganizeMenu" role="menu" aria-label="文件夹整理">
+        <div class="asset-organize-menu-title"><i data-lucide="folder"></i><span title="${escapeAttr(label)}">${escapeHtml(label)}</span></div>
+        <button type="button" role="menuitem" data-asset-organize-new><i data-lucide="folder-plus"></i><span>新建子文件夹</span></button>
+        <button type="button" role="menuitem" data-asset-organize-rename ${target.isRoot ? 'disabled' : ''}><i data-lucide="pencil"></i><span>重命名</span></button>
+        <button type="button" role="menuitem" data-asset-organize-open><i data-lucide="folder-open"></i><span>在系统中打开</span></button>
+        <button type="button" role="menuitem" class="is-danger" data-asset-organize-delete ${target.isRoot ? 'disabled' : ''}><i data-lucide="trash-2"></i><span>删除（进回收站）</span></button>
+    </div>`;
+}
+function closeAssetOrganizeMenu(){
+    if(!assetOrganizeMenu) return;
+    assetOrganizeMenu = null;
+    document.getElementById('assetOrganizeMenu')?.remove();
+}
+function openAssetOrganizeMenu(event){
+    const row = event.target?.closest?.('[data-asset-tree-node]');
+    if(!row || !row.closest('.asset-tree-panel')) return;
+    const target = assetOrganizeTargetFromKey(row.dataset.assetTreeNode || '');
+    // 系统资源 / 收集箱 / 聚合根：不弹整理菜单，也不阻止原生菜单
+    if(!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeAssetOrganizeMenu();
+    closeAssetOrganizeDialog('cancel');
+    const host = document.createElement('div');
+    host.innerHTML = renderAssetOrganizeMenu(target);
+    const menu = host.firstElementChild;
+    if(!menu) return;
+    document.body.appendChild(menu);
+    const margin = 10;
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(margin, Math.min(event.clientX, window.innerWidth - bounds.width - margin))}px`;
+    menu.style.top = `${Math.max(margin, Math.min(event.clientY, window.innerHeight - bounds.height - margin))}px`;
+    // 焦点返还目标就是行按钮本身（它同时带 data-asset-tree-node 与 asset-tree-row 类）
+    const trigger = row;
+    assetOrganizeMenu = {...target, trigger};
+    window.FloatingDismissal?.mark?.(menu, {kind:'popover', content:'self', trigger, close:closeAssetOrganizeMenu});
+    refreshIcons();
+    requestAnimationFrame(() => menu.querySelector('button:not(:disabled)')?.focus({preventScroll:true}));
+}
+/* ----- 弹窗：新建 / 删除确认 / 重名冲突 ----- */
+function renderAssetOrganizeDialog(){
+    const state = assetOrganizeDialog;
+    if(!state) return '';
+    if(state.kind === 'create'){
+        return `<div class="asset-organize-dialog" role="dialog" aria-modal="true" aria-label="新建子文件夹">
+            <header><strong>新建子文件夹</strong><button type="button" class="asset-organize-dialog-close" data-asset-organize-dialog-cancel aria-label="关闭"><i data-lucide="x"></i></button></header>
+            <p class="asset-organize-dialog-hint">位置：${escapeHtml(state.locationLabel)}</p>
+            <input class="asset-organize-dialog-input" data-asset-organize-dialog-input value="${escapeAttr(state.value || '')}" placeholder="文件夹名称" maxlength="120" aria-label="新文件夹名称">
+            <p class="asset-organize-dialog-error" data-asset-organize-dialog-error></p>
+            <footer><button class="hw-btn" type="button" data-asset-organize-dialog-cancel>取消</button><button class="hw-btn hw-btn-gold" type="button" data-asset-organize-dialog-confirm>创建</button></footer>
+        </div>`;
+    }
+    if(state.kind === 'delete'){
+        return `<div class="asset-organize-dialog" role="dialog" aria-modal="true" aria-label="删除确认">
+            <header><strong>删除文件夹</strong><button type="button" class="asset-organize-dialog-close" data-asset-organize-dialog-cancel aria-label="关闭"><i data-lucide="x"></i></button></header>
+            <p class="asset-organize-dialog-hint">「${escapeHtml(state.label)}」将移入应用回收站，不会永久删除；删除后可用 Ctrl+Z 撤销。</p>
+            <footer><button class="hw-btn" type="button" data-asset-organize-dialog-cancel>取消</button><button class="hw-btn hw-btn-danger" type="button" data-asset-organize-dialog-confirm>删除</button></footer>
+        </div>`;
+    }
+    if(state.kind === 'conflict'){
+        return `<div class="asset-organize-dialog" role="dialog" aria-modal="true" aria-label="重名处理">
+            <header><strong>目标位置已存在同名项</strong><button type="button" class="asset-organize-dialog-close" data-asset-organize-dialog-cancel aria-label="关闭"><i data-lucide="x"></i></button></header>
+            <p class="asset-organize-dialog-hint">「${escapeHtml(state.name)}」在目标文件夹中已存在，请选择处理方式。</p>
+            <footer class="asset-organize-dialog-choices">
+                <button class="hw-btn" type="button" data-asset-organize-conflict="cancel">取消本次</button>
+                <button class="hw-btn" type="button" data-asset-organize-conflict="skip">跳过</button>
+                <button class="hw-btn" type="button" data-asset-organize-conflict="rename">改名</button>
+                <button class="hw-btn hw-btn-gold" type="button" data-asset-organize-conflict="overwrite">覆盖</button>
+            </footer>
+        </div>`;
+    }
+    return '';
+}
+function syncAssetOrganizeDialog(){
+    document.getElementById('assetOrganizeDialog')?.remove();
+    if(!assetOrganizeDialog) return;
+    const host = document.createElement('div');
+    host.id = 'assetOrganizeDialog';
+    host.className = 'storage-settings-overlay asset-organize-dialog-overlay';
+    host.innerHTML = renderAssetOrganizeDialog();
+    document.body.appendChild(host);
+    window.FloatingDismissal?.mark?.(host, {kind:'modal', content:'self', close:() => closeAssetOrganizeDialog('cancel')});
+    refreshIcons();
+    const input = host.querySelector('[data-asset-organize-dialog-input]');
+    if(input){
+        input.focus();
+        input.select?.();
+        return;
+    }
+    requestAnimationFrame(() => host.querySelector('button:not([disabled])')?.focus({preventScroll:true}));
+}
+function openAssetOrganizeDialog(state){
+    assetOrganizeDialog = state;
+    syncAssetOrganizeDialog();
+}
+function closeAssetOrganizeDialog(result='cancel'){
+    const state = assetOrganizeDialog;
+    assetOrganizeDialog = null;
+    document.getElementById('assetOrganizeDialog')?.remove();
+    if(state && typeof state.resolve === 'function'){
+        try { state.resolve(result); } catch(_) {}
+    }
+}
+function setAssetOrganizeDialogError(text=''){
+    const el = document.querySelector('#assetOrganizeDialog [data-asset-organize-dialog-error]');
+    if(el) el.textContent = String(text || '');
+}
+function assetOrganizeAskConflict(name){
+    return new Promise(resolve => {
+        openAssetOrganizeDialog({kind:'conflict', name, resolve});
+    });
+}
+/* ----- 新建 / 改名 / 删除 / 在系统中打开 ----- */
+function openAssetOrganizeCreateDialog(target, presetRootId=''){
+    const rootId = String(presetRootId || target?.rootId || assetOrganizeDefaultRootId() || '');
+    if(!assetOrganizeWritableRoot(rootId)){
+        showAssetOrganizeToast('没有可写入的挂载文件夹');
+        return;
+    }
+    const parentPath = target ? String(target.path || '') : '';
+    const locationLabel = parentPath
+        ? `${assetRackRoots().find(root => String(root.id || '') === rootId)?.name || '挂载文件夹'} / ${parentPath}`
+        : `${assetRackRoots().find(root => String(root.id || '') === rootId)?.name || '挂载文件夹'} / 根目录`;
+    openAssetOrganizeDialog({kind:'create', rootId, parentPath, locationLabel, value:'新文件夹'});
+}
+function assetOrganizeDefaultRootId(){
+    const selected = assetOrganizeTargetFromKey(assetTreeSelectedKey);
+    if(selected) return selected.rootId;
+    return assetRackRoots().map(root => String(root.id || '')).find(id => assetOrganizeWritableRoot(id)) || '';
+}
+function assetOrganizeValidateFolderName(name){
+    const value = String(name || '').trim();
+    if(!value) throw new Error('文件夹名称不能为空');
+    if(/[\\/:*?"<>|]/.test(value) || value === '.' || value === '..') throw new Error('文件夹名称不能包含 \\ / : * ? " < > |');
+    if([...value].length > 120) throw new Error('文件夹名称过长');
+    return value;
+}
+async function assetOrganizeCreateFolder(state, rawName){
+    const name = assetOrganizeValidateFolderName(rawName);
+    const relPath = state.parentPath ? `${state.parentPath}/${name}` : name;
+    const abs = assetOrganizeAbsPath(state.rootId, relPath);
+    if(!abs) throw new Error('挂载路径不可用，无法新建文件夹');
+    const data = await assetOrganizeRequest('/api/local-assets/folders', {path:abs, root_id:state.rootId});
+    assetOrganizePushUndo(data, `新建 ${name}`, state.rootId);
+    assetTreeSelectedKey = `mine:root:${state.rootId}::${relPath}`;
+    showAssetOrganizeToast(`已新建文件夹「${name}」`, {undoable:true});
+    setStatus(`已新建文件夹「${name}」`);
+    await assetOrganizeRefresh(state.rootId);
+}
+function beginAssetOrganizeRename(target){
+    // 行本身就是带 data-asset-tree-node 的 button，不能再按后代去查 .asset-tree-row
+    const row = root.querySelector(`.asset-tree-panel [data-asset-tree-node="${CSS.escape(target.key)}"]`);
+    const nameEl = row?.querySelector('.asset-tree-name');
+    if(!row || !nameEl) return;
+    const current = assetOrganizeLeafName(target.path);
+    assetOrganizeInline = {key:target.key, value:current, busy:false};
+    const input = document.createElement('input');
+    input.className = 'asset-tree-rename';
+    input.value = current;
+    input.maxLength = 120;
+    input.setAttribute('data-asset-organize-rename-input', target.key);
+    input.setAttribute('aria-label', '重命名文件夹');
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select?.();
+}
+function cancelAssetOrganizeRename(){
+    if(!assetOrganizeInline) return;
+    assetOrganizeInline = null;
+    render();
+}
+async function commitAssetOrganizeRename(target, rawValue){
+    if(!assetOrganizeInline || assetOrganizeInline.busy) return;
+    const current = assetOrganizeLeafName(target.path);
+    const next = String(rawValue || '').trim();
+    if(!next || next === current){ cancelAssetOrganizeRename(); return; }
+    assetOrganizeInline = {key:target.key, value:next, busy:true};
+    try {
+        const name = assetOrganizeValidateFolderName(next);
+        const abs = assetOrganizeAbsPath(target.rootId, target.path);
+        const data = await assetOrganizeRequest('/api/local-assets/folders', {path:abs, name, root_id:target.rootId}, {method:'PATCH'});
+        assetOrganizePushUndo(data, `重命名 ${current} → ${name}`, target.rootId);
+        assetOrganizeInline = null;
+        const renamed = `${assetOrganizeParentPath(target.path) ? `${assetOrganizeParentPath(target.path)}/` : ''}${name}`;
+        assetTreeSelectedKey = `mine:root:${target.rootId}::${renamed}`;
+        assetTreeExpanded.add(target.key);
+        assetTreeExpanded.add(`mine:root:${target.rootId}::${renamed}`);
+        showAssetOrganizeToast(`已重命名为「${name}」`, {undoable:true});
+        setStatus(`已重命名为「${name}」`);
+        await assetOrganizeRefresh(target.rootId);
+    } catch(err) {
+        assetOrganizeInline = {key:target.key, value:next, busy:false};
+        showAssetOrganizeToast(err?.message || '重命名失败');
+        setStatus(err?.message || '重命名失败');
+        render();
+    }
+}
+async function assetOrganizeDeleteFolder(target){
+    openAssetOrganizeDialog({
+        kind:'delete',
+        label:assetOrganizeFolderLabel(target),
+        resolve: choice => {
+            if(choice !== 'confirm') return;
+            void (async () => {
+                try {
+                    const abs = assetOrganizeAbsPath(target.rootId, target.path);
+                    const data = await assetOrganizeRequest('/api/local-assets/folders/delete', {path:abs, root_id:target.rootId});
+                    assetOrganizePushUndo(data, `删除 ${assetOrganizeFolderLabel(target)}`, target.rootId);
+                    if(assetTreeSelectedKey === target.key) assetTreeSelectedKey = '';
+                    showAssetOrganizeToast(`已移入回收站：${assetOrganizeFolderLabel(target)}`, {undoable:true});
+                    setStatus(`已移入回收站：${assetOrganizeFolderLabel(target)}`);
+                    await assetOrganizeRefresh(target.rootId);
+                } catch(err) {
+                    showAssetOrganizeToast(err?.message || '删除失败');
+                    setStatus(err?.message || '删除失败');
+                }
+            })();
+        },
+    });
+}
+async function assetOrganizeOpenFolderInSystem(target){
+    const abs = assetOrganizeAbsPath(target.rootId, target.path);
+    if(!abs){ showAssetOrganizeToast('挂载路径不可用，无法打开'); return; }
+    try {
+        const data = await apiJsonResponse(assetOrganizeRequestUrl('/api/local-assets/folders/open', {path:abs, root_id:target.rootId}));
+        if(data?.status === 'opened'){
+            showAssetOrganizeToast('已在系统文件管理器中打开');
+            setStatus('已在系统文件管理器中打开');
+            return;
+        }
+        const reason = assetOrganizeRevealReason(data?.reason);
+        showAssetOrganizeToast(`无法打开：${reason}`);
+        setStatus(`无法打开：${reason}`);
+    } catch(err) {
+        showAssetOrganizeToast(err?.message || '无法打开文件夹');
+        setStatus(err?.message || '无法打开文件夹');
+    }
+}
+/* ----- 拖拽：素材卡片 / 文件夹 ----- */
+function clearAssetOrganizeDropHint(){
+    if(assetOrganizeDropHint?.row){
+        assetOrganizeDropHint.row.classList.remove('is-organize-drop-into', 'is-organize-drop-before', 'is-organize-drop-after');
+    }
+    assetOrganizeDropHint = null;
+}
+function assetOrganizeDropZoneFor(row, clientY, isRoot){
+    if(isRoot) return 'into';
+    const bounds = row.getBoundingClientRect();
+    const ratio = (clientY - bounds.top) / Math.max(1, bounds.height);
+    // 上下 26% 视为「插到这一层」，中间视为「放进去」——两种落点视觉与语义都要区分
+    return ratio < 0.26 || ratio > 0.74 ? 'insert' : 'into';
+}
+function applyAssetOrganizeDropHint(row, zone, before){
+    if(assetOrganizeDropHint?.row === row && assetOrganizeDropHint.zone === zone) return;
+    clearAssetOrganizeDropHint();
+    if(zone === 'into') row.classList.add('is-organize-drop-into');
+    else row.classList.add(before ? 'is-organize-drop-before' : 'is-organize-drop-after');
+    assetOrganizeDropHint = {row, zone};
+}
+function beginAssetOrganizeDrag(event){
+    const folderRow = event.target.closest?.('[data-asset-tree-drag]');
+    if(folderRow){
+        if(!assetOrganizeIsMineTree()){ event.preventDefault(); return; }
+        const target = assetOrganizeTargetFromKey(folderRow.dataset.assetTreeDrag || '');
+        if(!target || target.isRoot){ event.preventDefault(); return; }
+        assetOrganizeDrag = {kind:'folder', key:target.key, rootId:target.rootId, path:target.path, assetIds:[]};
+        event.dataTransfer?.setData('application/x-gw-organize', target.path);
+        event.dataTransfer.effectAllowed = 'move';
+        folderRow.classList.add('is-organize-dragging');
+        return;
+    }
+    const card = event.target.closest?.('[data-registry-drag]');
+    if(!card) return;
+    // 系统资源视图里的卡片同样带 draggable，这里显式取消拖拽，避免出现拖不动的幽灵影子
+    if(!assetOrganizeIsMineTree()){ event.preventDefault(); return; }
+    const assetId = String(card.dataset.registryDrag || '');
+    if(!assetId){ event.preventDefault(); return; }
+    const ids = registrySelectedIds.has(assetId) ? [...registrySelectedIds] : [assetId];
+    assetOrganizeDrag = {kind:'assets', key:'', rootId:'', path:'', assetIds:ids};
+    event.dataTransfer?.setData('application/x-gw-organize', ids.join('\n'));
+    event.dataTransfer?.setData('text/plain', ids.join('\n'));
+    event.dataTransfer.effectAllowed = 'move';
+    card.classList.add('is-organize-dragging');
+}
+function assetOrganizeDropTargetFor(event){
+    const row = event.target.closest?.('.asset-tree-row');
+    if(!row || !row.closest('.asset-tree-panel')) return null;
+    if(!assetOrganizeDrag) return null;
+    const target = assetOrganizeTargetFromKey(row.dataset.assetTreeNode || '');
+    if(!target) return null;
+    if(assetOrganizeDrag.kind === 'folder'){
+        // 不允许把文件夹拖进自己或自己的子目录
+        if(target.path === assetOrganizeDrag.path) return null;
+        if(target.path.startsWith(`${assetOrganizeDrag.path}/`)) return null;
+    }
+    return {row, target};
+}
+function allowAssetOrganizeDrop(event){
+    const hit = assetOrganizeDropTargetFor(event);
+    if(!hit) return;
+    event.preventDefault();
+    if(event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    const zone = assetOrganizeDropZoneFor(hit.row, event.clientY, hit.target.isRoot);
+    const bounds = hit.row.getBoundingClientRect();
+    applyAssetOrganizeDropHint(hit.row, zone, (event.clientY - bounds.top) < bounds.height / 2);
+}
+async function dropAssetOrganize(event){
+    if(!assetOrganizeDrag) return;
+    const hit = assetOrganizeDropTargetFor(event);
+    if(!hit) return;
+    event.preventDefault();
+    const zone = assetOrganizeDropZoneFor(hit.row, event.clientY, hit.target.isRoot);
+    const drag = assetOrganizeDrag;
+    clearAssetOrganizeDropHint();
+    assetOrganizeDrag = null;
+    document.querySelectorAll('.is-organize-dragging').forEach(el => el.classList.remove('is-organize-dragging'));
+    const destPath = zone === 'into' ? hit.target.path : assetOrganizeParentPath(hit.target.path);
+    if(drag.kind === 'folder'){
+        // 【QIN-546】/api/local-assets/folders/move 的 target 是「最终路径」（不像素材移动
+        // 那支会在 target 为目录时自动拼文件名），这里必须把本层名字补上，
+        // 否则拖进任何已存在的目录都会 409 TARGET_EXISTS。
+        const leaf = assetOrganizeLeafName(drag.path);
+        const folderDestPath = destPath ? `${destPath}/${leaf}` : leaf;
+        await assetOrganizeMoveFolder(drag, hit.target.rootId, folderDestPath);
+        return;
+    }
+    await assetOrganizeMoveAssets(drag.assetIds, hit.target.rootId, destPath);
+}
+function endAssetOrganizeDrag(){
+    assetOrganizeDrag = null;
+    clearAssetOrganizeDropHint();
+    document.querySelectorAll('.is-organize-dragging').forEach(el => el.classList.remove('is-organize-dragging'));
+}
+async function assetOrganizeMoveFolder(drag, destRootId, destPath){
+    // destPath 是本层移动后的最终路径（含自身名字），与 folders/move 的 target 语义一致
+    if(drag.rootId !== destRootId){
+        showAssetOrganizeToast('仅支持在同一挂载文件夹内移动');
+        setStatus('仅支持在同一挂载文件夹内移动');
+        return;
+    }
+    if(destPath === drag.path){
+        // 拖回原位置 = 无变化
+        render();
+        return;
+    }
+    const sourceAbs = assetOrganizeAbsPath(drag.rootId, drag.path);
+    const targetAbs = assetOrganizeAbsPath(destRootId, destPath);
+    if(!sourceAbs || !targetAbs) return;
+    try {
+        const data = await assetOrganizeRequest('/api/local-assets/folders/move', {
+            source:sourceAbs,
+            target:targetAbs,
+            source_root_id:drag.rootId,
+            target_root_id:destRootId,
+        });
+        assetOrganizePushUndo(data, `移动 ${assetOrganizeLeafName(drag.path)}`, drag.rootId);
+        assetTreeSelectedKey = `mine:root:${destRootId}::${destPath}`;
+        showAssetOrganizeToast(`已移动文件夹「${assetOrganizeLeafName(drag.path)}」`, {undoable:true});
+        setStatus(`已移动文件夹「${assetOrganizeLeafName(drag.path)}」`);
+        await assetOrganizeRefresh(destRootId);
+    } catch(err) {
+        showAssetOrganizeToast(assetOrganizeErrorText(err));
+        setStatus(assetOrganizeErrorText(err));
+        render();
+    }
+}
+function assetOrganizeErrorText(err){
+    if(err?.code === 'FILE_LOCKED') return '文件被占用，无法完成移动；请关闭占用该文件的程序后重试';
+    if(err?.code === 'TARGET_EXISTS') return '目标位置已存在同名项';
+    if(err?.code === 'CROSS_ROOT_FORBIDDEN') return '禁止跨挂载文件夹操作';
+    if(err?.code === 'INVALID_MOVE_DESTINATION') return '不能移动到自身或其子目录';
+    return err?.message || '整理操作失败';
+}
+async function assetOrganizeMoveOne(assetId, item, destRootId, destPath){
+    const sourceRoot = String(item?.storage_root_id || '');
+    const rel = String(item?.canonical_relpath || item?.relative_path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if(!sourceRoot || !rel) return {status:'failed', reason:'素材缺少真实磁盘路径'};
+    if(sourceRoot !== destRootId) return {status:'failed', reason:'仅支持在同一挂载文件夹内移动'};
+    if(assetOrganizeParentPath(rel) === destPath) return {status:'unchanged'};
+    const sourceAbs = assetOrganizeAbsPath(sourceRoot, rel);
+    const targetAbs = assetOrganizeAbsPath(destRootId, destPath);
+    if(!sourceAbs || !targetAbs) return {status:'failed', reason:'挂载路径不可用'};
+    const move = async extra => assetOrganizeRequest('/api/local-assets/move', {
+        source:sourceAbs,
+        target:targetAbs,
+        source_root_id:sourceRoot,
+        target_root_id:destRootId,
+        organize:true,
+        ...extra,
+    });
+    try {
+        const data = await move({});
+        assetOrganizePushUndo(data, `移动 ${item.name || assetId}`, sourceRoot);
+        return {status:'moved', rootId:sourceRoot};
+    } catch(err) {
+        if(err?.code !== 'TARGET_EXISTS') return {status:'failed', reason:assetOrganizeErrorText(err)};
+        const choice = await assetOrganizeAskConflict(item?.name || assetId);
+        if(choice === 'cancel') return {status:'aborted'};
+        if(choice === 'skip') return {status:'skipped'};
+        try {
+            const data = await move({conflict_resolution:choice});
+            assetOrganizePushUndo(data, `移动 ${item.name || assetId}`, sourceRoot);
+            return {status:'moved', rootId:sourceRoot};
+        } catch(retryErr) {
+            return {status:'failed', reason:assetOrganizeErrorText(retryErr)};
+        }
+    }
+}
+async function assetOrganizeMoveAssets(assetIds=[], destRootId='', destPath=''){
+    const ids = [...new Set((assetIds || []).map(String).filter(Boolean))];
+    if(!ids.length) return;
+    const pool = new Map(registryAssets.map(item => [String(item.id || ''), item]));
+    let moved = 0;
+    const failures = [];
+    for(const id of ids){
+        const item = pool.get(id);
+        if(!item){ failures.push({id, reason:'素材不在当前列表'}); continue; }
+        const result = await assetOrganizeMoveOne(id, item, destRootId, destPath);
+        if(result.status === 'moved') moved += 1;
+        else if(result.status === 'aborted') break;
+        else if(result.status === 'failed') failures.push({id, reason:result.reason});
+    }
+    const targetLabel = destPath ? assetOrganizeLeafName(destPath) : '根目录';
+    if(moved){
+        showAssetOrganizeToast(`已移动 ${moved} 项到「${targetLabel}」${failures.length ? `，${failures.length} 项失败` : ''}`, {undoable:true});
+        setStatus(`已移动 ${moved} 项到「${targetLabel}」`);
+        await assetOrganizeRefresh(destRootId);
+        return;
+    }
+    if(failures.length){
+        showAssetOrganizeToast(failures[0].reason || '移动失败');
+        setStatus(failures[0].reason || '移动失败');
+    }
+    render();
+}
+/* ----- 键盘：Ctrl+Z 撤销最近操作 ----- */
+function handleAssetOrganizeKeydown(event){
+    const renameInput = event.target?.closest?.('[data-asset-organize-rename-input]');
+    if(renameInput){
+        // 内联改名：回车提交、Esc 放弃，其余按键留在输入框内
+        if(event.key === 'Enter'){
+            event.preventDefault();
+            event.stopPropagation();
+            const target = assetOrganizeTargetFromKey(renameInput.dataset.assetOrganizeRenameInput || '');
+            if(target) void commitAssetOrganizeRename(target, renameInput.value);
+            return;
+        }
+        if(event.key === 'Escape'){
+            event.preventDefault();
+            event.stopPropagation();
+            cancelAssetOrganizeRename();
+            return;
+        }
+        return;
+    }
+    const active = document.activeElement;
+    const editing = active && (active.matches?.('input, textarea, select') || active.isContentEditable);
+    if(event.key === 'Escape'){
+        if(assetOrganizeMenu){ closeAssetOrganizeMenu(); return; }
+        if(assetOrganizeDialog){ closeAssetOrganizeDialog('cancel'); return; }
+        return;
+    }
+    if(!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+    if(String(event.key || '').toLowerCase() !== 'z') return;
+    if(editing || detailViewerState?.open) return;
+    if(!assetOrganizeUndoStack.length) return;
+    event.preventDefault();
+    void assetOrganizeUndoLast();
+}
+/* ----- body 级浮层的点击委托（菜单/弹窗/toast 不在 #assetManagerRoot 内） ----- */
+async function handleAssetOrganizeOverlayClick(event){
+    const target = event.target;
+    if(!target?.closest?.('#assetOrganizeMenu, #assetOrganizeDialog, #assetOrganizeToast')) return false;
+    if(target.closest('[data-asset-organize-undo-now]')){ document.getElementById('assetOrganizeToast')?.remove(); await assetOrganizeUndoLast(); return true; }
+    if(target.closest('[data-asset-organize-new]')){ const current = assetOrganizeMenu; closeAssetOrganizeMenu(); openAssetOrganizeCreateDialog(current); return true; }
+    if(target.closest('[data-asset-organize-rename]')){ const current = assetOrganizeMenu; closeAssetOrganizeMenu(); if(current && !current.isRoot) beginAssetOrganizeRename(current); return true; }
+    if(target.closest('[data-asset-organize-open]')){ const current = assetOrganizeMenu; closeAssetOrganizeMenu(); if(current) await assetOrganizeOpenFolderInSystem(current); return true; }
+    if(target.closest('[data-asset-organize-delete]')){ const current = assetOrganizeMenu; closeAssetOrganizeMenu(); if(current && !current.isRoot) await assetOrganizeDeleteFolder(current); return true; }
+    const conflictChoice = target.closest('[data-asset-organize-conflict]');
+    if(conflictChoice){ closeAssetOrganizeDialog(conflictChoice.dataset.assetOrganizeConflict || 'cancel'); return true; }
+    if(target.closest('[data-asset-organize-dialog-cancel]')){ closeAssetOrganizeDialog('cancel'); return true; }
+    if(target.closest('[data-asset-organize-dialog-confirm]')){
+        const state = assetOrganizeDialog;
+        if(!state) return true;
+        if(state.kind === 'delete'){ closeAssetOrganizeDialog('confirm'); return true; }
+        if(state.kind === 'create'){
+            const input = document.querySelector('#assetOrganizeDialog [data-asset-organize-dialog-input]');
+            try {
+                setAssetOrganizeDialogError('');
+                closeAssetOrganizeDialog('created');
+                await assetOrganizeCreateFolder(state, input?.value || '');
+            } catch(err) {
+                setStatus(err?.message || '新建文件夹失败');
+                showAssetOrganizeToast(err?.message || '新建文件夹失败');
+            }
+            return true;
+        }
+        return true;
+    }
+    if(target.id === 'assetOrganizeDialog'){ closeAssetOrganizeDialog('cancel'); return true; }
+    return true;
 }
 function renderAssetRack(extraAttrs='', extraClass=''){
     const collapsed = assetRackCollapsed;
@@ -14063,8 +14730,27 @@ async function handleClick(event){
     if(treeMount){ openBoardSourceModal('', 'new'); return; }
     const treeCrumb = target.closest?.('[data-asset-tree-crumb]');
     if(treeCrumb){ handleAssetTreeCrumbClick(treeCrumb.dataset.assetTreeCrumb || ''); return; }
+    // 【QIN-546】分组标题悬停「+」：在该分组下新建子文件夹
+    if(target.closest?.('[data-asset-organize-group-new]')){
+        event.stopPropagation();
+        openAssetOrganizeCreateDialog(null, assetOrganizeDefaultRootId());
+        return;
+    }
     const treeNode = target.closest?.('[data-asset-tree-node]');
-    if(treeNode){ selectAssetTreeNode(treeNode.dataset.assetTreeNode || ''); return; }
+    if(treeNode){
+        // 【QIN-546】双击改名：单击选中会异步重绘整棵树，原生 dblclick 的第二击常落在
+        // 重建后的新节点上而丢失，因此用 click 的 detail 计数兜底判定双击。
+        if(Number(event.detail) >= 2 && target.closest?.('.asset-tree-panel .asset-tree-name')){
+            const dblTarget = assetOrganizeTargetFromKey(treeNode.dataset.assetTreeNode || '');
+            if(dblTarget && !dblTarget.isRoot){
+                event.preventDefault();
+                beginAssetOrganizeRename(dblTarget);
+                return;
+            }
+        }
+        selectAssetTreeNode(treeNode.dataset.assetTreeNode || '');
+        return;
+    }
     if(target.closest?.('[data-asset-rack-collapse]')){ setAssetRackCollapsed(true); return; }
     if(target.closest?.('[data-asset-rack-expand]')){ setAssetRackCollapsed(false); return; }
     const assetRackToggle = target.closest?.('[data-asset-rack-toggle]');
@@ -21822,6 +22508,11 @@ document.addEventListener('click', event => {
     if(detailZoom){ adjustDetailPreviewZoom(Number(detailZoom.dataset.detailZoom || 0)); return; }
     // 挂在 body 上的浮层不在 #assetManagerRoot 内，root 的点击委托收不到事件；
     // 新增 body 级浮层时务必把容器 id 加到这份清单，否则按钮点击全部无效。
+    // 【QIN-546】整理菜单/弹窗/toast 走独立委托：与通用 handleClick 语义不同，不能混在一起。
+    if(event.target.closest?.('#assetOrganizeMenu,#assetOrganizeDialog,#assetOrganizeToast')){
+        handleAssetOrganizeOverlayClick(event).catch(err => setStatus(err.message || '操作失败'));
+        return;
+    }
     if(event.target.closest?.('#storageSettingsOverlay,#boardCreateOverlay,#boardSourceOverlay,#boardEditOverlay,#boardFolderCreateOverlay,#thumbnailGeneratorOverlay,#thumbnailCacheSwitchOverlay')){
         handleClick(event).catch(err => setStatus(err.message || '操作失败'));
         return;
@@ -22562,6 +23253,26 @@ document.addEventListener('focusout', event => {
 });
 document.addEventListener('contextmenu', openDetailMediaCanvasContextMenu);
 document.addEventListener('contextmenu', openRegistryStructureContextMenu);
+/* 【QIN-546】我的资源整理：右键菜单、双击改名、内联输入收尾、Ctrl+Z 撤销与拖拽移动 */
+document.addEventListener('contextmenu', openAssetOrganizeMenu);
+document.addEventListener('keydown', handleAssetOrganizeKeydown);
+document.addEventListener('dblclick', event => {
+    const nameEl = event.target.closest?.('.asset-tree-panel .asset-tree-row .asset-tree-name');
+    if(!nameEl) return;
+    const row = nameEl.closest('[data-asset-tree-node]');
+    const target = assetOrganizeTargetFromKey(row?.dataset.assetTreeNode || '');
+    if(!target || target.isRoot) return;
+    event.preventDefault();
+    event.stopPropagation();
+    beginAssetOrganizeRename(target);
+});
+document.addEventListener('focusout', event => {
+    const input = event.target?.closest?.('[data-asset-organize-rename-input]');
+    // 输入框随重绘被摘除时也会触发 focusout，已断连的节点不得再提交一次
+    if(!input || !input.isConnected) return;
+    const target = assetOrganizeTargetFromKey(input.dataset.assetOrganizeRenameInput || '');
+    if(target) void commitAssetOrganizeRename(target, input.value);
+});
 document.addEventListener('paste', handleDetailMediaCanvasPaste);
 document.addEventListener('dragstart', beginDetailMediaLibraryDrag);
 document.addEventListener('dragover', allowDetailMediaCanvasDrop);
@@ -22799,6 +23510,19 @@ root.addEventListener('dragend', () => {
     localLibraryDragId = '';
     render();
 });
+/* 【QIN-546】我的资源整理拖拽：与素材库排序/上传拖拽用独立状态与 data 属性隔离，互不拦截 */
+root.addEventListener('dragstart', beginAssetOrganizeDrag);
+root.addEventListener('dragover', allowAssetOrganizeDrop);
+root.addEventListener('dragleave', event => {
+    if(!assetOrganizeDropHint?.row) return;
+    if(event.target?.closest?.('.asset-tree-row') === assetOrganizeDropHint.row) clearAssetOrganizeDropHint();
+});
+root.addEventListener('drop', event => {
+    if(!assetOrganizeDrag) return;
+    event.preventDefault();
+    void dropAssetOrganize(event);
+});
+root.addEventListener('dragend', endAssetOrganizeDrag);
 uploadInput?.addEventListener('change', event => {
     const files = event.target.files;
     if(files?.length){

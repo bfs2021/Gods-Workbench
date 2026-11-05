@@ -319,6 +319,13 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/local-assets/items",
         "/api/local-assets/move",
         "/api/local-assets/upload",
+        # 2026-11-05 QIN-546：我的资源整理交互接入 QIN-545 已实现的整理接口，
+        # 并新增「在系统中打开」端点（仅回环管理员，与原生目录选择器同一边界）。
+        "/api/local-assets/folders/delete",
+        "/api/local-assets/folders/move",
+        "/api/local-assets/folders/open",
+        "/api/local-assets/organize/version",
+        "/api/local-assets/undo",
         "/api/storage-files",
         "/api/storage-files/delete",
         # 2026-09-25 Phase 11 B5：媒体与缩略图路径统一注册为失败关闭。
@@ -488,8 +495,7 @@ KNOWN_BACKEND_PATHS = frozenset(
         "/api/media-transcode",
         "/api/online-image",
         # 2026-09-25 Phase 11 B3：后端已注册全部素材注册表归一化路径。
-        "/api/asset-registry",
-        "/api/asset-registry/assets",
+        "/api/asset-registry",        "/api/asset-registry/assets",
         "/api/asset-registry/assets/archive",
         "/api/asset-registry/assets/export-pdf",
         "/api/asset-registry/assets/import",
@@ -540,6 +546,12 @@ KNOWN_BACKEND_PATHS = frozenset(
         "/api/asset-registry/status",
         "/api/asset-registry/workspace-jobs/{p}",
         "/api/asset-registry/workspace-jobs/{p}/{p}",
+        # 2026-11-05 QIN-546：我的资源整理写操作与「在系统中打开」端点已真实注册。
+        "/api/local-assets/folders/delete",
+        "/api/local-assets/folders/move",
+        "/api/local-assets/folders/open",
+        "/api/local-assets/organize/version",
+        "/api/local-assets/undo",
     ]
 )
 
