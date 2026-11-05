@@ -263,9 +263,14 @@ def _client_safe_undo(record: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
-def check_root_writable(root: Path, root_id: str | None = None) -> None:
-    """校验目标允许根是否为可写根；系统根或只读配置一律拒绝写入。"""
+def check_root_writable(root: Path, root_id: str | None = None, resolved_target: Path | None = None) -> None:
+    """校验目标允许根是否为可写根；系统根或只读配置一律拒绝写入。
+
+    resolved_target：实际目标文件/目录的绝对路径（可选）。若提供，库路径匹配时将
+    同时检查库路径与 resolved_root 的包含关系，以支持库挂在允许根之下的嵌套场景。
+    """
     resolved_root = root.resolve()
+    resolved_check = (resolved_target or root).resolve()
     env_roots = [r.resolve() for r in storage.environment_allowed_roots()]
     if any(resolved_root == er or resolved_root.is_relative_to(er) for er in env_roots):
         raise CleanroomException(403, "SYSTEM_ROOT_READ_ONLY", "系统资源的根目录为只读，拒绝写入")
@@ -292,10 +297,14 @@ def check_root_writable(root: Path, root_id: str | None = None) -> None:
         elif lib_path:
             try:
                 res_lib = Path(lib_path).resolve()
-                if resolved_root == res_lib or resolved_root.is_relative_to(res_lib):
+                # 同时检查挂载根和目标路径是否属于该库，支持库嵌套在允许根之下的场景
+                if (resolved_root == res_lib or resolved_root.is_relative_to(res_lib)
+                        or resolved_check == res_lib or resolved_check.is_relative_to(res_lib)):
                     is_match = True
-            except (ValueError, OSError):
-                pass
+            except (ValueError, OSError) as exc:
+                # 路径解析失败时，记录日志并保守处理（若库本身被标记为只读则拒绝）
+                logger.warning("check_root_writable: 解析库路径失败 %r: %s，跳过该库匹配", lib_path, exc)
+                continue
 
         if is_match:
             # 校验库自身的 read_only 以及通过库 id 配置在 source_policy 中的只读策略
@@ -347,7 +356,7 @@ def resolve_writable_path(raw_path: str, root_id: str | None = None) -> tuple[Pa
     if matched_root is None:
         raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于任何允许的挂载目录")
 
-    check_root_writable(matched_root, matched_root_id)
+    check_root_writable(matched_root, matched_root_id, resolved_target=resolved)
 
     return resolved, matched_root, matched_root_id
 

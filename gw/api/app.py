@@ -127,6 +127,15 @@ async def _app_lifespan(app: FastAPI):
         # 只释放本 lifespan 自己拿到的锁；run.py 预先持有的锁由进程退出时释放。
         owned_data_lock = None if preheld else app.state.data_dir_lock
         default_god_canvas_service.recover_interrupted_jobs()
+        # 确保资产整理版本文件在启动时已存在（新部署冷启动初始化，已有文件不覆盖）
+        try:
+            from gw.asset_library.organize import init_organize_version_file
+            init_organize_version_file(1)
+        except Exception as _vf_err:
+            import logging
+            logging.getLogger("gw.api.app").warning(
+                "资产整理版本文件初始化失败，整理接口在修复前将不可用: %s", _vf_err
+            )
         if integration_enabled:
             try:
                 from gw.api.agent_integration import (

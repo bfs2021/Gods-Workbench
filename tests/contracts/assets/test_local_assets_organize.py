@@ -1738,3 +1738,69 @@ def test_is_within_recycler_guard_against_root(organize_env):
         organize._restore_from_recycler(malicious_record, root_id="root_user_1")
     assert exc_info.value.status_code == 403
     assert exc_info.value.code == "PATH_OUTSIDE_ALLOWED_ROOTS"
+
+
+def test_lifespan_initializes_organize_version_file(tmp_path, monkeypatch):
+    """验证应用 lifespan 启动时会初始化版本文件（R1：新部署冷启动不再永久 500）。"""
+    # 隔离测试环境
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("GW_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("GW_DISABLE_AGENT_INTEGRATION", "1")
+    # 重置 storage 路径缓存
+    from gw.core import storage as _storage
+    _storage._DATA_ROOT_CACHE = None
+
+    # 确保版本文件不存在（模拟新装环境）
+    vfile = data_dir / "system_internal" / "organize_version.json"
+    assert not vfile.exists(), "测试前提：版本文件不应存在"
+
+    # 通过 TestClient 触发 lifespan
+    from gw.api.app import create_app
+    from starlette.testclient import TestClient
+    with TestClient(create_app()):
+        # lifespan yield 之前版本文件已被初始化
+        assert vfile.exists(), "lifespan 应在启动时创建版本文件"
+        import json
+        data = json.loads(vfile.read_text(encoding="utf-8"))
+        assert isinstance(data.get("version"), int), "版本文件格式应包含整数 version"
+
+
+def test_nested_readonly_library_blocked_by_target_path(organize_env):
+    """验证库路径嵌套在允许根下时，目标路径属于只读库仍被正确拦截（R2 fix）。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    # 在允许根下创建「只读嵌套库」目录
+    ro_nested = root1 / "ro_nested_lib"
+    ro_nested.mkdir(parents=True, exist_ok=True)
+
+    # 模拟 local_libraries 中库路径 = root1/ro_nested_lib（嵌套在允许根 root1 下）
+    fake_libraries = [
+        {"id": "lib_ro_nested", "path": str(ro_nested), "read_only": False},
+    ]
+
+    from gw.settings.service import default_storage_settings_service
+    orig_snap = default_storage_settings_service.get_snapshot
+
+    class MockSnap:
+        def __init__(self, orig):
+            self.orig = orig
+            # 通过 source_policy 把嵌套库 id 标为只读
+            self.local_library_read_only = {"lib_ro_nested": True}
+            self.local_libraries = fake_libraries
+
+        def __getattr__(self, name):
+            return getattr(self.orig, name)
+
+    with patch.object(default_storage_settings_service, "get_snapshot", return_value=MockSnap(orig_snap())):
+        v = _v(client)
+        # 写目标落在嵌套只读库内，必须返回 403 SOURCE_READ_ONLY
+        res = client.post(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={"path": "ro_nested_lib/child", "root_id": rid1, "expected_version": v},
+        )
+        assert res.status_code == 403, f"嵌套只读库的目标路径应被拒绝: {res.json()}"
+        assert res.json()["detail"]["code"] == "SOURCE_READ_ONLY"
