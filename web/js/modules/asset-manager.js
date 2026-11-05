@@ -7662,7 +7662,10 @@ function handleAssetTreeCrumbClick(key){
         registryProjectEntityFilter = null;
         registryNavFolder = {rootId:'', path:''};
         registryRootId = '';
-        void refreshRegistryAssetsFromRack().catch(() => null);
+        activeTab = 'registry';
+        assetTreeSelectedKey = '';
+        render();
+        void refreshRegistryAssets(false).then(render, render);
         return;
     }
     if(value.startsWith('system:crumbs:project')){
@@ -9212,7 +9215,7 @@ function render(){
     const customLibraryActive = assetBoardById(activeTab)?.system === false;
     const systemRackActive = systemBoardRackActive();
     const pageClass = String(activeTab || 'assets').replace(/[^a-z0-9_-]/gi, '-');
-    root.className = `asset-manager-root asset-tree-layout asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${(activeTab === 'registry' || customLibraryActive || systemRackActive) && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}${systemRackActive ? ' asset-manager-root-rack' : ''}`;
+    root.className = `asset-manager-root asset-tree-layout asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}${systemRackActive ? ' asset-manager-root-rack' : ''}`;
     syncRegistryDetailGridWidth();
     if(activeTab === 'registry') renderRegistryManager();
     else if(activeTab === 'scripts') renderScriptAssetsManager();
@@ -11281,7 +11284,7 @@ async function loadAssetRackRegisteredFolders(force=false){
         if(activeTab === 'registry' || assetRackBoard()) render();
         return;
     }
-    if((activeTab === 'registry' || assetRackBoard()) && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
+    if((activeTab === 'registry' || assetRackBoard()) && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
 }
 let assetRackDirectoryIndexPromise = null;
 function resetAssetRackDirectoryIndex(){
@@ -11541,7 +11544,7 @@ function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expa
     const countValue = Number(count);
     const showCount = Number.isFinite(countValue) && countValue > 0;
     const zeroDim = emptyAble && !showCount && !hasChildren;
-    return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
+    return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'} ${zeroDim ? 'is-empty' : ''}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
         <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" aria-label="${escapeAttr(name)}">
             <span class="asset-tree-twisty" ${hasChildren ? `data-asset-tree-toggle="${escapeAttr(key)}" aria-expanded="${Boolean(expanded)}" title="${expanded ? '折叠' : '展开'}"` : ''}>${hasChildren ? `<i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i>` : ''}</span>
             <span class="asset-tree-dot"></span>
@@ -11873,7 +11876,7 @@ function renderCustomAssetLibrary(board){
     // 注意：这里只能触发补齐目录索引（内部有 promise 去重，不会递归重绘）；
     // 不可在此调用 loadCustomBoardFolderDirectories —— 它收尾会无条件 render()，
     // 与渲染入口互相触发会直接把页面打成死循环。
-    if(!assetRackCollapsed) void ensureAssetRackDirectoryIndex();
+    void ensureAssetRackDirectoryIndex();
 }
 function projectStatusLabel(status='pending'){
     return {pending:'待处理',in_progress:'进行中',approved:'已通过',blocked:'已阻塞'}[status] || status;
@@ -21194,6 +21197,11 @@ root.addEventListener('pointerdown', event => {
 }, true);
 root.addEventListener('click', event => {
     handleClick(event).catch(err => setStatus(err.message || '操作失败'));
+});
+document.querySelector('.asset-breadcrumbs .asset-heading-row')?.addEventListener('click', event => {
+    // 面包屑位于 assetManagerRoot 外，根节点的点击委托无法接收这里的点击。
+    const crumb = event.target.closest?.('[data-asset-tree-crumb]');
+    if(crumb) handleAssetTreeCrumbClick(crumb.dataset.assetTreeCrumb || '');
 });
 root.addEventListener('dblclick', event => {
     const canvasStatCard = event.target.closest?.('[data-registry-stat="reference-canvas"]');

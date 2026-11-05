@@ -119,11 +119,7 @@ test('AC2: 中栏缺省收起为图标条，图标条保留展开 / 目录层级
         '点击目录层级/展开必须落到展开分支'
     );
     assert.match(functionSource('setAssetRackCollapsed'), /saveAssetRackCollapsed\(assetRackCollapsed\)/);
-    assert.match(
-        MANAGER,
-        /\(activeTab === 'registry' \|\| customLibraryActive \|\| systemRackActive\) && assetRackCollapsed \? ' asset-rack-collapsed' : ''/,
-        '折叠态必须写回根容器类名（44px 图标条列宽依赖它）'
-    );
+    assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不再写入旧中栏折叠态');
     assert.match(
         CSS,
         /\.asset-manager-root\.asset-manager-root-registry\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\); \}/,

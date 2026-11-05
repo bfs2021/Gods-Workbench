@@ -27,6 +27,7 @@ test('AC1: 左栏顶部系统资源/我的资源两个标签页，各一棵树',
     assert.match(panel, /data-asset-tree-tab="mine"[^>]*>我的资源</, '我的资源标签页应存在');
     assert.match(panel, /mine \? renderAssetTreeMineTree\(\) : renderAssetTreeSystemTree\(\)/, '两个标签页各渲染一棵树');
     assert.match(functionSource('activateAssetTreeTab'), /assetTreeTab = next/, '标签页切换应更新状态');
+    assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不得沿用旧机架折叠态');
     for(const banned of ['全部', '未分类', '回收站']){
         assert.ok(!panel.includes(`>${banned}<`), `树面板不得设固定入口：${banned}`);
     }
@@ -97,12 +98,18 @@ test('AC6: 管线样式：竖线+圆点、金色支路、选中淡金底、空�
     const nodeRow = source.slice(nodeStart, source.indexOf(String.fromCharCode(10) + '}', nodeStart) + 2);
     assert.match(nodeRow, /is-path/, '节点渲染应输出支路状态类');
     assert.match(nodeRow, /is-selected/, '节点渲染应输出选中态类');
-    assert.match(nodeRow, /is-empty/, '节点渲染应输出空目录变暗类');
+    assert.match(nodeRow, /zeroDim \? 'is-empty' : ''/, '数量为 0 的叶子目录应获得变暗类');
     assert.match(nodeRow, /is-group-label/, '节点渲染应输出分组标题类');
 });
 test('AC7: 面包屑逐级可点击 + 键盘上下切换与回车进入', () => {
     assert.match(functionSource('renderAssetTreeBreadcrumb'), /data-asset-tree-crumb/, '面包屑应输出可点击节点');
-    assert.match(functionSource('handleAssetTreeCrumbClick'), /registryProjectFilterId = ''/, '根级面包屑应清空过滤');
+    const crumbClick = functionSource('handleAssetTreeCrumbClick');
+    assert.match(crumbClick, /registryProjectFilterId = ''/, '根级面包屑应清空过滤');
+    assert.match(crumbClick, /assetTreeSelectedKey = ''/, '根级面包屑应清空树选中态');
+    assert.match(crumbClick, /activeTab = 'registry'/, '根级面包屑应返回资产总览');
+    assert.match(crumbClick, /render\(\)/, '根级面包屑应立即重绘页面');
+    assert.match(crumbClick, /refreshRegistryAssets\(false\)/, '根级面包屑应刷新未过滤素材');
+    assert.match(source, /document\.querySelector\('\.asset-breadcrumbs \.asset-heading-row'\)\?\.addEventListener\('click'/, '面包屑容器应自行接收点击委托');
     const keydown = functionSource('handleAssetTreeKeydown');
     assert.match(keydown, /ArrowDown/, '下键切换');
     assert.match(keydown, /ArrowUp/, '上键切换');

@@ -96,11 +96,7 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
         /\.asset-manager-root\.asset-manager-root-library\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\)/,
         '看板中栏折叠态必须收为 44px'
     );
-    assert.match(
-        MANAGER,
-        /\(activeTab === 'registry' \|\| customLibraryActive \|\| systemRackActive\) && assetRackCollapsed \? ' asset-rack-collapsed' : ''/,
-        '看板页（含系统看板）折叠态必须写回根容器类名'
-    );
+    assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不得沿用旧机架折叠态');
     assert.match(
         MANAGER,
         /const SYSTEM_BOARD_RACK_TABS = \['scripts','projects','assets','workflows','prompts','canvas-assets','local'\];/,

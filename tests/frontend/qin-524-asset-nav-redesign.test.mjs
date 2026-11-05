@@ -185,11 +185,7 @@ test('AC4: 中栏 240px、可折叠为 44px 图标条、只用黑金令牌', () 
     assert.match(rail, /data-registry-clear="all"/, '图标条必须保留清空筛选');
 
     assert.match(functionSource('setAssetRackCollapsed'), /saveAssetRackCollapsed\(assetRackCollapsed\)/);
-    assert.match(
-        MANAGER,
-        /assetRackCollapsed \? ' asset-rack-collapsed' : ''/,
-        '折叠态必须写回根容器类名'
-    );
+    assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不再写入旧中栏折叠态');
 
     // 黑金令牌 + 零外部依赖
     const rackCssStart = CSS.indexOf('QIN-524 · 统一资产库中栏');
