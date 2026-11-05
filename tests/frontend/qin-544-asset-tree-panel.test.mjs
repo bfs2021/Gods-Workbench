@@ -47,6 +47,8 @@ test('AC1: 左栏顶部系统资源/我的资源两个标签页，各一棵树',
     assert.match(panel, /mine \? renderAssetTreeMineTree\(\) : renderAssetTreeSystemTree\(\)/, '两个标签页各渲染一棵树');
     assert.match(functionSource('activateAssetTreeTab'), /assetTreeTab = next/, '标签页切换应更新状态');
     assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不得沿用旧机架折叠态');
+    assert.doesNotMatch(styles, /\.asset-rack-collapsed\b/, '旧机架折叠 CSS 应已清理');
+    assert.match(styles, /\.asset-manager-root\.asset-manager-root-library\.registry-detail-collapsed \{ grid-template-columns:240px minmax\(0,1fr\) 44px; \}/, '详情面板 44px 折叠样式必须保留');
     for(const banned of ['全部', '未分类', '回收站']){
         assert.ok(!panel.includes(`>${banned}<`), `树面板不得设固定入口：${banned}`);
     }
