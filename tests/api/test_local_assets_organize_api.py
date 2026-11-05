@@ -112,6 +112,10 @@ def api_env(tmp_path, monkeypatch):
     }
 
 
+def _v(client: TestClient) -> int:
+    return client.get("/api/local-assets/organize/version", headers=AUTH).json()["version"]
+
+
 def test_system_root_read_only_rejection(api_env):
     """系统资源的根目录一律拒绝写入。"""
     client = api_env["client"]
@@ -122,7 +126,7 @@ def test_system_root_read_only_rejection(api_env):
     res_mkdir = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": str(sys_root / "new_dir"), "root_id": sys_rid},
+        json={"path": str(sys_root / "new_dir"), "root_id": sys_rid, "expected_version": _v(client)},
     )
     assert res_mkdir.status_code == 403
     assert res_mkdir.json()["detail"]["code"] == "SYSTEM_ROOT_READ_ONLY"
@@ -131,7 +135,7 @@ def test_system_root_read_only_rejection(api_env):
     res_rename = client.patch(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": str(sys_root / "sys_folder"), "name": "renamed_sys", "root_id": sys_rid},
+        json={"path": str(sys_root / "sys_folder"), "name": "renamed_sys", "root_id": sys_rid, "expected_version": _v(client)},
     )
     assert res_rename.status_code == 403
     assert res_rename.json()["detail"]["code"] == "SYSTEM_ROOT_READ_ONLY"
@@ -140,7 +144,7 @@ def test_system_root_read_only_rejection(api_env):
     res_move_dir = client.post(
         "/api/local-assets/folders/move",
         headers=AUTH,
-        json={"source": str(sys_root / "sys_folder"), "target": str(sys_root / "moved_sys"), "root_id": sys_rid},
+        json={"source": str(sys_root / "sys_folder"), "target": str(sys_root / "moved_sys"), "root_id": sys_rid, "expected_version": _v(client)},
     )
     assert res_move_dir.status_code == 403
     assert res_move_dir.json()["detail"]["code"] == "SYSTEM_ROOT_READ_ONLY"
@@ -154,6 +158,7 @@ def test_system_root_read_only_rejection(api_env):
             "target": str(sys_root / "sys_file_moved.txt"),
             "root_id": sys_rid,
             "organize": True,
+            "expected_version": _v(client),
         },
     )
     assert res_move_file.status_code == 403
@@ -163,7 +168,7 @@ def test_system_root_read_only_rejection(api_env):
     res_del = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": str(sys_root / "sys_folder"), "root_id": sys_rid, "organize": True},
+        json={"path": str(sys_root / "sys_folder"), "root_id": sys_rid, "organize": True, "expected_version": _v(client)},
     )
     assert res_del.status_code == 403
     assert res_del.json()["detail"]["code"] == "SYSTEM_ROOT_READ_ONLY"
@@ -178,7 +183,7 @@ def test_source_read_only_rejection(api_env):
     res_mkdir = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": str(ro_root / "sub"), "root_id": ro_rid},
+        json={"path": str(ro_root / "sub"), "root_id": ro_rid, "expected_version": _v(client)},
     )
     assert res_mkdir.status_code == 403
     assert res_mkdir.json()["detail"]["code"] == "SOURCE_READ_ONLY"
@@ -191,6 +196,7 @@ def test_source_read_only_rejection(api_env):
             "target": str(ro_root / "ro_moved.txt"),
             "root_id": ro_rid,
             "organize": True,
+            "expected_version": _v(client),
         },
     )
     assert res_move.status_code == 403

@@ -40,6 +40,10 @@ from gw.asset_library import repository as asset_lib_repo
 from gw.asset_registry import repository as asset_reg_repo
 from gw.core import storage
 
+def _v(client: TestClient) -> int:
+    return client.get('/api/local-assets/organize/version', headers=AUTH).json()['version']
+
+
 AUTH = {"Authorization": "Bearer cleanroom-test", "X-User-Role": "editor"}
 
 
@@ -115,7 +119,7 @@ def test_create_arbitrary_depth_folders(organize_env):
     res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "level1/level2/level3", "root_id": rid},
+        json={"path": "level1/level2/level3", "root_id": rid, "expected_version": _v(client)},
     )
     assert res.status_code == 201, res.text
     data = res.json()
@@ -127,7 +131,7 @@ def test_create_arbitrary_depth_folders(organize_env):
     dup = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "level1/level2/level3", "root_id": rid},
+        json={"path": "level1/level2/level3", "root_id": rid, "expected_version": _v(client)},
     )
     assert dup.status_code == 409
     assert dup.json()["detail"]["code"] == "TARGET_EXISTS"
@@ -136,7 +140,7 @@ def test_create_arbitrary_depth_folders(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": data["undo"]},
+        json={"undo": data["undo"], "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
     assert undo_res.json()["undone"] is True
@@ -198,7 +202,7 @@ def test_rename_folder_and_incremental_index_update(organize_env):
     res = client.patch(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "photos", "name": "gallery", "root_id": rid},
+        json={"path": "photos", "name": "gallery", "root_id": rid, "expected_version": _v(client)},
     )
     assert res.status_code == 200, res.text
     assert (root / "gallery" / "img1.png").is_file()
@@ -220,7 +224,7 @@ def test_rename_folder_and_incremental_index_update(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": res.json()["undo"]},
+        json={"undo": res.json()["undo"], "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
     assert (root / "photos" / "img1.png").is_file()
@@ -249,7 +253,7 @@ def test_move_folder_and_self_containment_rejection(organize_env):
     self_move = client.post(
         "/api/local-assets/folders/move",
         headers=AUTH,
-        json={"source": "folder_a", "target": "folder_a/sub", "root_id": rid},
+        json={"source": "folder_a", "target": "folder_a/sub", "root_id": rid, "expected_version": _v(client)},
     )
     assert self_move.status_code == 400
     assert self_move.json()["detail"]["code"] == "INVALID_MOVE_DESTINATION"
@@ -258,7 +262,7 @@ def test_move_folder_and_self_containment_rejection(organize_env):
     move_res = client.post(
         "/api/local-assets/folders/move",
         headers=AUTH,
-        json={"source": "folder_a", "target": "archived/folder_a", "root_id": rid},
+        json={"source": "folder_a", "target": "archived/folder_a", "root_id": rid, "expected_version": _v(client)},
     )
     assert move_res.status_code == 200, move_res.text
     assert (root / "archived" / "folder_a" / "note.txt").is_file()
@@ -268,7 +272,7 @@ def test_move_folder_and_self_containment_rejection(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": move_res.json()["undo"]},
+        json={"undo": move_res.json()["undo"], "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
     assert (root / "folder_a" / "note.txt").is_file()
@@ -289,7 +293,7 @@ def test_move_file_conflict_resolution_and_undo(organize_env):
     res_conflict = client.post(
         "/api/local-assets/move",
         headers=AUTH,
-        json={"source": "source.txt", "target": "dest.txt", "organize": True, "root_id": rid},
+        json={"source": "source.txt", "target": "dest.txt", "organize": True, "root_id": rid, "expected_version": _v(client)},
     )
     assert res_conflict.status_code == 409
     assert res_conflict.json()["detail"]["code"] == "TARGET_EXISTS"
@@ -303,6 +307,8 @@ def test_move_file_conflict_resolution_and_undo(organize_env):
             "target": "dest.txt",
             "conflict_resolution": "skip",
             "root_id": rid,
+            "expected_version": _v(client),
+
         },
     )
     assert res_skip.status_code == 200
@@ -319,6 +325,8 @@ def test_move_file_conflict_resolution_and_undo(organize_env):
             "target": "dest.txt",
             "conflict_resolution": "rename",
             "root_id": rid,
+            "expected_version": _v(client),
+
         },
     )
     assert res_rename.status_code == 200
@@ -338,6 +346,8 @@ def test_move_file_conflict_resolution_and_undo(organize_env):
             "target": "dest.txt",
             "conflict_resolution": "overwrite",
             "root_id": rid,
+            "expected_version": _v(client),
+
         },
     )
     assert res_overwrite.status_code == 200
@@ -348,7 +358,7 @@ def test_move_file_conflict_resolution_and_undo(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": res_overwrite.json()["undo"]},
+        json={"undo": res_overwrite.json()["undo"], "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
     assert src_file.read_text(encoding="utf-8") == "brand new content"
@@ -378,6 +388,8 @@ def test_file_locked_error_handling(organize_env):
                 "target": "target.bin",
                 "organize": True,
                 "root_id": rid,
+                "expected_version": _v(client),
+
             },
         )
         assert res.status_code == 423
@@ -402,7 +414,7 @@ def test_delete_to_recycler_and_undo(organize_env):
     del_res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": "obsolete_project", "root_id": rid, "organize": True},
+        json={"path": "obsolete_project", "root_id": rid, "organize": True, "expected_version": _v(client)},
     )
     assert del_res.status_code == 200, del_res.text
     assert del_res.json()["deleted"] is True
@@ -427,7 +439,7 @@ def test_delete_to_recycler_and_undo(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": undo_info},
+        json={"undo": undo_info, "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
     assert to_delete_dir.is_dir()
@@ -454,7 +466,7 @@ def test_security_path_escape_and_cross_root_forbidden(organize_env):
     escape_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "../../../escaped_folder", "root_id": rid1},
+        json={"path": "../../../escaped_folder", "root_id": rid1, "expected_version": _v(client)},
     )
     assert escape_res.status_code == 403
     assert escape_res.json()["detail"]["code"] == "PATH_OUTSIDE_ALLOWED_ROOTS"
@@ -469,6 +481,8 @@ def test_security_path_escape_and_cross_root_forbidden(organize_env):
             "source_root_id": rid1,
             "target_root_id": rid2,
             "organize": True,
+            "expected_version": _v(client),
+
         },
     )
     assert cross_move.status_code == 403
@@ -485,7 +499,7 @@ def test_security_cannot_delete_or_mutate_mount_root(organize_env):
     del_dot = client.post(
         "/api/local-assets/folders/delete",
         headers=AUTH,
-        json={"path": ".", "root_id": rid1},
+        json={"path": ".", "root_id": rid1, "expected_version": _v(client)},
     )
     assert del_dot.status_code == 400
     assert del_dot.json()["detail"]["code"] == "CANNOT_DELETE_ROOT"
@@ -495,7 +509,7 @@ def test_security_cannot_delete_or_mutate_mount_root(organize_env):
     del_abs = client.post(
         "/api/local-assets/folders/delete",
         headers=AUTH,
-        json={"path": str(root1), "root_id": rid1},
+        json={"path": str(root1), "root_id": rid1, "expected_version": _v(client)},
     )
     assert del_abs.status_code == 400
     assert del_abs.json()["detail"]["code"] == "CANNOT_DELETE_ROOT"
@@ -505,7 +519,7 @@ def test_security_cannot_delete_or_mutate_mount_root(organize_env):
     rename_root = client.patch(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": ".", "name": "new_root_name", "root_id": rid1},
+        json={"path": ".", "name": "new_root_name", "root_id": rid1, "expected_version": _v(client)},
     )
     assert rename_root.status_code == 400
     assert rename_root.json()["detail"]["code"] == "CANNOT_RENAME_ROOT"
@@ -514,7 +528,7 @@ def test_security_cannot_delete_or_mutate_mount_root(organize_env):
     move_root = client.post(
         "/api/local-assets/folders/move",
         headers=AUTH,
-        json={"source": ".", "target": "some_folder", "root_id": rid1},
+        json={"source": ".", "target": "some_folder", "root_id": rid1, "expected_version": _v(client)},
     )
     assert move_root.status_code == 400
     assert move_root.json()["detail"]["code"] == "CANNOT_MOVE_ROOT"
@@ -530,7 +544,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     res_no_id = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": {"action": "delete", "root_id": rid1}},
+        json={"undo": {"action": "delete", "root_id": rid1}, "expected_version": _v(client)},
     )
     assert res_no_id.status_code == 400
     assert res_no_id.json()["detail"]["code"] == "INVALID_REQUEST"
@@ -539,7 +553,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     res_fake_id = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": {"undo_id": "undo_non_existent_token"}},
+        json={"undo": {"undo_id": "undo_non_existent_token"}, "expected_version": _v(client)},
     )
     assert res_fake_id.status_code == 404
     assert res_fake_id.json()["detail"]["code"] == "UNDO_NOT_FOUND"
@@ -554,7 +568,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     create_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "temp_dir", "root_id": rid1},
+        json={"path": "temp_dir", "root_id": rid1, "expected_version": _v(client)},
     )
     assert create_res.status_code == 201
     valid_undo = create_res.json()["undo"]
@@ -565,7 +579,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": tampered_undo},
+        json={"undo": tampered_undo, "expected_version": _v(client)},
     )
     # 重要已有目录完好无损，被删除的是真正由该操作创建的 temp_dir
     assert existing_dir.exists()
@@ -576,7 +590,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     replay_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": valid_undo},
+        json={"undo": valid_undo, "expected_version": _v(client)},
     )
     assert replay_res.status_code == 404
     assert replay_res.json()["detail"]["code"] == "UNDO_NOT_FOUND"
@@ -588,7 +602,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     del_res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": "doc_del.txt", "root_id": rid1, "organize": True},
+        json={"path": "doc_del.txt", "root_id": rid1, "organize": True, "expected_version": _v(client)},
     )
     del_undo = del_res.json()["undo"]
     # 验证客户端响应零泄露绝对路径
@@ -607,7 +621,7 @@ def test_security_undo_forged_payload_defense(organize_env):
     fail_closed_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": del_undo},
+        json={"undo": del_undo, "expected_version": _v(client)},
     )
     assert fail_closed_res.status_code == 404
     assert fail_closed_res.json()["detail"]["code"] == "RECYCLE_MANIFEST_NOT_FOUND"
@@ -629,7 +643,7 @@ def test_naming_and_path_validation(organize_env):
     chinese_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "剧本素材/第一场_室内", "root_id": rid1},
+        json={"path": "剧本素材/第一场_室内", "root_id": rid1, "expected_version": _v(client)},
     )
     assert chinese_res.status_code == 201, chinese_res.text
     assert chinese_res.json()["name"] == "第一场_室内"
@@ -637,7 +651,7 @@ def test_naming_and_path_validation(organize_env):
     rename_chinese = client.patch(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": "剧本素材/第一场_室内", "name": "分镜_01_特写镜头", "root_id": rid1},
+        json={"path": "剧本素材/第一场_室内", "name": "分镜_01_特写镜头", "root_id": rid1, "expected_version": _v(client)},
     )
     assert rename_chinese.status_code == 200, rename_chinese.text
 
@@ -647,7 +661,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1},
+            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for reserved name {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "RESERVED_NAME_FORBIDDEN"
@@ -656,7 +670,7 @@ def test_naming_and_path_validation(organize_env):
         ren_res = client.patch(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"path": "剧本素材", "name": name, "root_id": rid1},
+            json={"path": "剧本素材", "name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert ren_res.status_code == 400
         assert ren_res.json()["detail"]["code"] == "RESERVED_NAME_FORBIDDEN"
@@ -667,7 +681,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1},
+            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for illegal char {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "INVALID_CHARACTERS"
@@ -678,7 +692,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1},
+            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for end dot/space {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "INVALID_NAME_END"
@@ -688,7 +702,7 @@ def test_naming_and_path_validation(organize_env):
     res_long = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": long_name, "root_id": rid1},
+        json={"name": long_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert res_long.status_code == 400
     assert res_long.json()["detail"]["code"] == "NAME_TOO_LONG"
@@ -706,7 +720,7 @@ def test_storage_internal_isolation_from_download_output(organize_env):
     del_res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": "confidential.txt", "root_id": rid1, "organize": True},
+        json={"path": "confidential.txt", "root_id": rid1, "organize": True, "expected_version": _v(client)},
     )
     assert del_res.status_code == 200
     undo = del_res.json()["undo"]
@@ -771,6 +785,8 @@ def test_move_file_overwrite_index_recovery_on_undo(organize_env):
             "source_root_id": rid1,
             "target_root_id": rid1,
             "organize": True,
+            "expected_version": _v(client),
+
         },
     )
     assert move_res.status_code == 200
@@ -784,7 +800,7 @@ def test_move_file_overwrite_index_recovery_on_undo(organize_env):
     undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": move_undo},
+        json={"undo": move_undo, "expected_version": _v(client)},
     )
     assert undo_res.status_code == 200, undo_res.text
 
@@ -810,7 +826,7 @@ def test_corrupted_manifest_fail_closed(organize_env):
     del_res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": "corrupt_test.txt", "root_id": rid1, "organize": True},
+        json={"path": "corrupt_test.txt", "root_id": rid1, "organize": True, "expected_version": _v(client)},
     )
     undo = del_res.json()["undo"]
 
@@ -824,7 +840,7 @@ def test_corrupted_manifest_fail_closed(organize_env):
     res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": undo},
+        json={"undo": undo, "expected_version": _v(client)},
     )
     assert res.status_code == 500
     assert res.json()["detail"]["code"] == "RECYCLE_MANIFEST_CORRUPTED"
@@ -843,7 +859,7 @@ def test_cross_user_undo_permission_check(organize_env):
     create_res = client.post(
         "/api/local-assets/folders",
         headers=user_a_auth,
-        json={"name": "user_a_folder", "root_id": rid1},
+        json={"name": "user_a_folder", "root_id": rid1, "expected_version": _v(client)},
     )
     assert create_res.status_code == 201
     undo = create_res.json()["undo"]
@@ -852,7 +868,7 @@ def test_cross_user_undo_permission_check(organize_env):
     undo_b_res = client.post(
         "/api/local-assets/undo",
         headers=user_b_auth,
-        json={"undo": undo},
+        json={"undo": undo, "expected_version": _v(client)},
     )
     assert undo_b_res.status_code == 403
     assert undo_b_res.json()["detail"]["code"] == "PERMISSION_DENIED"
@@ -861,7 +877,7 @@ def test_cross_user_undo_permission_check(organize_env):
     admin_undo_res = client.post(
         "/api/local-assets/undo",
         headers=admin_auth,
-        json={"undo": undo},
+        json={"undo": undo, "expected_version": _v(client)},
     )
     assert admin_undo_res.status_code == 200
     assert admin_undo_res.json()["undone"] is True
@@ -880,7 +896,7 @@ def test_delete_manifest_json_file_and_folder_can_undo(organize_env):
     del_file_res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": "manifest.json", "root_id": rid1, "organize": True},
+        json={"path": "manifest.json", "root_id": rid1, "organize": True, "expected_version": _v(client)},
     )
     assert del_file_res.status_code == 200
     assert not manifest_file.exists()
@@ -890,7 +906,7 @@ def test_delete_manifest_json_file_and_folder_can_undo(organize_env):
     undo_file_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": file_undo},
+        json={"undo": file_undo, "expected_version": _v(client)},
     )
     assert undo_file_res.status_code == 200
     assert manifest_file.exists()
@@ -907,7 +923,7 @@ def test_delete_manifest_json_file_and_folder_can_undo(organize_env):
     del_dir_res = client.post(
         "/api/local-assets/folders/delete",
         headers=AUTH,
-        json={"path": "manifest.json", "root_id": rid1},
+        json={"path": "manifest.json", "root_id": rid1, "expected_version": _v(client)},
     )
     assert del_dir_res.status_code == 200
     assert not manifest_dir.exists()
@@ -917,7 +933,7 @@ def test_delete_manifest_json_file_and_folder_can_undo(organize_env):
     undo_dir_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": dir_undo},
+        json={"undo": dir_undo, "expected_version": _v(client)},
     )
     assert undo_dir_res.status_code == 200
     assert manifest_dir.exists()
@@ -936,7 +952,7 @@ def test_name_length_utf8_bytes_validation(organize_env):
     res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": long_chinese_name, "root_id": rid1},
+        json={"name": long_chinese_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "NAME_TOO_LONG"
@@ -946,7 +962,7 @@ def test_name_length_utf8_bytes_validation(organize_env):
     ok_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": valid_chinese_name, "root_id": rid1},
+        json={"name": valid_chinese_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert ok_res.status_code == 201
 
@@ -954,7 +970,7 @@ def test_name_length_utf8_bytes_validation(organize_env):
     rename_res = client.patch(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"path": valid_chinese_name, "name": long_chinese_name, "root_id": rid1},
+        json={"path": valid_chinese_name, "name": long_chinese_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert rename_res.status_code == 400
     assert rename_res.json()["detail"]["code"] == "NAME_TOO_LONG"
@@ -1066,6 +1082,8 @@ def test_move_file_self_move_rejection(organize_env):
             "target": "stay_here.txt",
             "source_root_id": rid1,
             "conflict_resolution": "rename",
+            "expected_version": _v(client),
+
         },
     )
     assert res_rename.status_code == 400
@@ -1086,6 +1104,8 @@ def test_move_file_self_move_rejection(organize_env):
             "target": "sub",
             "source_root_id": rid1,
             "conflict_resolution": "rename",
+            "expected_version": _v(client),
+
         },
     )
     assert res_dir.status_code == 400
@@ -1112,6 +1132,8 @@ def test_move_file_overwrite_undo_retryable(organize_env):
             "target": "file_b.txt",
             "source_root_id": rid1,
             "conflict_resolution": "overwrite",
+            "expected_version": _v(client),
+
         },
     )
     assert move_res.status_code == 200
@@ -1131,7 +1153,7 @@ def test_move_file_overwrite_undo_retryable(organize_env):
         first_undo_res = client.post(
             "/api/local-assets/undo",
             headers=AUTH,
-            json={"undo": undo},
+            json={"undo": undo, "expected_version": _v(client)},
         )
         assert first_undo_res.status_code == 500
         assert first_undo_res.json()["detail"]["code"] == "UNDO_FAILED"
@@ -1144,7 +1166,7 @@ def test_move_file_overwrite_undo_retryable(organize_env):
     second_undo_res = client.post(
         "/api/local-assets/undo",
         headers=AUTH,
-        json={"undo": undo},
+        json={"undo": undo, "expected_version": _v(client)},
     )
     assert second_undo_res.status_code == 200
     assert second_undo_res.json()["undone"] is True
@@ -1190,6 +1212,8 @@ def test_multi_root_missing_root_id_isolation_in_registry(organize_env):
             "source": "photo.jpg",
             "target": "album/photo.jpg",
             "source_root_id": rid1,
+            "expected_version": _v(client),
+
         },
     )
 
@@ -1209,7 +1233,301 @@ def test_data_root_path_access_forbidden(organize_env):
     res = client.post(
         "/api/local-assets/delete",
         headers=AUTH,
-        json={"path": dr_path, "root_id": rid1, "organize": True},
+        json={"path": dr_path, "root_id": rid1, "organize": True, "expected_version": _v(client)},
     )
     assert res.status_code == 403
     assert res.json()["detail"]["code"] == "PATH_OUTSIDE_ALLOWED_ROOTS"
+
+
+
+def test_expected_version_mandatory_on_all_write_endpoints(organize_env):
+    """验证所有整理写操作强制校验 expected_version，缺失时一律返回 409 VERSION_CONFLICT。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    # 1. create_folder 缺少 expected_version
+    r_create = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "test_mandatory_folder", "root_id": rid1},
+    )
+    assert r_create.status_code == 409
+    assert r_create.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+    # 先创建一个文件夹用于后续测试
+    v0 = _v(client)
+    r_setup = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "test_folder_for_req", "root_id": rid1, "expected_version": v0},
+    )
+    assert r_setup.status_code == 201
+
+    # 2. rename_folder 缺少 expected_version
+    r_rename = client.patch(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"path": "test_folder_for_req", "name": "renamed_folder", "root_id": rid1},
+    )
+    assert r_rename.status_code == 409
+    assert r_rename.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+    # 3. move_folder 缺少 expected_version
+    r_move_dir = client.post(
+        "/api/local-assets/folders/move",
+        headers=AUTH,
+        json={"source": "test_folder_for_req", "target": "moved_dir", "root_id": rid1},
+    )
+    assert r_move_dir.status_code == 409
+    assert r_move_dir.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+    # 4. move_file 缺少 expected_version
+    (root1 / "test_file.txt").write_text("hello", encoding="utf-8")
+    r_move_file = client.post(
+        "/api/local-assets/move",
+        headers=AUTH,
+        json={"source": "test_file.txt", "target": "moved_file.txt", "root_id": rid1, "organize": True},
+    )
+    assert r_move_file.status_code == 409
+    assert r_move_file.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+    # 5. delete 缺少 expected_version
+    r_del = client.post(
+        "/api/local-assets/delete",
+        headers=AUTH,
+        json={"path": "test_file.txt", "root_id": rid1, "organize": True},
+    )
+    assert r_del.status_code == 409
+    assert r_del.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+    # 6. undo 缺少 expected_version
+    r_undo = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": {"undo_id": "undo_fake"}},
+    )
+    assert r_undo.status_code == 409
+    assert r_undo.json()["detail"]["code"] == "VERSION_CONFLICT"
+
+
+def test_version_bump_strictly_after_success(organize_env):
+    """验证版本号仅在操作成功后原子加 1；失败、skip 或无效 undo 不得递增版本号。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    v_start = _v(client)
+
+    # 1. 创建不存在的合法文件夹 -> 成功，版本加 1
+    r_create = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "bump_test_folder", "root_id": rid1, "expected_version": v_start},
+    )
+    assert r_create.status_code == 201
+    v1 = r_create.json()["version"]
+    assert v1 == v_start + 1
+    assert _v(client) == v1
+
+    # 2. 重复创建同名文件夹 -> 失败 (409 TARGET_EXISTS)，版本号保持不变
+    r_dup = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "bump_test_folder", "root_id": rid1, "expected_version": v1},
+    )
+    assert r_dup.status_code == 409
+    assert _v(client) == v1
+
+    # 3. 移动文件并 conflict_resolution="skip" -> 跳过，版本号保持不变
+    f_src = root1 / "f_src.txt"
+    f_dst = root1 / "f_dst.txt"
+    f_src.write_text("src", encoding="utf-8")
+    f_dst.write_text("dst", encoding="utf-8")
+
+    r_skip = client.post(
+        "/api/local-assets/move",
+        headers=AUTH,
+        json={
+            "source": "f_src.txt",
+            "target": "f_dst.txt",
+            "root_id": rid1,
+            "conflict_resolution": "skip",
+            "expected_version": v1,
+        },
+    )
+    assert r_skip.status_code == 200
+    assert r_skip.json()["skipped"] is True
+    assert _v(client) == v1  # 未发生实际变更，版本保持不变
+
+    # 4. 无效的撤销凭据 (404 UNDO_NOT_FOUND) -> 失败，版本号保持不变
+    r_bad_undo = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": {"undo_id": "undo_00000000000000000000000000000000"}, "expected_version": v1},
+    )
+    assert r_bad_undo.status_code == 404
+    assert _v(client) == v1
+
+    # 5. 校验前序失败未影响版本，使用原 v1 执行重命名成功并 bump 到 v1 + 1
+    r_rename = client.patch(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"path": "bump_test_folder", "name": "bump_test_folder_renamed", "root_id": rid1, "expected_version": v1},
+    )
+    assert r_rename.status_code == 200
+    v2 = r_rename.json()["version"]
+    assert v2 == v1 + 1
+    assert _v(client) == v2
+
+
+def test_version_file_corrupted_or_missing_fail_closed(organize_env):
+    """验证版本状态文件缺失或损坏时，拒绝写入并返回 500 VERSION_STATE_CORRUPTED，绝不静默回退默认值 1。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+
+    assert _v(client) == 1
+    vfile = storage.data_root() / "system_internal" / "organize_version.json"
+    assert vfile.exists()
+
+    # 1. 模拟版本文件被删除
+    vfile.unlink()
+    assert not vfile.exists()
+
+    r_missing = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
+    )
+    assert r_missing.status_code == 500
+    assert r_missing.json()["detail"]["code"] == "VERSION_STATE_CORRUPTED"
+
+    # 2. 模拟版本文件损坏（写入非法 JSON）
+    vfile.write_text("{invalid_json_content", encoding="utf-8")
+
+    r_corrupt = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
+    )
+    assert r_corrupt.status_code == 500
+    assert r_corrupt.json()["detail"]["code"] == "VERSION_STATE_CORRUPTED"
+
+    # 3. 恢复合法的版本文件后，正常恢复
+    vfile.write_text(json.dumps({"version": 10, "updated_at": storage.now_iso()}), encoding="utf-8")
+    assert _v(client) == 10
+    r_ok = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "recovered_folder", "root_id": rid1, "expected_version": 10},
+    )
+    assert r_ok.status_code == 201
+    assert r_ok.json()["version"] == 11
+
+
+def test_delete_and_overwrite_undo_idempotent_after_second_phase_failure(organize_env):
+    """验证删除撤销与覆盖撤销在第二阶段（索引恢复）异常后，重试能够幂等成功。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    # 场景 A：删除撤销在第二阶段索引恢复失败后的重试幂等性
+    f_del = root1 / "del_item.txt"
+    f_del.write_text("content to delete", encoding="utf-8")
+    asset_lib_repo.index_local_files([str(f_del)], "document")
+
+    v = _v(client)
+    r_del = client.post(
+        "/api/local-assets/delete",
+        headers=AUTH,
+        json={"path": "del_item.txt", "root_id": rid1, "organize": True, "expected_version": v},
+    )
+    assert r_del.status_code == 200
+    del_undo = r_del.json()["undo"]
+    v = r_del.json()["version"]
+
+    # 第一次撤销尝试：Patch _incremental_restore_stashed_index 抛出异常
+    with patch("gw.asset_library.organize._incremental_restore_stashed_index", side_effect=RuntimeError("Simulated index crash")):
+        r_undo1 = client.post(
+            "/api/local-assets/undo",
+            headers=AUTH,
+            json={"undo": del_undo, "expected_version": v},
+        )
+        assert r_undo1.status_code == 500
+        assert r_undo1.json()["detail"]["code"] == "UNDO_FAILED"
+
+    # 验证此时物理文件已经恢复到原位置，但撤销记录保留且版本号未变
+    assert (root1 / "del_item.txt").exists()
+    assert _v(client) == v
+
+    # 第二次撤销重试（模拟服务重试）：不再抛异常，验证幂等恢复成功
+    r_undo2 = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": del_undo, "expected_version": v},
+    )
+    assert r_undo2.status_code == 200
+    assert r_undo2.json()["undone"] is True
+    assert (root1 / "del_item.txt").exists()
+    assert r_undo2.json()["version"] == v + 1
+
+
+def test_error_messages_contain_no_internal_paths_or_exc(organize_env):
+    """验证所有错误返回的 detail.message 脱敏，绝不泄漏盘符、服务器绝对路径或系统异常名。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    v = _v(client)
+
+    # 1. 尝试以非法 Windows 保留名创建文件夹
+    r_res = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"name": "CON", "root_id": rid1, "expected_version": v},
+    )
+    msg1 = r_res.json()["detail"]["message"]
+    assert "D:" not in msg1 and "C:" not in msg1 and "\\" not in msg1
+    assert "Exception" not in msg1 and "Error" not in msg1
+
+    # 2. 尝试自移动文件夹
+    (root1 / "f_stay").mkdir(parents=True, exist_ok=True)
+    r_self = client.post(
+        "/api/local-assets/folders/move",
+        headers=AUTH,
+        json={"source": "f_stay", "target": "f_stay", "root_id": rid1, "expected_version": v},
+    )
+    msg2 = r_self.json()["detail"]["message"]
+    assert "D:" not in msg2 and "C:" not in msg2 and "\\" not in msg2
+    assert "Traceback" not in msg2
+
+    # 3. 尝试越界访问
+    r_cross = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"path": "../../escape_dir", "root_id": rid1, "expected_version": v},
+    )
+    msg3 = r_cross.json()["detail"]["message"]
+    assert "D:" not in msg3 and "C:" not in msg3
+
+
+def test_organize_sync_cleanroom_403_resilience(organize_env):
+    """验证 organize_sync 监听器在遇到越界路径 CleanroomException(403) 时被安全捕获并记录日志。"""
+    from gw.asset_registry.organize_sync import AssetRegistryOrganizeListener
+    from gw.asset_registry.organize_sync import _matches_root
+
+    listener = AssetRegistryOrganizeListener()
+
+    # 1. 测试 _matches_root 对越界路径的安全处理
+    bogus_asset = {"path": "C:\\Windows\\System32\\cmd.exe"}
+    assert _matches_root(bogus_asset, "root_user_1") is False
+
+    # 2. 测试 on_prefix_updated 在传入外部未知路径时安全返回 0 而不是崩溃
+    out_old = Path("C:/Somewhere/outside_root/old_file.txt")
+    out_new = Path("C:/Somewhere/outside_root/new_file.txt")
+    updated = listener.on_prefix_updated("root_user_1", out_old, out_new, is_dir=False)
+    assert updated == 0
+
+    # 3. 测试 on_paths_removed 在传入外部未知路径时安全返回空列表
+    removed = listener.on_paths_removed("root_user_1", out_old, is_dir=False)
+    assert removed == []

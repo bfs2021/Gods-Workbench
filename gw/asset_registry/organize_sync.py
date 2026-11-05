@@ -4,12 +4,16 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from gw.asset_library.organize import OrganizationSyncListener
 from gw.asset_registry import repository as asset_reg_repo
 from gw.core import storage
+from gw.core.errors import CleanroomException
+
+logger = logging.getLogger(__name__)
 
 
 def _matches_root(asset: dict[str, Any], target_root_id: str) -> bool:
@@ -32,8 +36,8 @@ def _matches_root(asset: dict[str, Any], target_root_id: str) -> bool:
             detected_rid, _ = storage.location_identity(Path(file_path))
             if detected_rid:
                 return storage.coerce_root_id(detected_rid) == storage.coerce_root_id(target_root_id)
-        except (ValueError, OSError):
-            pass
+        except (CleanroomException, ValueError, OSError) as exc:
+            logger.warning("organize_sync: 无法解析条目物理路径归属 %s: %s", file_path, exc)
     return False
 
 
@@ -43,10 +47,14 @@ class AssetRegistryOrganizeListener(OrganizationSyncListener):
     def on_prefix_updated(
         self, root_id: str, old_path: Path, new_path: Path, is_dir: bool = False
     ) -> int:
-        old_canonical = storage.location_identity(old_path)[1]
-        new_canonical = storage.location_identity(new_path)[1]
-        old_disp = storage.relative_display(old_path)
-        new_disp = storage.relative_display(new_path)
+        try:
+            old_canonical = storage.location_identity(old_path)[1]
+            new_canonical = storage.location_identity(new_path)[1]
+            old_disp = storage.relative_display(old_path)
+            new_disp = storage.relative_display(new_path)
+        except (CleanroomException, ValueError, OSError) as exc:
+            logger.warning("organize_sync on_prefix_updated 获取路径身份失败: %s", exc)
+            return 0
 
         def mutate_registry(raw: dict[str, Any]) -> int:
             assets = raw.get("assets", {})
@@ -81,7 +89,12 @@ class AssetRegistryOrganizeListener(OrganizationSyncListener):
     def on_paths_removed(
         self, root_id: str, target: Path, is_dir: bool = False
     ) -> list[dict[str, Any]]:
-        target_canonical = storage.location_identity(target)[1]
+        try:
+            target_canonical = storage.location_identity(target)[1]
+        except (CleanroomException, ValueError, OSError) as exc:
+            logger.warning("organize_sync on_paths_removed 获取路径身份失败: %s", exc)
+            return []
+
         stashed_registry_entries: list[dict[str, Any]] = []
 
         def mutate_registry(raw: dict[str, Any]) -> None:

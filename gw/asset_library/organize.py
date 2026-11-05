@@ -20,20 +20,22 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
+import secrets
 import shutil
 import threading
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from gw.asset_library import repository as asset_lib_repo
 from gw.core import storage
 from gw.core.errors import CleanroomException
 from gw.settings.service import default_storage_settings_service
+
+logger = logging.getLogger(__name__)
 
 _ORGANIZE_LOCK = threading.RLock()
 
@@ -44,14 +46,11 @@ def _is_file_locked_error(exc: Exception) -> bool:
         winerror = getattr(exc, "winerror", None)
         if winerror in (32, 33):  # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
             return True
-        errno = getattr(exc, "errno", None)
-        if errno in (13, 16):  # EACCES, EBUSY
+        errno_val = getattr(exc, "errno", None)
+        if errno_val in (13, 16):  # EACCES, EBUSY
             return True
     return False
 
-
-import errno
-import secrets
 
 WINDOWS_RESERVED_NAMES = frozenset({
     "CON", "PRN", "AUX", "NUL",
@@ -72,7 +71,7 @@ def _handle_os_path_error(exc: OSError) -> None:
         or winerr in (206, 111)
     )
     if is_long:
-        raise CleanroomException(400, "NAME_TOO_LONG", f"文件或文件夹名称过长: {exc}") from exc
+        raise CleanroomException(400, "NAME_TOO_LONG", "文件或文件夹名称过长") from exc
 
 
 def validate_folder_component_name(name: str) -> str:
@@ -168,39 +167,86 @@ def _organize_version_file() -> Path:
     return _system_internal_dir() / "organize_version.json"
 
 
+def _atomic_write_version(version: int) -> None:
+    """先写临时文件再原子替换，防止断电或并发读写导致损坏。"""
+    vdir = _system_internal_dir()
+    vfile = _organize_version_file()
+    payload = {
+        "version": version,
+        "updated_at": storage.now_iso(),
+    }
+    content = json.dumps(payload, ensure_ascii=False, indent=2)
+    tmp_file = vdir / f"organize_version.json.tmp.{secrets.token_hex(8)}"
+    try:
+        tmp_file.write_text(content, encoding="utf-8")
+        os.replace(tmp_file, vfile)
+    finally:
+        if tmp_file.exists():
+            try:
+                tmp_file.unlink()
+            except OSError:
+                pass
+
+
 def get_organize_version() -> int:
-    """获取当前资产整理状态的 CAS 版本号（未初始化时默认为 1）。"""
+    """读取当前资产整理状态的 CAS 版本号。
+
+    若版本文件缺失或内容损坏，直接抛出 500 VERSION_STATE_CORRUPTED，绝不静默回退默认值。
+    """
     vfile = _organize_version_file()
     if not vfile.exists():
-        return 1
+        raise CleanroomException(500, "VERSION_STATE_CORRUPTED", "版本状态文件缺失，拒绝操作")
     try:
         data = json.loads(vfile.read_text(encoding="utf-8"))
-        return int(data.get("version", 1))
-    except Exception:
-        return 1
+        if not isinstance(data, dict) or "version" not in data:
+            raise ValueError("Invalid version file format")
+        return int(data["version"])
+    except Exception as exc:
+        logger.error("版本状态文件解析失败 %s: %s", vfile, exc)
+        raise CleanroomException(500, "VERSION_STATE_CORRUPTED", "版本状态文件损坏，拒绝操作") from exc
 
 
-def check_and_bump_version(expected_version: int | None = None) -> int:
-    """校验 expected_version 并原子递增版本号。
+def ensure_organize_version_file(initial_version: int = 1) -> int:
+    """在版本文件不存在时安全初始化版本文件（仅供服务启动或查询接口使用）。"""
+    with _ORGANIZE_LOCK:
+        vfile = _organize_version_file()
+        if not vfile.exists():
+            _atomic_write_version(initial_version)
+            return initial_version
+        return get_organize_version()
 
-    若调用方指定 expected_version 且与当前版本不一致，抛出 HTTP 409 VERSION_CONFLICT。
-    返回递增后的新版本号。
-    调用方必须在 _ORGANIZE_LOCK 保护下调用本函数。
+
+def assert_version_matches(expected_version: int | None) -> int:
+    """强制校验 expected_version（不豁免）。
+
+    所有写操作必须携带 expected_version：
+    若未传 expected_version，或与当前版本不一致，抛出 HTTP 409 VERSION_CONFLICT。
+    返回当前的有效版本号。本函数绝不提前递增版本号。
     """
+    if expected_version is None:
+        raise CleanroomException(
+            409,
+            "VERSION_CONFLICT",
+            "缺少 expected_version，拒绝执行写操作",
+        )
     current_version = get_organize_version()
-    if expected_version is not None and expected_version != current_version:
+    if expected_version != current_version:
         raise CleanroomException(
             409,
             "VERSION_CONFLICT",
             f"版本冲突：当前版本为 {current_version}，期望版本为 {expected_version}",
         )
+    return current_version
+
+
+def bump_organize_version() -> int:
+    """在操作全部成功后原子递增 CAS 版本号。
+
+    返回递增后的新版本号。调用方须在 _ORGANIZE_LOCK 保护下调用。
+    """
+    current_version = get_organize_version()
     new_version = current_version + 1
-    vfile = _organize_version_file()
-    payload = {
-        "version": new_version,
-        "updated_at": storage.now_iso(),
-    }
-    vfile.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_version(new_version)
     return new_version
 
 
@@ -228,33 +274,30 @@ def check_root_writable(root: Path, root_id: str | None = None) -> None:
     source_policy = snapshot.local_library_read_only or {}
     rid = root_id or storage.root_identity_id(root)
     if source_policy.get(rid, False):
-        raise CleanroomException(403, "SOURCE_READ_ONLY", "素材来源为只读，拒绝写入")
-
+        raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
     for lib in snapshot.local_libraries:
-        lib_path = str(lib.get("path") or "").strip()
-        if lib_path and Path(lib_path).resolve() == resolved_root:
-            lib_id = str(lib.get("id") or "")
-            if source_policy.get(lib_id, False):
-                raise CleanroomException(403, "SOURCE_READ_ONLY", "素材来源为只读，拒绝写入")
+        if lib.root_identity_id == rid or str(lib.path) == str(root):
+            if lib.read_only:
+                raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
 
 
 def resolve_writable_path(raw_path: str, root_id: str | None = None) -> tuple[Path, Path, str]:
-    """解析并校验可写目标路径，返回 (resolved_path, matched_root, matched_root_id)。"""
+    """解析并校验可写目标路径 (resolved_path, matched_root, matched_root_id)。"""
     if not isinstance(raw_path, str) or not raw_path.strip():
-        raise CleanroomException(400, "INVALID_PATH", "路径参数不合法")
+        raise CleanroomException(400, "INVALID_PATH", "路径不合法")
 
     if "\0" in raw_path:
-        raise CleanroomException(400, "INVALID_PATH", "路径参数包含非法字符")
+        raise CleanroomException(400, "INVALID_PATH", "路径包含非法字符")
 
     raw_path_norm = raw_path.replace("\\", "/")
     parts = [p for p in raw_path_norm.split("/") if p]
     candidate = Path(raw_path).expanduser()
     if not candidate.is_absolute() and ".." in parts:
-        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "禁止相对路径逃逸")
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "禁止越权访问上层目录")
 
     roots = storage.allowed_roots()
     if not roots:
-        raise CleanroomException(403, "LOCAL_FILE_ACCESS_NOT_ADMITTED", "未配置允许根目录")
+        raise CleanroomException(403, "LOCAL_FILE_ACCESS_NOT_ADMITTED", "未配置允许访问的挂载目录")
 
     try:
         resolved = storage.resolve_request_path(raw_path, root_id=root_id)
@@ -262,7 +305,7 @@ def resolve_writable_path(raw_path: str, root_id: str | None = None) -> tuple[Pa
         _handle_os_path_error(exc)
         raise
 
-    # 显式拒绝 data_root 及其子路径，杜绝通过整理接口访问或删改系统内部账本与状态
+    # 显式拒绝 data_root 下路径，杜绝通过接口访问或删除系统内部账本状态
     dr = storage.data_root().resolve()
     resolved_res = resolved.resolve()
     if resolved_res == dr or resolved_res.is_relative_to(dr):
@@ -276,76 +319,73 @@ def resolve_writable_path(raw_path: str, root_id: str | None = None) -> tuple[Pa
             matched_root = r
             break
     if matched_root is None:
-        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不在允许根目录内")
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于任何允许的挂载目录")
 
     check_root_writable(matched_root, matched_root_id)
 
     return resolved, matched_root, matched_root_id
 
 
-def _recycler_root() -> Path:
-    staging = _system_internal_dir() / "recycler" / "organize"
-    staging.mkdir(parents=True, exist_ok=True)
-    return staging.resolve()
+def _recycler_dir() -> Path:
+    recycler = _system_internal_dir() / "recycler"
+    recycler.mkdir(parents=True, exist_ok=True)
+    return recycler.resolve()
 
 
-def _is_within_recycler(path: Path) -> bool:
+def _is_within_recycler(p: Path) -> bool:
     try:
-        resolved = path.resolve()
-        recycler = _recycler_root()
-        resolved.relative_to(recycler)
-        return resolved != recycler
-    except (ValueError, RuntimeError):
+        return p.resolve().is_relative_to(_recycler_dir())
+    except (ValueError, OSError):
         return False
 
 
-def _recycler_staging_dir(op_id: str) -> Path:
-    date_str = storage.now_iso()[:10]
-    staging = _recycler_root() / date_str / op_id
-    staging.mkdir(parents=True, exist_ok=True)
-    return staging.resolve()
+def _undo_records_dir() -> Path:
+    undo_dir = _system_internal_dir() / "undo_records"
+    undo_dir.mkdir(parents=True, exist_ok=True)
+    return undo_dir.resolve()
 
 
 def _stash_to_recycler(target: Path, root_id: str) -> dict[str, Any]:
-    op_id = _next_op_id("rec_")
-    staging_dir = _recycler_staging_dir(op_id)
+    """将物理目标安全移入回收区，使用独立的随机目录隔绝所有同名冲突。"""
+    recycler = _recycler_dir()
+    staging_id = f"del_{secrets.token_hex(16)}"
+    staging_dir = recycler / staging_id
     payload_dir = staging_dir / "payload"
     payload_dir.mkdir(parents=True, exist_ok=True)
-    stashed_path = payload_dir / target.name
 
-    manifest = {
-        "op_id": op_id,
+    dest = payload_dir / target.name
+
+    manifest_file = staging_dir / "manifest.json"
+    manifest_data = {
+        "staging_id": staging_id,
+        "original_name": target.name,
         "original_abs_path": str(target.resolve()),
-        "display_path": storage.relative_display(target),
-        "canonical_relpath": storage.location_identity(target)[1],
         "root_id": root_id,
+        "deleted_at": storage.now_iso(),
         "is_dir": target.is_dir(),
-        "filename": target.name,
-        "timestamp": storage.now_iso(),
-        "stashed_path": str(stashed_path),
     }
-    manifest_path = staging_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_file.write_text(
+        json.dumps(manifest_data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     try:
-        shutil.move(str(target), str(stashed_path))
+        shutil.move(str(target), str(dest))
     except Exception as exc:
         if _is_file_locked_error(exc):
             raise CleanroomException(423, "FILE_LOCKED", "文件或目录被占用，无法移入回收区") from exc
-        raise CleanroomException(500, "RECYCLE_FAILED", f"移入回收区失败: {exc}") from exc
+        logger.error("移入回收站失败 %s -> %s: %s", target, dest, exc)
+        raise CleanroomException(500, "RECYCLE_FAILED", "移入回收站失败") from exc
 
     return {
-        "op_id": op_id,
-        "staging_dir": str(staging_dir),
-        "stashed_path": str(stashed_path),
-        "manifest": manifest,
+        "staging_id": staging_id,
+        "staging_dir": str(staging_dir.resolve()),
+        "stashed_path": str(dest.resolve()),
+        "original_name": target.name,
+        "original_abs_path": str(target.resolve()),
+        "root_id": root_id,
+        "is_dir": manifest_data["is_dir"],
     }
-
-
-def _undo_records_dir() -> Path:
-    directory = _system_internal_dir() / "undo_records"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory.resolve()
 
 
 def _save_undo_record(undo_record: dict[str, Any]) -> None:
@@ -422,6 +462,7 @@ def _restore_from_recycler(stash_record: dict[str, Any], root_id: str | None = N
     except Exception as exc:
         if _is_file_locked_error(exc):
             raise CleanroomException(423, "FILE_LOCKED", "恢复目标位置文件被占用") from exc
+        logger.error("从回收区恢复失败 %s -> %s: %s", stashed_path, target, exc)
         raise CleanroomException(500, "RESTORE_FAILED", "从回收区恢复失败") from exc
 
     # 恢复成功后清理 staging_dir，记录日志
@@ -447,7 +488,7 @@ def _matches_root_id(entry: dict[str, Any], target_root_id: str) -> bool:
             detected_rid, _ = storage.location_identity(Path(file_path))
             if detected_rid:
                 return storage.coerce_root_id(detected_rid) == storage.coerce_root_id(target_root_id)
-        except (ValueError, OSError) as exc:
+        except (CleanroomException, ValueError, OSError) as exc:
             logger.warning("解析条目所属根身份失败 %s: %s", file_path, exc)
     return False
 
@@ -622,7 +663,7 @@ def create_folder(
 ) -> dict[str, Any]:
     """在用户挂载根下新建任意深度的子文件夹。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        assert_version_matches(expected_version)
 
         if raw_path is None:
             if not name:
@@ -653,11 +694,13 @@ def create_folder(
             _handle_os_path_error(exc)
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹位置被占用") from exc
-            raise CleanroomException(500, "FOLDER_CREATE_FAILED", f"创建文件夹失败: {exc}") from exc
+            logger.error("创建文件夹失败 %s: %s", target, exc)
+            raise CleanroomException(500, "FOLDER_CREATE_FAILED", "创建文件夹失败") from exc
         except Exception as exc:
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹位置被占用") from exc
-            raise CleanroomException(500, "FOLDER_CREATE_FAILED", f"创建文件夹失败: {exc}") from exc
+            logger.error("创建文件夹失败 %s: %s", target, exc)
+            raise CleanroomException(500, "FOLDER_CREATE_FAILED", "创建文件夹失败") from exc
 
         undo_record = {
             "undo_id": _next_op_id("undo_"),
@@ -669,6 +712,8 @@ def create_folder(
             "canonical_relpath": storage.location_identity(target)[1],
         }
         _save_undo_record(undo_record)
+
+        new_version = bump_organize_version()
 
         return {
             "created": True,
@@ -690,7 +735,7 @@ def rename_folder(
 ) -> dict[str, Any]:
     """重命名文件夹，并增量更新受影响的子树路径索引。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        assert_version_matches(expected_version)
 
         src, root, rid = resolve_writable_path(raw_path, root_id)
         if src.resolve() == root.resolve():
@@ -722,13 +767,34 @@ def rename_folder(
             _handle_os_path_error(exc)
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法重命名") from exc
-            raise CleanroomException(500, "FOLDER_RENAME_FAILED", f"重命名文件夹失败: {exc}") from exc
+            logger.error("重命名文件夹失败 %s -> %s: %s", src, dst_resolved, exc)
+            raise CleanroomException(500, "FOLDER_RENAME_FAILED", "重命名文件夹失败") from exc
         except Exception as exc:
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法重命名") from exc
-            raise CleanroomException(500, "FOLDER_RENAME_FAILED", f"重命名文件夹失败: {exc}") from exc
+            logger.error("重命名文件夹失败 %s -> %s: %s", src, dst_resolved, exc)
+            raise CleanroomException(500, "FOLDER_RENAME_FAILED", "重命名文件夹失败") from exc
 
-        affected = _incremental_update_prefix(rid, src, dst_resolved, is_dir=True)
+        try:
+            affected = _incremental_update_prefix(rid, src, dst_resolved, is_dir=True)
+        except Exception as exc:
+            logger.error("重命名后增量更新索引失败，尝试回滚物理文件夹: %s", exc)
+            try:
+                dst_resolved.replace(src)
+            except Exception as rollback_exc:
+                logger.critical("回滚物理文件夹失败: %s", rollback_exc)
+                undo_record = {
+                    "undo_id": _next_op_id("undo_"),
+                    "operator": operator,
+                    "action": "rename_folder",
+                    "source": storage.relative_display(dst_resolved),
+                    "target": storage.relative_display(src),
+                    "abs_source": str(dst_resolved.resolve()),
+                    "abs_target": str(src.resolve()),
+                    "root_id": rid,
+                }
+                _save_undo_record(undo_record)
+            raise CleanroomException(500, "INDEX_SYNC_FAILED", "更新索引失败") from exc
 
         undo_record = {
             "undo_id": _next_op_id("undo_"),
@@ -741,6 +807,8 @@ def rename_folder(
             "root_id": rid,
         }
         _save_undo_record(undo_record)
+
+        new_version = bump_organize_version()
 
         return {
             "renamed": True,
@@ -763,7 +831,7 @@ def move_folder(
 ) -> dict[str, Any]:
     """移动文件夹（整棵子树跟随移动），并增量更新索引。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        assert_version_matches(expected_version)
 
         src, src_root, src_rid = resolve_writable_path(source, source_root_id)
         if src.resolve() == src_root.resolve():
@@ -801,13 +869,34 @@ def move_folder(
             _handle_os_path_error(exc)
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法移动") from exc
-            raise CleanroomException(500, "FOLDER_MOVE_FAILED", f"移动文件夹失败: {exc}") from exc
+            logger.error("移动文件夹失败 %s -> %s: %s", src, dst, exc)
+            raise CleanroomException(500, "FOLDER_MOVE_FAILED", "移动文件夹失败") from exc
         except Exception as exc:
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法移动") from exc
-            raise CleanroomException(500, "FOLDER_MOVE_FAILED", f"移动文件夹失败: {exc}") from exc
+            logger.error("移动文件夹失败 %s -> %s: %s", src, dst, exc)
+            raise CleanroomException(500, "FOLDER_MOVE_FAILED", "移动文件夹失败") from exc
 
-        affected = _incremental_update_prefix(src_rid, src, dst, is_dir=True)
+        try:
+            affected = _incremental_update_prefix(src_rid, src, dst, is_dir=True)
+        except Exception as exc:
+            logger.error("移动文件夹后增量更新索引失败，尝试回滚: %s", exc)
+            try:
+                shutil.move(str(dst), str(src))
+            except Exception as rollback_exc:
+                logger.critical("回滚移动文件夹失败: %s", rollback_exc)
+                undo_record = {
+                    "undo_id": _next_op_id("undo_"),
+                    "operator": operator,
+                    "action": "move_folder",
+                    "source": storage.relative_display(dst),
+                    "target": storage.relative_display(src),
+                    "abs_source": str(dst.resolve()),
+                    "abs_target": str(src.resolve()),
+                    "root_id": src_rid,
+                }
+                _save_undo_record(undo_record)
+            raise CleanroomException(500, "INDEX_SYNC_FAILED", "更新索引失败") from exc
 
         undo_record = {
             "undo_id": _next_op_id("undo_"),
@@ -820,6 +909,8 @@ def move_folder(
             "root_id": src_rid,
         }
         _save_undo_record(undo_record)
+
+        new_version = bump_organize_version()
 
         return {
             "moved": True,
@@ -843,7 +934,7 @@ def move_file(
 ) -> dict[str, Any]:
     """移动文件，支持跳过/改名/覆盖冲突处理，并增量更新索引。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        current_version = assert_version_matches(expected_version)
 
         src, src_root, src_rid = resolve_writable_path(source, source_root_id)
         if src.resolve() == src_root.resolve():
@@ -878,13 +969,14 @@ def move_file(
 
         if dst_exists:
             if conflict_resolution == "skip":
+                # 跳过冲突：不发生物理或索引变更，不递增版本号
                 return {
                     "moved": False,
                     "skipped": True,
                     "from": storage.relative_display(src),
                     "to": storage.relative_display(dst),
                     "root_id": src_rid,
-                    "version": new_version,
+                    "version": current_version,
                 }
             if conflict_resolution == "rename":
                 idx = 1
@@ -909,7 +1001,7 @@ def move_file(
                         _restore_from_recycler(overwritten_backup, root_id=src_rid)
                     except Exception as rest_exc:
                         logger.error("回滚被覆盖文件失败: %s", rest_exc)
-                    raise CleanroomException(500, "INDEX_SYNC_FAILED", f"更新索引失败: {exc}") from exc
+                    raise CleanroomException(500, "INDEX_SYNC_FAILED", "更新索引失败") from exc
             else:
                 raise CleanroomException(409, "TARGET_EXISTS", "目标文件已存在")
 
@@ -930,7 +1022,8 @@ def move_file(
                         logger.error("恢复被覆盖文件索引失败: %s", idx_exc)
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件被占用，无法移动") from exc
-            raise CleanroomException(500, "FILE_MOVE_FAILED", f"移动文件失败: {exc}") from exc
+            logger.error("移动文件失败 %s -> %s: %s", src, dst, exc)
+            raise CleanroomException(500, "FILE_MOVE_FAILED", "移动文件失败") from exc
         except Exception as exc:
             if overwritten_backup is not None:
                 try:
@@ -944,9 +1037,35 @@ def move_file(
                         logger.error("恢复被覆盖文件索引失败: %s", idx_exc)
             if _is_file_locked_error(exc):
                 raise CleanroomException(423, "FILE_LOCKED", "文件被占用，无法移动") from exc
-            raise CleanroomException(500, "FILE_MOVE_FAILED", f"移动文件失败: {exc}") from exc
+            logger.error("移动文件失败 %s -> %s: %s", src, dst, exc)
+            raise CleanroomException(500, "FILE_MOVE_FAILED", "移动文件失败") from exc
 
-        _incremental_update_prefix(src_rid, src, dst, is_dir=False)
+        try:
+            _incremental_update_prefix(src_rid, src, dst, is_dir=False)
+        except Exception as exc:
+            logger.error("移动文件后增量更新索引失败，尝试回滚: %s", exc)
+            try:
+                shutil.move(str(dst), str(src))
+                if overwritten_backup is not None:
+                    _restore_from_recycler(overwritten_backup, root_id=src_rid)
+                if overwritten_stashed_index:
+                    _incremental_restore_stashed_index(src_rid, overwritten_stashed_index)
+            except Exception as rollback_exc:
+                logger.critical("移动文件回滚失败: %s", rollback_exc)
+                undo_record = {
+                    "undo_id": _next_op_id("undo_"),
+                    "operator": operator,
+                    "action": "move_file",
+                    "source": storage.relative_display(dst),
+                    "target": storage.relative_display(src),
+                    "abs_source": str(dst.resolve()),
+                    "abs_target": str(src.resolve()),
+                    "root_id": src_rid,
+                    "overwritten_backup": overwritten_backup,
+                    "overwritten_stashed_index": overwritten_stashed_index,
+                }
+                _save_undo_record(undo_record)
+            raise CleanroomException(500, "INDEX_SYNC_FAILED", "更新索引失败") from exc
 
         undo_record = {
             "undo_id": _next_op_id("undo_"),
@@ -961,6 +1080,8 @@ def move_file(
             "overwritten_stashed_index": overwritten_stashed_index,
         }
         _save_undo_record(undo_record)
+
+        new_version = bump_organize_version()
 
         return {
             "moved": True,
@@ -980,7 +1101,7 @@ def delete_entry(
 ) -> dict[str, Any]:
     """删除文件夹或文件进应用回收站，不做永久删除，并增量更新索引。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        assert_version_matches(expected_version)
 
         target, matched_root, rid = resolve_writable_path(raw_path, root_id)
         if target.resolve() == matched_root.resolve():
@@ -1000,7 +1121,7 @@ def delete_entry(
                 _restore_from_recycler(stashed_file, root_id=rid)
             except Exception as rest_exc:
                 logger.error("回滚回收区文件失败: %s", rest_exc)
-            raise CleanroomException(500, "INDEX_SYNC_FAILED", f"更新索引失败: {exc}") from exc
+            raise CleanroomException(500, "INDEX_SYNC_FAILED", "更新索引失败") from exc
 
         undo_record = {
             "undo_id": _next_op_id("undo_"),
@@ -1014,6 +1135,8 @@ def delete_entry(
             "abs_target": str(target.resolve()),
         }
         _save_undo_record(undo_record)
+
+        new_version = bump_organize_version()
 
         return {
             "deleted": True,
@@ -1033,7 +1156,7 @@ def undo_operation(
 ) -> dict[str, Any]:
     """执行反向撤销操作。"""
     with _ORGANIZE_LOCK:
-        new_version = check_and_bump_version(expected_version)
+        assert_version_matches(expected_version)
 
         if not isinstance(undo_descriptor, dict):
             raise CleanroomException(400, "INVALID_REQUEST", "撤销参数格式必须为字典对象")
@@ -1078,6 +1201,7 @@ def undo_operation(
                 except OSError as exc:
                     raise CleanroomException(409, "FOLDER_NOT_EMPTY", "文件夹非空，无法撤销新建操作") from exc
             record_file.unlink(missing_ok=True)
+            new_version = bump_organize_version()
             return {
                 "undone": True,
                 "action": action,
@@ -1102,10 +1226,12 @@ def undo_operation(
             except Exception as exc:
                 if _is_file_locked_error(exc):
                     raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法撤销") from exc
-                raise CleanroomException(500, "UNDO_FAILED", f"撤销文件夹操作失败: {exc}") from exc
+                logger.error("撤销文件夹操作失败 %s -> %s: %s", curr, orig, exc)
+                raise CleanroomException(500, "UNDO_FAILED", "撤销文件夹操作失败") from exc
 
             _incremental_update_prefix(rid, curr, orig, is_dir=True)
             record_file.unlink(missing_ok=True)
+            new_version = bump_organize_version()
             return {
                 "undone": True,
                 "action": action,
@@ -1125,13 +1251,19 @@ def undo_operation(
             overwritten_backup = record.get("overwritten_backup")
             overwritten_stashed_index = record.get("overwritten_stashed_index")
             a_restored = bool(record.get("a_restored", False))
+            b_restored = bool(record.get("b_restored", False))
 
-            # 前置预检：若存在被覆盖文件的备份，先校验该备份有效
-            if overwritten_backup:
+            # 前置预检：若存在被覆盖文件的备份且尚未恢复，校验暂存文件有效
+            if overwritten_backup and not b_restored:
                 if not isinstance(overwritten_backup, dict):
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖备份记录损坏")
                 stashed_raw = overwritten_backup.get("stashed_path")
-                if not stashed_raw or not Path(str(stashed_raw)).exists():
+                # 若目标位置 curr 已经恢复存在且暂存路径不存在，推断此前已完成物理恢复
+                if curr.exists() and (not stashed_raw or not Path(str(stashed_raw)).exists()):
+                    b_restored = True
+                    record["b_restored"] = True
+                    _save_undo_record(record)
+                elif not stashed_raw or not Path(str(stashed_raw)).exists():
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖暂存文件丢失，无法安全撤销")
 
             # 第一阶段：将 A 迁回原位置 orig
@@ -1153,25 +1285,43 @@ def undo_operation(
                     except Exception as exc:
                         if _is_file_locked_error(exc):
                             raise CleanroomException(423, "FILE_LOCKED", "文件被占用，无法撤销") from exc
-                        raise CleanroomException(500, "UNDO_FAILED", f"撤销文件移动失败: {exc}") from exc
+                        logger.error("撤销文件移动失败 %s -> %s: %s", curr, orig, exc)
+                        raise CleanroomException(500, "UNDO_FAILED", "撤销文件移动失败") from exc
 
                     _incremental_update_prefix(rid, curr, orig, is_dir=False)
                     a_restored = True
                     record["a_restored"] = True
                     _save_undo_record(record)
 
-            # 第二阶段：将原本被覆盖的 B 恢复到 curr
+            # 第二阶段：将原本被覆盖的 B 恢复到 curr（支持重试幂等）
             if overwritten_backup:
-                try:
-                    _restore_from_recycler(overwritten_backup, root_id=rid)
-                    if overwritten_stashed_index:
-                        _incremental_restore_stashed_index(rid, overwritten_stashed_index)
-                except Exception as exc:
-                    logger.error("撤销恢复被覆盖文件失败（账本保留以供重试）: %s", exc)
-                    raise CleanroomException(500, "UNDO_FAILED", f"恢复被覆盖文件失败，撤销账本已保留供重试: {exc}") from exc
+                if not b_restored:
+                    try:
+                        _restore_from_recycler(overwritten_backup, root_id=rid)
+                        b_restored = True
+                        record["b_restored"] = True
+                        _save_undo_record(record)
+                    except Exception as exc:
+                        # 检查目标位置是否已存在且暂存文件已移走（物理恢复已完成但清理失败等边角情况）
+                        stashed_raw = overwritten_backup.get("stashed_path")
+                        if curr.exists() and (not stashed_raw or not Path(str(stashed_raw)).exists()):
+                            b_restored = True
+                            record["b_restored"] = True
+                            _save_undo_record(record)
+                        else:
+                            logger.error("撤销恢复被覆盖文件失败（账本保留以供重试）: %s", exc)
+                            raise CleanroomException(500, "UNDO_FAILED", "恢复被覆盖文件失败，撤销账本已保留供重试") from exc
 
-            # 全部阶段成功后方可销毁撤销账本
+                if overwritten_stashed_index:
+                    try:
+                        _incremental_restore_stashed_index(rid, overwritten_stashed_index)
+                    except Exception as exc:
+                        logger.error("恢复被覆盖文件索引失败（账本保留以供重试）: %s", exc)
+                        raise CleanroomException(500, "UNDO_FAILED", "恢复被覆盖文件索引失败，撤销账本已保留供重试") from exc
+
+            # 全部阶段成功后方可销毁撤销账本并递增版本号
             record_file.unlink(missing_ok=True)
+            new_version = bump_organize_version()
             return {
                 "undone": True,
                 "action": action,
@@ -1185,10 +1335,33 @@ def undo_operation(
             stashed_index = record.get("stashed_index")
             if not stashed_file:
                 raise CleanroomException(400, "INVALID_REQUEST", "缺少回收站暂存描述")
-            _restore_from_recycler(stashed_file, root_id=rid)
+
+            target_str = str(record.get("abs_target") or record.get("target") or "")
+            target, _, _ = resolve_writable_path(target_str, rid)
+
+            file_restored = bool(record.get("file_restored", False))
+            if not file_restored:
+                # 检查若物理文件已在 target 存在且暂存文件已不存在，判定物理已恢复
+                stashed_raw = stashed_file.get("stashed_path")
+                if target.exists() and (not stashed_raw or not Path(str(stashed_raw)).exists()):
+                    file_restored = True
+                    record["file_restored"] = True
+                    _save_undo_record(record)
+                else:
+                    _restore_from_recycler(stashed_file, root_id=rid)
+                    file_restored = True
+                    record["file_restored"] = True
+                    _save_undo_record(record)
+
             if stashed_index:
-                _incremental_restore_stashed_index(rid, stashed_index)
+                try:
+                    _incremental_restore_stashed_index(rid, stashed_index)
+                except Exception as exc:
+                    logger.error("撤销删除恢复索引失败（账本保留以供重试）: %s", exc)
+                    raise CleanroomException(500, "UNDO_FAILED", "恢复索引失败，撤销账本已保留供重试") from exc
+
             record_file.unlink(missing_ok=True)
+            new_version = bump_organize_version()
             return {
                 "undone": True,
                 "action": action,
