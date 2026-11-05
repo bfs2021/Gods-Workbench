@@ -9688,7 +9688,7 @@ function renderLocalManager(){
     const imageCount = selectedLocalUploadImageItems().length;
     const folderTitle = localUploadFolderTitle();
     root.innerHTML = `
-        ${renderLocalUploadFolderPanel()}
+        ${renderAssetTreePanel()}
         <section class="asset-panel asset-content ${localUploadManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -11747,6 +11747,7 @@ function renderAssetTreeSystemTree(){
     return `<div class="asset-tree-scroll" role="tree" aria-label="系统资源树" tabindex="0" data-asset-tree-view="system">${projectBranch}${boardNodes}</div>`;
 }
 function renderAssetTreePanel(extraClass=''){
+    if(activeTab === 'local') return renderLocalUploadFolderPanel();
     // AC1：左栏顶部「系统资源 / 我的资源」标签页，各一棵树；AC3 底部「+ 挂载文件夹」
     const mine = assetTreeTab === 'mine';
     const treeBody = mine ? renderAssetTreeMineTree() : renderAssetTreeSystemTree();

@@ -64,6 +64,14 @@ function renderLocalManagerMarkup({tree, activeFolder='', classFilter=''}={}){
         'escapeHtml',
         `${functionSource('renderLocalUploadFolderBranch')}\n${functionSource('localUploadFolderContainsActive')}\n${functionSource('renderLocalUploadFolderPanel')}\nreturn renderLocalUploadFolderPanel;`
     )(tree, activeFolder, classFilter, escapeMarkup, escapeMarkup);
+    const renderAssetTree = new Function(
+        'activeTab',
+        'assetTreeTab',
+        'renderLocalUploadFolderPanel',
+        'renderAssetTreeMineTree',
+        'renderAssetTreeSystemTree',
+        `${functionSource('renderAssetTreePanel')}\nreturn renderAssetTreePanel;`
+    )('local', 'system', renderFolderPanel, () => '', () => '');
     const context = {
         root: {innerHTML: ''},
         normalizeLocalCaptionSettings: () => {},
@@ -78,7 +86,7 @@ function renderLocalManagerMarkup({tree, activeFolder='', classFilter=''}={}){
         localUploadQuery: '',
         localUploadManageMode: false,
         selectedLocalUploadIds: new Set(),
-        renderLocalUploadFolderPanel: renderFolderPanel,
+        renderAssetTreePanel: renderAssetTree,
         renderLocalCaptionTools: () => '',
         renderLocalUploadClipboardBar: () => '',
         renderLocalUploadAddCard: () => '',
