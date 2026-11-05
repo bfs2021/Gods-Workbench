@@ -2441,10 +2441,10 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card .asset-card-check { top:43px; left:9px; z-index:5; accent-color:var(--asset-type-color); }
 /* 【QIN-541】AC1：勾选框默认隐藏，仅悬停/键盘聚焦或卡片已选中时出现；删除按钮仍由
    .registry-card-recycle 既有规则悬停出现。display 覆盖 .asset-content:not(.manage-on) 的隐藏基线。 */
-.asset-content.registry-content .registry-card .asset-card-check { display:inline-block; opacity:0; pointer-events:none; transition:opacity .14s ease; }
-.asset-content.registry-content .registry-card:hover .asset-card-check,
-.asset-content.registry-content .registry-card:focus-within .asset-card-check,
-.asset-content.registry-content .registry-card.selected .asset-card-check { opacity:1; pointer-events:auto; }
+.asset-content.registry-content.registry-aspect-original .registry-card .asset-card-check { display:inline-block; opacity:0; pointer-events:none; transition:opacity .14s ease; }
+.asset-content.registry-content.registry-aspect-original .registry-card:hover .asset-card-check,
+.asset-content.registry-content.registry-aspect-original .registry-card:focus-within .asset-card-check,
+.asset-content.registry-content.registry-aspect-original .registry-card.selected .asset-card-check { opacity:1; pointer-events:auto; }
 /* 【QIN-534】选中态升级为黑金微光高亮：缩略图本身不加任何半透明变色遮罩（保持原色原貌），
    只把卡片容器外框换成暗金渐变 + 描边 + 呼吸光晕，确保深色素材一眼可辨。
    【QIN-534 复验】用户实测后要求金色背景亮度提升 50%：两段金色叠层不透明度由 .16/.05 提到 .24/.075。 */
@@ -2455,8 +2455,10 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
 .registry-card.active .registry-card-selection-overlay,.registry-card.selected .registry-card-selection-overlay { display:none; }
 .registry-card.active .asset-card-body,.registry-card.selected .asset-card-body { background:transparent; color:var(--asset-type-ink); }
 .registry-card.active .asset-card-name,.registry-card.selected .asset-card-name,
+.registry-card.active .asset-card-meta,.registry-card.selected .asset-card-meta,
 .registry-card.active .registry-card-subline,.registry-card.selected .registry-card-subline,
 .registry-card.active .registry-card-source,.registry-card.selected .registry-card-source { color:var(--asset-type-ink); }
+.registry-card.active .asset-card-meta,.registry-card.selected .asset-card-meta,
 .registry-card.active .registry-card-subline,.registry-card.selected .registry-card-subline,
 .registry-card.active .registry-card-source,.registry-card.selected .registry-card-source { opacity:.86; }
 .registry-card.asset-type-video .asset-thumb::before,.registry-card.asset-type-video .asset-thumb::after { content:""; position:absolute; z-index:1; top:0; bottom:0; width:16px; background-color:#171a18; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='24' viewBox='0 0 8 24'%3E%3Crect x='1' y='5' width='6' height='9' rx='1' fill='%238b958d'/%3E%3C/svg%3E"); background-position:center top; background-repeat:repeat-y; background-size:8px 24px; pointer-events:none; }
@@ -2510,14 +2512,23 @@ body.studio-theme-dark .asset-detail-video-dock .asset-detail-video-volume input
     margin: auto !important;
     flex-shrink: 0 !important;
 }
-/* 【QIN-541】标准卡正文重排：文件名白色单行省略（回退基础 .asset-card-name 规则），
-   第二行灰色单行「大小 · 尺寸」+ 右侧按需出现的来源小图标；正文两行行距收敛为 0，
-   与金库壳正文上内边距 5px、名称行 22px、第二行 17px 合计约 44px（AC2/AC3/AC6）。 */
-.registry-card .asset-card-body { gap:0; }
-.registry-card .registry-card-caption { display:flex; align-items:center; gap:5px; min-width:0; }
-.registry-card .registry-card-subline { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--faint); font-family:var(--gw-font-mono); font-size:var(--gw-type-label-md); line-height:17px; font-weight:750; letter-spacing:0; }
-.registry-card .registry-card-source { flex:0 0 auto; margin-left:auto; width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; color:var(--faint); cursor:default; }
-.registry-card .registry-card-source svg { width:12px; height:12px; }
+/* 方形模式恢复本票前的信息层级；QIN-541 的紧凑两行样式只作用于标准模式。 */
+.registry-aspect-square .registry-card .asset-card-name { min-height:2.5em; white-space:normal; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.registry-aspect-square .registry-card .asset-card-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; }
+.registry-aspect-square .registry-card .asset-card-meta span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.registry-aspect-square .registry-card .asset-card-meta span:last-child { flex:0 0 auto; }
+.registry-aspect-square .registry-card .registry-card-source { margin-top:2px; min-width:0; color:var(--faint); font-size:var(--gw-type-label-md); font-weight:750; display:flex; align-items:center; gap:5px; }
+.registry-aspect-square .registry-card .registry-card-source svg { width:11px; height:11px; flex:0 0 auto; }
+.registry-aspect-square .registry-card .registry-card-source span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.registry-aspect-square .registry-card .registry-card-source em { flex:0 0 auto; padding:2px 4px; background:color-mix(in srgb,var(--asset-type-color) 18%,transparent); color:inherit; font-size:var(--gw-type-label-md); line-height:1; font-style:normal; font-weight:950; }
+
+/* 【QIN-541】标准模式：文件名白色单行省略，第二行灰色单行「大小 · 尺寸」+ 按需来源图标；
+   正文内边距 5px + 名称行 22px + 第二行 17px 合计约 44px（AC2/AC3/AC6）。 */
+.registry-aspect-original .registry-card .asset-card-body { gap:0; }
+.registry-aspect-original .registry-card .registry-card-caption { display:flex; align-items:center; gap:5px; min-width:0; }
+.registry-aspect-original .registry-card .registry-card-subline { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--faint); font-family:var(--gw-font-mono); font-size:var(--gw-type-label-md); line-height:17px; font-weight:750; letter-spacing:0; }
+.registry-aspect-original .registry-card .registry-card-source { flex:0 0 auto; margin-left:auto; width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; color:var(--faint); cursor:default; }
+.registry-aspect-original .registry-card .registry-card-source svg { width:12px; height:12px; }
 
 /* 服务端 asset-structures 的只读卡片投影。成员关系和当前版本始终由 structure_id 返回。 */
 /* 【QIN-534 重设计】右键上下文菜单按黑金硬件设计系统重做：

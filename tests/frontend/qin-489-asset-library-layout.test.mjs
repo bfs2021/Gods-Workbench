@@ -16,9 +16,9 @@ test('QIN-540: 三种模式的首次高度估算遵循方形与原图比例', ()
     const square = build(x => x.kind, () => false, 'square', false)(item, 202);
     const original = build(x => x.kind, () => false, 'original', false)(item, 202);
     const simple = build(x => x.kind, () => false, 'original', true)(item, 202);
-    // QIN-541 标准卡正文重排后，正文高度估算由 92 收敛到 44：square = 200 + 44 + 14、
-    // original = 100 + 44 + 14；简洁模式正文隐藏仍为 0，估高 114 不变。
-    assert.equal(square, 258);
+    // QIN-541 仅标准卡正文重排到 44；AC7 要求方形模式保留原 92px 正文估算。
+    // square = 200 + 92 + 14；original = 100 + 44 + 14；简洁模式正文隐藏，估高 114。
+    assert.equal(square, 306);
     assert.equal(original, 158);
     assert.equal(simple, 114);
 });

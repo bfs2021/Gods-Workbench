@@ -2,14 +2,14 @@
  * QIN-541（GitHub #593）：资产库标准卡片信息层级重排。
  *
  * 断言面覆盖票面 AC1～AC7 的前端部分：
- * - AC1 卡片正文收敛为「文件名 + 大小·尺寸」两行结构，类型/时间/来源文字行
+ * - AC1～AC6 仅标准模式正文收敛为「文件名 + 大小·尺寸」两行结构，类型/时间/来源文字行
  *   全部移除，格式角标与删除按钮保留；
  * - AC2 文件名单行省略（两行钳制规则移除、白色基线保留）；
  * - AC3 第二行灰色单行「大小 · 尺寸」，无值字段与整行省略，正文行距收敛；
  * - AC4 卡片不显示修改时间；
  * - AC5 来源默认隐藏，仅外来/URL/多库资产显示小图标（行为矩阵）；
  * - AC6 标准卡正文高度估算收敛到 44px，简洁模式保持 0；
- * - AC7 简洁模式与既有结构保留，勾选框悬停/聚焦/已选中显现，测试登记自证。
+ * - AC7 方形、简洁、列表模式保持不变，测试登记自证。
  */
 import assert from 'node:assert/strict';
 import {existsSync, readFileSync} from 'node:fs';
@@ -65,29 +65,75 @@ function buildBadge(boardSel, navFolder, rootId){
 const sourceBadge = buildBadge({}, {rootId: '', path: ''}, '');
 const sourceBadgeScoped = buildBadge({}, {rootId: 'root-b', path: ''}, '');
 
-function buildCardHeight(simple){
+function buildCardHeight(simple, aspect='original'){
     return new Function(
         'registryVisualType', 'registryAspect', 'assetSupportsImagePreview', 'registrySimple',
         `${functionSource('registryVirtualCardHeight')}
          return registryVirtualCardHeight;`
-    )(item => String(item?.kind || 'file'), 'original', () => true, simple);
+    )(item => String(item?.kind || 'file'), aspect, () => true, simple);
+}
+
+function buildCardRenderer(aspect){
+    return new Function(
+        'registryAspect', 'registryVisualType', 'registryAssetExtension', 'registryMediaAspectStyle',
+        'findMatchedVideoSegment', 'formatVideoSegmentRange', 'escapeAttr', 'escapeHtml',
+        'deferRegistryPreviewThumb', 'assetThumb', 'renderRegistryRecycleButton', 'assetBoardById',
+        'formatFileSize', 'formatMediaDuration', 'registryAssetTypeLabel', 'formatDate',
+        `const registrySelectedIds = new Set();
+         const selectedRegistryAssetId = '';
+         const boardReferenceCanvasSelection = {registry: ''};
+         const activeTab = 'registry';
+         const registryQuery = '';
+         const boardSourceSelection = {};
+         const registryNavFolder = {rootId: '', path: ''};
+         const registryRootId = '';
+         const registryRootIsOffline = item => item?.root_availability === 'offline';
+         ${functionSource('registrySourceNames')}
+         ${functionSource('registryCardSourceBadge')}
+         ${functionSource('renderRegistryCard')}
+         return renderRegistryCard;`
+    )(
+        aspect,
+        item => String(item?.kind || 'file'),
+        () => 'png',
+        () => '',
+        () => null,
+        () => '',
+        value => String(value ?? ''),
+        value => String(value ?? ''),
+        value => value,
+        () => '<img alt="preview">',
+        () => '<button class="registry-card-recycle"></button>',
+        () => ({id: 'registry', system: true}),
+        size => `${Number(size || 0)} B`,
+        duration => `${Number(duration || 0)} sec`,
+        () => '图片',
+        value => value ? `DATE:${value}` : '—'
+    );
 }
 
 test('AC1 卡片正文收敛为两行结构，类型/时间/来源文字行全部移除', () => {
     const card = functionSource('renderRegistryCard');
-    assert.ok(card.includes('class="registry-card-format"'), '格式角标仍渲染');
-    assert.ok(card.includes('class="asset-card-check"'), '勾选框仍渲染，出现时机交由 CSS');
-    assert.ok(card.includes('renderRegistryRecycleButton(item)'), '删除按钮仍渲染');
-    assert.ok(card.includes('registry-card-caption">${subline}${registryCardSourceBadge(item, assetBoardById(activeTab))}</div>'), '第二行结构为 subline + 来源小图标');
-    assert.ok(!card.includes('asset-card-meta'), '类型/时间文字行移除');
-    assert.ok(!card.includes('registryAssetTypeLabel(item)'), '「类型」字段移除');
-    assert.ok(!card.includes('formatDate(item.created_at)'), '创建时间文字移除');
-    assert.ok(!card.includes('formatMediaDuration'), '时长文字移除');
-    assert.ok(!card.includes("<span>${escapeHtml(registrySourceNames(item).join(' · '))}</span>"), '来源文字行移除');
+    const standard = buildCardRenderer('original')({
+        id: 'asset-1', name: '长文件名.png', kind: 'image', size: 1024,
+        width: 1920, height: 1080, created_at: '2026-11-04',
+        source_names: ['托管资产', '项目资产'],
+    });
+    assert.ok(standard.includes('class="registry-card-format"'), '格式角标仍渲染');
+    assert.ok(standard.includes('class="asset-card-check"'), '勾选框仍渲染，出现时机交由 CSS');
+    assert.ok(standard.includes('class="registry-card-recycle"'), '删除按钮仍渲染');
+    assert.ok(standard.includes('class="registry-card-caption"><span class="registry-card-subline">'), '标准模式第二行结构为 subline + 来源小图标');
+    assert.ok(standard.includes('title="托管资产 · 项目资产"'), '标准模式来源图标 title 保留真实库名');
+    assert.ok(!standard.includes('asset-card-meta'), '标准模式移除类型/时间文字行');
+    assert.ok(!standard.includes('图片'), '标准模式移除类型字段');
+    assert.ok(!standard.includes('DATE:2026-11-04'), '标准模式移除创建时间');
+    assert.ok(!standard.includes('1024 B</span></div>'), '标准模式不显示旧单独大小行');
+    assert.ok(card.includes('registryAspect === \'square\''), '方形模式有独立的旧正文分支');
 });
 
 test('AC2 文件名单行省略（两行钳制规则已移除）', () => {
-    assert.ok(!CARD_CSS.includes('.registry-card .asset-card-name { min-height:2.5em'), '两行钳制规则移除');
+    assert.ok(!CARD_CSS.includes('.registry-aspect-original .registry-card .asset-card-name { min-height:2.5em'), '标准模式移除两行钳制规则');
+    assert.ok(CARD_CSS.includes('.registry-aspect-square .registry-card .asset-card-name { min-height:2.5em'), '方形模式保留两行钳制规则');
     assert.ok(CARD_CSS.includes('.asset-card-name { color:var(--text);'), '文件名白色基线保留');
 });
 
@@ -98,9 +144,9 @@ test('AC3 第二行灰色「大小 · 尺寸」，无值字段与整行省略', 
     assert.ok(card.includes('measureParts.length ? `<span class="registry-card-subline">'), '整行无值时省略');
     assert.ok(card.includes('const sublineWidth = Number(item.width || item.metadata?.width || 0)'), '尺寸取值与高度估算同源');
     assert.ok(card.includes('const sublineHeight = Number(item.height || item.metadata?.height || 0)'), '尺寸取值与高度估算同源');
-    assert.ok(CARD_CSS.includes('.registry-card .asset-card-body { gap:0; }'), '正文行距收敛为 0（44px 组成）');
+    assert.ok(CARD_CSS.includes('.registry-aspect-original .registry-card .asset-card-body { gap:0; }'), '仅标准模式正文行距收敛为 0（44px 组成）');
     assert.ok(CARD_CSS.includes('color:var(--faint); font-family:var(--gw-font-mono); font-size:var(--gw-type-label-md); line-height:17px;'), '第二行灰色单行省略');
-    assert.ok(CARD_CSS.includes('.registry-card .registry-card-caption { display:flex; align-items:center; gap:5px; min-width:0; }'), '第二行单行结构');
+    assert.ok(CARD_CSS.includes('.registry-aspect-original .registry-card .registry-card-caption { display:flex; align-items:center; gap:5px; min-width:0; }'), '第二行单行结构只作用于标准模式');
 });
 
 test('AC4 卡片不显示修改时间', () => {
@@ -185,22 +231,46 @@ test('AC5 来源默认隐藏：仅外来/URL/多库资产显示小图标', () =>
 });
 
 test('AC6 标准卡正文高度估算收敛到 44px，简洁模式保持 0', () => {
-    const height = buildCardHeight(false);
+    const height = buildCardHeight(false, 'original');
     assert.equal(height({kind: 'image', width: 100, height: 100}), 232, '标准卡图片：媒体 174 + 正文 44 + 上下留白 14');
     assert.equal(height({kind: 'video'}), 156, '标准卡视频按 16:9 估算');
     assert.equal(buildCardHeight(true)({kind: 'image', width: 100, height: 100}), 188, '简洁模式正文隐藏，正文估算为 0');
 });
 
-test('AC7 简洁模式与既有结构保留，勾选框按需显现，测试登记自证', () => {
+test('AC7 方形、简洁、列表视图保持原样', () => {
+    const item = {
+        id: 'square-1', name: '方形卡片.png', kind: 'image', size: 1024,
+        width: 1920, height: 1080, created_at: '2026-11-04',
+        source_names: ['托管资产', '项目资产'],
+    };
+    const square = buildCardRenderer('square')(item);
+    assert.ok(square.includes('class="registry-card-measure">1024 B</span>'), '方形模式恢复原大小/时长行');
+    assert.ok(square.includes('class="asset-card-meta"><span>图片</span><span>DATE:2026-11-04</span></div>'), '方形模式保留类型与日期行');
+    assert.ok(square.includes('<span>托管资产 · 项目资产</span>'), '方形模式保留来源名称行');
+    assert.ok(square.includes('<em>2 库</em>'), '方形模式保留多库徽标');
+    assert.ok(!square.includes('registry-card-subline'), '方形模式不使用标准模式 subline');
+    assert.equal(buildCardHeight(false, 'square')({kind: 'image', width: 400, height: 200}, 202), 306, '方形正文估算恢复 92px');
+    assert.equal(buildCardHeight(true, 'square')({kind: 'image', width: 400, height: 200}, 202), 214, '方形模式缩略图仍为正方形，简洁正文隐藏');
+    assert.equal(buildCardHeight(true, 'original')({kind: 'image', width: 400, height: 200}, 202), 114, '原比例简洁模式正文估算仍为 0');
+    assert.ok(CARD_CSS.includes('.registry-aspect-square .registry-card .asset-card-name { min-height:2.5em; white-space:normal; display:-webkit-box;'), '方形模式恢复文件名两行规则');
+    assert.ok(CARD_CSS.includes('.registry-aspect-square .registry-card .asset-card-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; }'), '方形模式恢复类型/时间行布局');
+    assert.ok(CARD_CSS.includes('.registry-aspect-square .registry-card .registry-card-source { margin-top:2px; min-width:0;'), '方形模式恢复完整来源行样式');
+    const listRow = functionSource('renderRegistryListRow');
+    assert.ok(listRow.includes('class="registry-list-type"'), '列表视图仍渲染类型列');
+    assert.ok(listRow.includes('registryModifiedLabel(item)'), '列表视图仍渲染修改时间列');
+    assert.ok(listRow.includes('registrySourceNames(item).join'), '列表视图仍渲染来源路径');
+});
+
+test('AC7 简洁模式正文隐藏，标准模式勾选框按需显现，测试登记自证', () => {
     assert.ok(CARD_CSS.includes('.registry-simple .registry-card .asset-card-body { display:none; }'), '简洁模式正文隐藏保留');
     assert.ok(CARD_CSS.includes('.registry-simple .registry-card .asset-card-body { display:none !important; }'), '简洁模式正文隐藏 !important 版本保留');
     assert.ok(CARD_CSS.includes('.registry-card.active .registry-card-subline'), '选中态高亮第二行 subline');
-    assert.ok(!CARD_CSS.includes('.registry-card.active .asset-card-meta'), '选中态不再指向已移除的 meta 行');
+    assert.ok(CARD_CSS.includes('.registry-card.active .asset-card-meta'), '方形模式选中态继续高亮 meta 行');
     // 勾选框默认隐藏，悬停/键盘聚焦/已选中时显现。
-    assert.ok(CARD_CSS.includes('.asset-content.registry-content .registry-card .asset-card-check { display:inline-block; opacity:0; pointer-events:none; transition:opacity .14s ease; }'), '勾选框默认隐藏基线');
-    assert.ok(CARD_CSS.includes('.asset-content.registry-content .registry-card:hover .asset-card-check'), '悬停显现');
-    assert.ok(CARD_CSS.includes('.asset-content.registry-content .registry-card:focus-within .asset-card-check'), '键盘聚焦显现');
-    assert.ok(CARD_CSS.includes('.asset-content.registry-content .registry-card.selected .asset-card-check { opacity:1; pointer-events:auto; }'), '已选中显现');
+    assert.ok(CARD_CSS.includes('.asset-content.registry-content.registry-aspect-original .registry-card .asset-card-check { display:inline-block; opacity:0; pointer-events:none; transition:opacity .14s ease; }'), '标准模式勾选框默认隐藏');
+    assert.ok(CARD_CSS.includes('.asset-content.registry-content.registry-aspect-original .registry-card:hover .asset-card-check'), '标准模式悬停显现');
+    assert.ok(CARD_CSS.includes('.asset-content.registry-content.registry-aspect-original .registry-card:focus-within .asset-card-check'), '标准模式键盘聚焦显现');
+    assert.ok(CARD_CSS.includes('.asset-content.registry-content.registry-aspect-original .registry-card.selected .asset-card-check { opacity:1; pointer-events:auto; }'), '标准模式已选中显现');
     // 自证登记：node-files.txt 与卫生准入分片。
     assert.ok(NODE_FILES.includes('tests/frontend/qin-541-registry-card-info-layout.test.mjs'), '本票前端测试已登记 node-files.txt');
     assert.ok(existsSync(SHARD), '缺少 tests/hygiene/fixtures/admissions/issue-593.json');
