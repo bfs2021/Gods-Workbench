@@ -129,9 +129,9 @@ test('AC6: 管线样式：竖线+圆点、金色支路、选中淡金底、空�
     });
     assert.doesNotMatch(populatedNodeHtml, /class="[^"]*\bis-empty\b/, '有数量的可展开分组不应变暗');
     const uncountedNodeHtml = renderAssetTreeNodeForTest({
-        key:'system:projects:project:group:shot', name:'镜头', count:null, hasChildren:true,
+        key:'system:scripts', name:'剧本资产', count:'', hasChildren:false,
     });
-    assert.doesNotMatch(uncountedNodeHtml, /class="[^"]*\bis-empty\b/, '未提供数量的节点不应视为零数量');
+    assert.doesNotMatch(uncountedNodeHtml, /class="[^"]*\bis-empty\b/, 'count 为空字符串的节点数量未知，不应变暗');
 });
 test('AC7: 面包屑逐级可点击 + 键盘上下切换与回车进入', () => {
     assert.match(functionSource('renderAssetTreeBreadcrumb'), /data-asset-tree-crumb/, '面包屑应输出可点击节点');

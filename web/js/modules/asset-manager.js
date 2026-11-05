@@ -11542,8 +11542,9 @@ function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expa
     const pathKeys = assetTreeSelectedPathKeys();
     const selected = assetTreeSelectedKey === key;
     const countValue = Number(count);
-    const showCount = Number.isFinite(countValue) && countValue > 0;
-    const zeroDim = count !== null && count !== undefined && Number.isFinite(countValue) && countValue === 0;
+    const hasCount = count !== null && count !== undefined && String(count).trim() !== '' && Number.isFinite(countValue);
+    const showCount = hasCount && countValue > 0;
+    const zeroDim = hasCount && countValue === 0;
     return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'} ${zeroDim ? 'is-empty' : ''}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
         <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" aria-label="${escapeAttr(name)}">
             <span class="asset-tree-twisty" ${hasChildren ? `data-asset-tree-toggle="${escapeAttr(key)}" aria-expanded="${Boolean(expanded)}" title="${expanded ? '折叠' : '展开'}"` : ''}>${hasChildren ? `<i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i>` : ''}</span>
