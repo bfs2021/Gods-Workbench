@@ -83,6 +83,7 @@ tests/frontend/qin-542-registry-disk-folders.test.mjs
 tests/frontend/qin-544-asset-tree-panel.test.mjs
 tests/frontend/qin-548-local-assets-contract.test.mjs
 tests/frontend/qin-550-registry-upload-preview.mjs
+tests/frontend/qin-552-lut-library.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs
 tests/frontend/test_c18_video_jump.mjs

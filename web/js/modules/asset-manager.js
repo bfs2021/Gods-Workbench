@@ -957,6 +957,7 @@ const ASSET_LIBRARY_PRESETS = [
     {id:'model', name:'模型库', description:'三维模型与生成模型', icon:'box', category:'model', kinds:[], extensions:[...ASSET_3D_PREVIEW_EXTENSIONS,'blend','c4d','max','ma','mb','ckpt','safetensors','pt']},
     {id:'image', name:'图片库', description:'图片、插画与视觉参考', icon:'images', category:'image', kinds:['image'], extensions:[...ASSET_PREVIEW_EXTENSIONS]},
     {id:'video', name:'视频库', description:'视频、样片与动态参考', icon:'clapperboard', category:'video', kinds:['video'], extensions:[...ASSET_VIDEO_EXTENSIONS]},
+    {id:'lut', name:'LUT库', description:'色彩查找表（.cube）', icon:'palette', category:'other', kinds:['lut'], extensions:['cube']},
     {id:'other', name:'其他资源', description:'其他', icon:'package-open', category:'', kinds:[], extensions:[]},
 ];
 function defaultBoardNavigationState(){
@@ -2191,7 +2192,11 @@ async function waitForAssetIndexJob(jobId, sourceName='素材库'){
             }
             if(['failed','cancelled','interrupted'].includes(job.status)){
                 markIndexState('failed');
-                setStatus(`素材库“${sourceName}”索引失败：${job.error_code || job.status}`);
+                const message = ({
+                    LUT_CUBE_INVALID:'LUT 文件格式无效，请检查文件头和采样数据',
+                    LUT_CUBE_TOO_LARGE:'LUT 文件超过 64 MiB 上限',
+                })[job.error_code] || job.error_code || job.status;
+                setStatus(`素材库“${sourceName}”索引失败：${message}`);
                 return job;
             }
             const phase = job.progress?.phase || job.status;
@@ -6603,7 +6608,7 @@ function registryCardSourceBadge(item={}, board=null){
     return `<span class="registry-card-source" title="${escapeAttr(title)}"><i data-lucide="${icon}"></i></span>`;
 }
 function registryKindIcon(kind=''){
-    return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box'})[String(kind || '').toLowerCase()] || 'file';
+    return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box',lut:'palette'})[String(kind || '').toLowerCase()] || 'file';
 }
 function registryCanRecycle(item={}){
     return typeof item.can_recycle === 'boolean'
@@ -9880,13 +9885,13 @@ function renderLocalDetail(item){
     `;
 }
 function registryKindLabel(kind=''){
-    return {image:'图片',video:'视频',audio:'音频',workflow:'工作流',document:'文档',project_file:'工程文件'}[kind] || kind || '其他';
+    return {image:'图片',video:'视频',audio:'音频',workflow:'工作流',document:'文档',project_file:'工程文件',lut:'LUT'}[kind] || kind || '其他';
 }
 const REGISTRY_FILE_TYPE_LABELS = {
     jpg:'JPEG 图片', jpeg:'JPEG 图片', png:'PNG 图片', gif:'GIF 图片', webp:'WebP 图片', bmp:'BMP 图片',
     tiff:'TIFF 图片', tif:'TIFF 图片', heic:'HEIC 图片', heif:'HEIF 图片', avif:'AVIF 图片', raw:'RAW 图像',
     svg:'SVG 矢量图', eps:'EPS 矢量图', psd:'Photoshop 工程', ai:'Illustrator 工程', cdr:'CorelDRAW 工程',
-    hdr:'HDR 图像', exr:'EXR 图像',
+    hdr:'HDR 图像', exr:'EXR 图像', cube:'Cube LUT 色彩查找表（.cube）',
     txt:'TXT 文本', csv:'CSV 表格', tsv:'TSV 表格', json:'JSON 文件', xml:'XML 文件', html:'HTML 文档', htm:'HTML 文档',
     md:'Markdown 文档', markdown:'Markdown 文档', rtf:'RTF 文档', doc:'Word 文档', docx:'Word 文档', odt:'OpenDocument 文档',
     ppt:'PowerPoint 演示文稿', pptx:'PowerPoint 演示文稿', odp:'OpenDocument 演示文稿',
@@ -9907,7 +9912,7 @@ function registryAssetTypeLabel(item={}){
     return registryKindLabel(item.kind);
 }
 function registryAssetTypeIcon(item={}){
-    return registryKindIcon(detailViewerType('registry', item));
+    return registryKindIcon(registryAssetCategory(item) === 'lut' ? 'lut' : detailViewerType('registry', item));
 }
 function registryFacetKindCount(...kinds){
     const wanted = new Set(kinds);
@@ -9918,7 +9923,7 @@ function registryCategoryCount(category){
     return Number(item?.count || 0);
 }
 function registryCategoryLabel(category=''){
-    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',other:'其他'}[category] || '全部资产';
+    return {image:'图片',video:'视频',audio:'音频',document:'文档',model:'模型',font:'字体',lut:'LUT',other:'其他'}[category] || '全部资产';
 }
 function renderRegistryOverviewStats(){
     const globalTotal = (registryFacets.categories || []).reduce((total, item) => total + Number(item.count || 0), 0) || (registryFacets.kinds || []).reduce((total, item) => total + Number(item.count || 0), 0) || registryTotal;
@@ -9932,6 +9937,7 @@ function renderRegistryOverviewStats(){
         {id:'document', name:'文档', value:registryCategoryCount('document'), icon:'files'},
         {id:'model', name:'模型', value:registryCategoryCount('model'), icon:'box'},
         {id:'font', name:'字体', value:registryCategoryCount('font'), icon:'type'},
+        {id:'lut', name:'LUT', value:registryCategoryCount('lut'), icon:'palette'},
         // 【QIN-531】卡片更名「画布」；data-registry-stat 仍沿用 reference-canvas，既有跳转不动。
         {id:'reference-canvas', name:'画布', value:canvasTotal, icon:'map'},
         {id:'other', name:'其他', value:registryCategoryCount('other'), icon:'package-open'},
@@ -9981,6 +9987,7 @@ const REGISTRY_ASSET_CATEGORY_EXTENSIONS = Object.freeze({
     document:new Set(['txt','csv','tsv','json','xml','html','htm','md','markdown','rtf','doc','docx','odt','ppt','pptx','odp','xls','xlsx','ods','pdf','srt','vtt','zip']),
     model:new Set(['stl','3mf','obj','fbx','gltf','glb','usd','usdz','step','stp','iges','igs','dxf','ply','3ds','dae','ifc','wrl','vrml','blend','c4d','max','ma','mb','ckpt','safetensors','pt','pth','onnx','gguf']),
     font:new Set(['ttf','otf','ttc','otc','woff','woff2']),
+    lut:new Set(['cube']),
 });
 function registryAssetCategory(item={}){
     const extension = registryAssetExtension(item);
@@ -9989,9 +9996,9 @@ function registryAssetCategory(item={}){
     }
     const type = detailViewerType('registry', item);
     if(type === 'text') return 'document';
-    if(['image','video','audio','document','model','font'].includes(type)) return type;
+    if(['image','video','audio','document','model','font','lut'].includes(type)) return type;
     const kind = String(item.kind || item.media_type || item.type || '').toLowerCase();
-    if(['image','video','audio','document','model','font'].includes(kind)) return kind;
+    if(['image','video','audio','document','model','font','lut'].includes(kind)) return kind;
     return kind === 'text' ? 'document' : 'other';
 }
 function customAssetLibraryIncludesAsset(board,item={}){
@@ -10578,7 +10585,9 @@ function renderRegistryCard(item){
     }
     const selected = registrySelectedIds.has(item.id);
     const name = item.name || 'asset';
-    const format = registryAssetExtension(item).toUpperCase() || 'FILE';
+    const isLut = String(item.kind || item.media_type || item.type || '').toLowerCase() === 'lut'
+        || registryAssetExtension(item).toLowerCase() === 'cube';
+    const format = isLut ? 'LUT' : (registryAssetExtension(item).toUpperCase() || 'FILE');
     const referenceCanvasId = boardReferenceCanvasSelection[activeTab] || '';
     const mediaAspectStyle = registryMediaAspectStyle(item);
     const matchedSegment = item.kind === 'video' ? findMatchedVideoSegment(item, registryQuery) : null;

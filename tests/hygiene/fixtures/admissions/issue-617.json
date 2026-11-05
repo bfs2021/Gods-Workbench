@@ -1,0 +1,33 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 617,
+  "authorization_basis": "GitHub Issue #617 (QIN-552), 2026-11-05",
+  "files": [
+    "gw/asset_registry/index_jobs.py",
+    "gw/asset_registry/lut_cube.py",
+    "gw/asset_registry/repository.py",
+    "gw/asset_registry/service.py",
+    "web/js/modules/asset-manager.js",
+    "tests/contracts/assets/test_qin_552_lut_cube.py",
+    "tests/frontend/qin-552-lut-library.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-617.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_qin_552_lut_cube.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #617 (QIN-552), 2026-11-05",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-552-lut-library.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #617 (QIN-552), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-552 为 .cube 文件增加独立 LUT 类型、限额解析与元数据入库，补齐资产筛选、统计、前端标识及窄测。"
+}
