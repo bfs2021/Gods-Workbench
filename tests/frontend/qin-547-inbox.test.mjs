@@ -82,4 +82,5 @@ test('AC2/AC3: 上传落收集箱、迁移托管资产有独立入口', () => {
     assert.match(migrate, /moved_files/, '迁移结果回显迁入文件数');
     assert.match(functionSource('renderInboxManager'), /data-inbox-migrate-run/, '视图应有迁移入口');
     assert.match(functionSource('renderInboxManager'), /data-inbox-upload/, '视图应有上传入口');
+    assert.match(source, /record:'仅记录'/, '无访问地址的托管记录应有「仅记录」标签，不伪装成链接');
 });

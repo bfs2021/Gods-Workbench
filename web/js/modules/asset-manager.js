@@ -9929,7 +9929,7 @@ function renderLocalAssetsPagination(){
  * ------------------------------------------------------------------------- */
 const INBOX_KIND_LABELS = {
     image:'图片', video:'视频', audio:'音频', document:'文档', archive:'压缩包',
-    workflow:'工作流', url:'链接', '未分类':'未分类',
+    workflow:'工作流', url:'链接', record:'仅记录', '未分类':'未分类',
 };
 const INBOX_SOURCE_LABELS = {
     inbox:'收集箱', collect_inbox:'浏览器收集', asset_library:'托管资产',

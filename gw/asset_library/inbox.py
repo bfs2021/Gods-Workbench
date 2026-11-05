@@ -533,6 +533,10 @@ def migrate_asset_library() -> dict[str, Any]:
                     moved.append(asset_id)
             if record["file"] is None:
                 url_entries.append(asset_id)
+                # 只有真正的访问地址才算链接条目；url 为空的托管记录标注为「仅记录」，
+                # 避免在收集箱里显示成可点击却无地址的链接。
+                if not str(record.get("url") or "").strip():
+                    record["kind"] = "record"
             migrated[asset_id] = record
 
         def mutate(payload: dict[str, Any]) -> dict[str, Any]:

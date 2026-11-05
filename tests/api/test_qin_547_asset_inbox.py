@@ -116,6 +116,23 @@ def test_migrate_moves_local_files_keeps_external_urls_and_is_idempotent(
         assert listing["settings"]["migrated_asset_count"] == 2
 
 
+def test_migrate_marks_records_without_url_as_record_kind(inbox_runtime):
+    """AC3：没有访问地址的托管记录标为「仅记录」，不伪装成可点击链接。"""
+    no_url_id = _register_item("无地址记录", None)
+    url_id = _register_item("有地址记录", "https://example.com/a.png")
+
+    with TestClient(create_app()) as client:
+        payload = client.post(f"{BASE}/migrate", headers=EDIT_AUTH).json()
+        assert payload["moved_files"] == 0, payload
+        assert payload["url_entries"] == 2, payload
+
+        listing = client.get(BASE, headers=AUTH).json()
+        by_asset = {item["asset_id"]: item for item in listing["items"]}
+        assert by_asset[no_url_id]["kind"] == "record", "url 为空的记录应为 record"
+        assert by_asset[no_url_id]["url"] is None
+        assert by_asset[url_id]["kind"] == "url", "真实地址仍为链接条目"
+
+
 def test_migrate_never_moves_files_outside_allowed_roots(inbox_runtime):
     """迁移边界：只搬已挂载素材根内的文件；根外本地文件保留为 URL 条目，不碰盘。"""
     outside = inbox_runtime["tmp"] / "outside.png"
