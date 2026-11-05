@@ -42,6 +42,11 @@ MAX_ACTIVE = 16
 MAX_JOBS = 1000
 MAX_FILES = 250000
 MAX_ENTRIES = 500000
+# QIN-564：单文件全量内容哈希上限。超过即跳过全量哈希（登记 sha256 保持
+# 缺席），改登记首尾采样哈希 sha256_sampled 与诚实标记 sha256_status=
+# "sampled"，任务继续完成，不再以 INDEX_HASH_LIMIT 硬失败整个任务。
+HASH_LIMIT_BYTES = 512 * 1024 * 1024
+HASH_SAMPLE_BYTES = 4 * 1024 * 1024
 VIDEO_SUFFIXES = frozenset(
     {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".wmv"}
 )
@@ -1202,7 +1207,6 @@ class IndexJobs:
                 handle.close()
                 _error(409, "INDEX_FILE_CHANGED", "摘要源文件已改变")
         digest = hashlib.sha256()
-        read_bytes = 0
         try:
             while True:
                 with self.condition:
@@ -1210,10 +1214,61 @@ class IndexJobs:
                     chunk = handle.read(1024 * 1024)
                 if not chunk:
                     break
-                read_bytes += len(chunk)
-                if read_bytes > 512 * 1024 * 1024:
-                    _error(413, "INDEX_HASH_LIMIT", "单个文件超过摘要计算上限")
+                # QIN-564：这里不再设读取上限。>HASH_LIMIT_BYTES 的文件在
+                # 扫描期已改走 _sampled_hash；能在本循环里读到超过登记
+                # size 的字节数，唯一来源是文件在哈希期间被改动，由下方
+                # fstat 比对以 409 如实上报，不再用 413 硬失败整个任务。
                 digest.update(chunk)
+            final = os.fstat(handle.fileno())
+            if (final.st_size, final.st_mtime_ns) != (
+                expected.st_size,
+                expected.st_mtime_ns,
+            ):
+                _error(409, "INDEX_FILE_CHANGED", "摘要计算期间文件已改变")
+        finally:
+            handle.close()
+        return digest.hexdigest()
+
+    def _sampled_hash(self, job_id, attempt, path, expected):
+        """超限文件的诚实降级指纹：首尾 4MiB + 文件长度（QIN-564）。
+
+        口径与 QIN-561 基线工具一致：sha256(首 HASH_SAMPLE_BYTES ‖
+        尾 HASH_SAMPLE_BYTES ‖ 十进制文件长度)。文件超限时不再硬失败
+        任务，而是跳过全量哈希：素材登记的 sha256 保持缺席（null），
+        采样摘要只写入独立命名空间 sha256_sampled 并打上
+        sha256_status="sampled" 诚实标记，绝不冒充全量内容哈希；
+        查重等下游按「无全量哈希」降级，不参与文件查重组。
+        """
+        with self.condition:
+            self._checkpoint(job_id, attempt)
+            if (
+                path.resolve() != path.absolute()
+                and not storage._is_network_path(str(path))
+            ):
+                _error(403, "INDEX_PATH_CHANGED", "摘要源路径已改变")
+            handle = path.open("rb")
+            actual = os.fstat(handle.fileno())
+            if (actual.st_ino, actual.st_dev, actual.st_size) != (
+                expected.st_ino,
+                expected.st_dev,
+                expected.st_size,
+            ):
+                handle.close()
+                _error(409, "INDEX_FILE_CHANGED", "摘要源文件已改变")
+        digest = hashlib.sha256()
+        try:
+            head = handle.read(min(HASH_SAMPLE_BYTES, expected.st_size))
+            digest.update(head)
+            if expected.st_size > HASH_SAMPLE_BYTES:
+                handle.seek(expected.st_size - HASH_SAMPLE_BYTES)
+                while True:
+                    with self.condition:
+                        self._checkpoint(job_id, attempt)
+                        chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+            digest.update(str(expected.st_size).encode("ascii"))
             final = os.fstat(handle.fileno())
             if (final.st_size, final.st_mtime_ns) != (
                 expected.st_size,
@@ -1374,11 +1429,16 @@ class IndexJobs:
                             if duration is not None:
                                 item["duration"] = duration
                         if request["hash_files"]:
-                            if info.st_size > 512 * 1024 * 1024:
-                                _error(
-                                    413, "INDEX_HASH_LIMIT", "单个文件超过摘要计算上限"
+                            if info.st_size > HASH_LIMIT_BYTES:
+                                # QIN-564：超限文件不再硬失败任务。跳过全量
+                                # 内容哈希（sha256 保持缺席），登记采样哈希
+                                # 与诚实标记，任务继续完成。
+                                item["sha256_sampled"] = self._sampled_hash(
+                                    job_id, attempt, path, info
                                 )
-                            item["sha256"] = self._hash(job_id, attempt, path, info)
+                                item["sha256_status"] = "sampled"
+                            else:
+                                item["sha256"] = self._hash(job_id, attempt, path, info)
                         files.append(item)
                         now = time.monotonic()
                         if (
@@ -1457,6 +1517,10 @@ class IndexJobs:
             if job["_request"]["kind"] == "reindex":
                 search_documents = {}
                 next_asset_number = repo._asset_sequence_start(raw)
+                # QIN-564：哈希模式任务的哈希字段按本次扫描结果全量对齐：
+                # 全量哈希清采样降级标记，超限采样清旧的全量哈希，登记不
+                # 残留过期标记；非哈希模式维持原状不动哈希字段。
+                hash_mode = job["_request"].get("hash_files") is True
                 for item in files:
                     identity = (item["root_id"], item["canonical_relpath"])
                     existing = known.get(identity)
@@ -1469,12 +1533,24 @@ class IndexJobs:
                             "name",
                             "size_bytes",
                             "sha256",
+                            "sha256_sampled",
+                            "sha256_status",
                             "modified_at",
                             "kind",
                         ):
                             if field in item and existing.get(field) != item[field]:
                                 existing[field] = item.get(field)
                                 changed = True
+                        if hash_mode and "sha256" in item:
+                            if existing.get("sha256_sampled") is not None:
+                                existing.pop("sha256_sampled", None)
+                                changed = True
+                            if existing.get("sha256_status") is not None:
+                                existing.pop("sha256_status", None)
+                                changed = True
+                        elif hash_mode and existing.get("sha256") is not None:
+                            existing.pop("sha256", None)
+                            changed = True
                         if was_lut and "kind" not in item:
                             existing["kind"] = "indexed"
                             changed = True
@@ -1556,6 +1632,13 @@ class IndexJobs:
                     "missing_from_disk": len(scoped - disk),
                     "revision": raw["revision"],
                 }
+            if job["_request"].get("hash_files"):
+                # QIN-564：哈希模式任务结果如实区分「已哈希 N / 超限跳过
+                # M」；超限文件走采样哈希降级，绝不静默当作无哈希。
+                result["hashed"] = sum(1 for x in files if "sha256" in x)
+                result["hash_skipped_oversize"] = sum(
+                    1 for x in files if x.get("sha256_status") == "sampled"
+                )
             receipts[receipt_id] = result
             return result
 
