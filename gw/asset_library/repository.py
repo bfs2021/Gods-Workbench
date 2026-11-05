@@ -37,11 +37,15 @@ import os
 import shutil
 import tempfile
 import threading
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from gw.core import storage
 from gw.core.errors import CleanroomException
+from gw.asset_library.naming import (
+    validate_folder_component_name,
+    validate_target_path,
+)
 
 NS_CLASSIFY_PROMPT = "asset_classify_prompt"
 NS_CLASSIFY_JOBS = "asset_classify_jobs"
@@ -1080,10 +1084,7 @@ def _local_dir() -> Path:
 
 
 def _safe_name(name: str, *, what: str = "名称") -> str:
-    clean = "".join(ch for ch in (name or "").strip() if ch.isalnum() or ch in "-_ ")
-    if not clean:
-        raise CleanroomException(400, "INVALID_REQUEST", "%s不合法" % what)
-    return clean
+    return validate_folder_component_name(name, what=what)
 
 
 def _local_asset_cursor_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -1301,11 +1302,53 @@ def save_local_caption(asset_id: str, caption: str) -> dict[str, Any]:
     return _local_state().mutate(mutate)
 
 
-def create_local_folder(name: str) -> dict[str, Any]:
+def create_local_folder(name: str, parent: str = "") -> dict[str, Any]:
     clean = _safe_name(name, what="文件夹名称")
-    folder = _local_dir() / clean
-    folder.mkdir(parents=True, exist_ok=True)
-    return {"name": clean, "display_path": "local_assets/" + clean, "created": True}
+    local_dir = _local_dir().resolve()
+    normalized_parent = str(parent or "").replace("\\", "/")
+    if normalized_parent.startswith("/") or (
+        len(normalized_parent) >= 2 and normalized_parent[1] == ":"
+    ):
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录")
+    parent_parts = [part for part in normalized_parent.split("/") if part]
+    if any(part in {".", ".."} for part in parent_parts):
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录")
+
+    try:
+        folder_parent = local_dir.joinpath(*parent_parts).resolve()
+        if not folder_parent.is_relative_to(local_dir):
+            raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录")
+    except (OSError, ValueError) as exc:
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录") from exc
+    if parent_parts and not folder_parent.is_dir():
+        raise CleanroomException(404, "FOLDER_NOT_FOUND", "父文件夹不存在")
+
+    folder = folder_parent / clean
+    try:
+        validate_target_path(folder, local_dir)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录") from exc
+
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except FileExistsError as exc:
+        if not folder.is_dir():
+            raise CleanroomException(409, "TARGET_EXISTS", "目标位置已存在非文件夹") from exc
+        raise
+
+    # 再检查实际创建后的解析结果，避免最终目标软链接越界。
+    try:
+        validate_target_path(folder, local_dir)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "目标路径不属于本地素材目录") from exc
+
+    relative_path = PurePosixPath(*parent_parts, clean).as_posix()
+    return {
+        "name": clean,
+        "display_path": "local_assets/" + relative_path,
+        "relative_path": relative_path,
+        "created": True,
+    }
 
 
 def _rename_source_local_folder(

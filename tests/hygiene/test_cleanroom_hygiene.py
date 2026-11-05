@@ -1260,3 +1260,26 @@ def test_qin_541_registry_card_info_layout_files_are_registered(repo_root: Path)
         "tests/hygiene/fixtures/admissions/issue-593.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
+
+
+def test_qin_545_disk_organization_files_are_registered(repo_root: Path):
+    """QIN-545 磁盘文件夹整理接口所涉文件按本票登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 601
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #601 (QIN-545), 2026-11-04"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/api/routes_local_assets.py",
+        "gw/asset_library/organize.py",
+        "gw/asset_registry/organize_sync.py",
+        "tests/contracts/assets/test_local_assets_organize.py",
+        "tests/api/test_local_assets_organize_api.py",
+        "tests/hygiene/fixtures/admissions/issue-601.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }

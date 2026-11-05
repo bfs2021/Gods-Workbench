@@ -26,9 +26,12 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Query, Request, status
 
+from gw.asset_library import organize
 from gw.asset_library import repository as repo
+from gw.asset_registry.organize_sync import AssetRegistryOrganizeListener
 from gw.core.auth import require_authenticated, require_edit_access
 from gw.core.errors import CleanroomException
+organize.register_sync_listener(AssetRegistryOrganizeListener())
 
 router = APIRouter(tags=["local-assets-b4"])
 
@@ -39,6 +42,16 @@ async def _body(request: Request) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _expected_version(payload: dict[str, Any]) -> int | None:
+    val = payload.get("expected_version")
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        raise CleanroomException(400, "INVALID_VERSION", "expected_version 必须为整数")
 
 
 def _read(authorization: str | None, x_user_role: str):
@@ -87,7 +100,9 @@ def _all_local_asset_items(kind: str | None) -> list[dict[str, Any]]:
     return [_local_asset_item(item) for item in items]
 
 
-def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
+def _local_asset_tree(
+    items: list[dict[str, Any]], extra_folder_paths: list[str] | None = None
+) -> dict[str, Any]:
     root: dict[str, Any] = {
         "id": "__root__",
         "path": "",
@@ -97,11 +112,11 @@ def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
         "children": [],
     }
     nodes = {"": root}
-    for item in items:
-        parent_path = str(item.get("folder") or "")
+
+    def ensure_folder(path_text: str, *, count_item: bool = True) -> None:
         current_parts: list[str] = []
         parent = root
-        for part in PurePosixPath(parent_path).parts:
+        for part in PurePosixPath(path_text.replace("\\", "/")).parts:
             if part in {"", ".", "/", ".."}:
                 continue
             current_parts.append(part)
@@ -118,8 +133,15 @@ def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
                 }
                 nodes[path] = node
                 parent["children"].append(node)
-            node["count"] += 1
+            if count_item:
+                node["count"] += 1
             parent = node
+
+    for item in items:
+        ensure_folder(str(item.get("folder") or ""))
+    for folder_path in extra_folder_paths or []:
+        ensure_folder(str(folder_path or ""), count_item=False)
+
     for node in nodes.values():
         node["children"].sort(key=lambda child: str(child["name"]).casefold())
     return root
@@ -200,9 +222,17 @@ async def delete_local_assets(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """真实删除允许根目录内的文件。"""
-    _write(authorization, x_user_role)
+    """真实删除允许根目录内的文件或移入回收站。"""
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
+    if "path" in payload or payload.get("organize"):
+        return organize.delete_entry(
+            str(payload.get("path") or ""),
+            root_id=_root_hint(payload),
+            operator=operator,
+            expected_version=_expected_version(payload),
+        )
     return repo.delete_local_files(_ids(payload), root_id=_root_hint(payload))
 
 
@@ -213,14 +243,30 @@ async def move_local_assets(
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
     """在允许根目录内真实移动文件。"""
-    _write(authorization, x_user_role)
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
     shared = _root_hint(payload)
+    source = str(payload.get("source") or "")
+    target = str(payload.get("target") or "")
+    source_root_id = _root_hint(payload, "source_root_id") or shared
+    target_root_id = _root_hint(payload, "target_root_id")
+    conflict_resolution = payload.get("conflict_resolution")
+    if conflict_resolution is not None or payload.get("organize"):
+        return organize.move_file(
+            source,
+            target,
+            source_root_id=source_root_id,
+            target_root_id=target_root_id,
+            conflict_resolution=conflict_resolution,
+            operator=operator,
+            expected_version=_expected_version(payload),
+        )
     return repo.move_local_file(
-        str(payload.get("source") or ""),
-        str(payload.get("target") or ""),
-        source_root_id=_root_hint(payload, "source_root_id") or shared,
-        target_root_id=_root_hint(payload, "target_root_id"),
+        source,
+        target,
+        source_root_id=source_root_id,
+        target_root_id=target_root_id,
     )
 
 
@@ -242,10 +288,47 @@ async def create_local_asset_folder(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """在数据目录内创建真实文件夹。"""
-    _write(authorization, x_user_role)
+    """创建真实文件夹（支持用户挂载目录下任意深度子文件夹）。"""
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
-    return repo.create_local_folder(str(payload.get("name") or ""))
+    if (
+        "path" in payload
+        or payload.get("organize") is True
+        or "root_id" in payload
+        or "expected_version" in payload
+    ):
+        result = organize.create_folder(
+            raw_path=payload.get("path"),
+            name=payload.get("name"),
+            parent=payload.get("parent"),
+            root_id=_root_hint(payload),
+            operator=operator,
+            expected_version=_expected_version(payload),
+        )
+    else:
+        result = repo.create_local_folder(
+            str(payload.get("name") or ""),
+            parent=str(payload.get("parent") or ""),
+        )
+
+    items = _all_local_asset_items(str(payload.get("kind") or "").strip() or None)
+    folder_path = str(
+        result.get("canonical_relpath")
+        or result.get("relative_path")
+        or result.get("display_path")
+        or ""
+    ).replace("\\", "/")
+    if folder_path.startswith("local_assets/"):
+        folder_path = folder_path.removeprefix("local_assets/")
+    result.update(
+        {
+            "items": items,
+            "tree": _local_asset_tree(items, [folder_path]),
+            "folder": {"path": folder_path},
+        }
+    )
+    return result
 
 
 @router.patch("/api/local-assets/folders", status_code=status.HTTP_200_OK)
@@ -254,9 +337,17 @@ async def update_local_asset_folder(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """重命名数据目录或素材来源内的真实文件夹并返回当前目录树。"""
-    _write(authorization, x_user_role)
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
+    if payload.get("path"):
+        return organize.rename_folder(
+            str(payload.get("path") or ""),
+            str(payload.get("name") or payload.get("new_name") or ""),
+            root_id=_root_hint(payload),
+            operator=operator,
+            expected_version=_expected_version(payload),
+        )
     kind = str(payload.get("kind") or "").strip() or None
     result = repo.rename_local_folder(
         str(payload.get("name") or ""),
@@ -272,6 +363,75 @@ async def update_local_asset_folder(
         }
     )
     return result
+
+
+@router.post("/api/local-assets/folders/move", status_code=status.HTTP_200_OK)
+async def move_local_asset_folder(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """在允许根目录内移动文件夹（整棵子树跟随移动）。"""
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
+    payload = await _body(request)
+    shared = _root_hint(payload)
+    return organize.move_folder(
+        str(payload.get("source") or ""),
+        str(payload.get("target") or ""),
+        source_root_id=_root_hint(payload, "source_root_id") or shared,
+        target_root_id=_root_hint(payload, "target_root_id"),
+        operator=operator,
+        expected_version=_expected_version(payload),
+    )
+
+
+@router.post("/api/local-assets/folders/delete", status_code=status.HTTP_200_OK)
+async def delete_local_asset_folder(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """删除文件夹进应用回收站。"""
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
+    payload = await _body(request)
+    return organize.delete_entry(
+        str(payload.get("path") or ""),
+        root_id=_root_hint(payload),
+        operator=operator,
+        expected_version=_expected_version(payload),
+    )
+
+
+@router.post("/api/local-assets/undo", status_code=status.HTTP_200_OK)
+async def undo_local_asset_operation(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """撤销文件夹或文件整理操作。"""
+    auth = _write(authorization, x_user_role)
+    operator = auth.subject or auth.display_name or "local_user"
+    is_admin = auth.role == "admin"
+    payload = await _body(request)
+    undo_desc = payload.get("undo") or payload
+    return organize.undo_operation(
+        undo_desc,
+        operator=operator,
+        is_admin=is_admin,
+        expected_version=_expected_version(payload),
+    )
+
+
+@router.get("/api/local-assets/organize/version", status_code=status.HTTP_200_OK)
+def get_local_assets_organize_version(
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """获取当前资产整理状态的 CAS 版本号。版本文件缺失时 Fail-Closed，禁止静默重建。"""
+    _read(authorization, x_user_role)
+    return {"version": organize.get_organize_version()}
 
 
 @router.post("/api/local-assets/classify", status_code=status.HTTP_200_OK)
