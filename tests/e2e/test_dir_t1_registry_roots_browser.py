@@ -235,26 +235,34 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
         overview_toolbar = vault.locator(".registry-toolbar")
         expect(overview_stats).to_be_visible()
         expect(overview_toolbar).to_be_visible()
-        def position(locator):
-            return locator.evaluate("""element => {
-                const rect = element.getBoundingClientRect();
-                const root = document.querySelector('#assetManagerRoot').getBoundingClientRect();
-                return {x:rect.x - root.x,y:rect.y - root.y};
-            }""")
-
-        def wait_for_fixed_rows(expected, board_id: str, viewport: str):
+        def sample_fixed_rows(board_id: str, viewport: str):
+            expected_column = "1" if "窄屏" in viewport else "2"
             try:
                 frame.evaluate("delete window.__assetManagerFixedRowsProbe")
-                frame.wait_for_function(
-                    """({expected, boardId}) => {
+                stable_rows = frame.wait_for_function(
+                    """({boardId, expectedColumn}) => {
                         const root = document.querySelector('#assetManagerRoot');
                         const rows = [
                             root?.querySelector(':scope > .registry-overview-shell'),
                             root?.querySelector(':scope > .registry-toolbar')
                         ];
-                        const hasBoardClass = root?.classList.contains(`asset-manager-root-page-${boardId}`)
-                            || root?.classList.contains(`asset-manager-root-${boardId}`);
+                        const hasBoardClass = root?.classList.contains('asset-manager-root-page-' + boardId)
+                            || root?.classList.contains('asset-manager-root-' + boardId);
                         if (!root || !rows.every(Boolean) || !hasBoardClass) {
+                            delete window.__assetManagerFixedRowsProbe;
+                            return false;
+                        }
+                        const overviewStyle = getComputedStyle(rows[0]);
+                        const toolbarStyle = getComputedStyle(rows[1]);
+                        const fixedGridReady = document.documentElement.classList.contains('vault-shell-embedded')
+                            && getComputedStyle(root).display === 'grid'
+                            && overviewStyle.gridColumnStart === expectedColumn
+                            && overviewStyle.gridRowStart === '1'
+                            && overviewStyle.position === 'relative'
+                            && toolbarStyle.gridColumnStart === expectedColumn
+                            && toolbarStyle.gridRowStart === '2'
+                            && toolbarStyle.position === 'relative';
+                        if (!fixedGridReady) {
                             delete window.__assetManagerFixedRowsProbe;
                             return false;
                         }
@@ -272,27 +280,37 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
                         const stableSince = stable ? previous.stableSince : now;
                         window.__assetManagerFixedRowsProbe = {boardId, positions, stableSince};
                         if (now - stableSince < 200) return false;
-                        return positions.every((position, index) =>
-                            Math.abs(position.x - expected[index].x) <= 1
-                            && Math.abs(position.y - expected[index].y) <= 1
-                        );
+                        return positions;
                     }""",
-                    arg={"expected": expected, "boardId": board_id},
-                    timeout=10000,
+                    arg={"boardId": board_id, "expectedColumn": expected_column},
+                    timeout=5000,
                 )
+                return stable_rows.json_value()
             except PlaywrightTimeout as exc:
                 layout = vault.locator("#assetManagerRoot").evaluate("""root => ({
+                    htmlClass:document.documentElement.className,
                     className:root.className,
+                    rootRect:root.getBoundingClientRect().toJSON(),
                     columns:getComputedStyle(root).gridTemplateColumns,
                     rows:[...root.querySelectorAll(':scope > .registry-overview-shell, :scope > .registry-toolbar')]
-                        .map(element => ({className:element.className,rect:element.getBoundingClientRect().toJSON()}))
+                        .map(element => ({
+                            className:element.className,
+                            rect:element.getBoundingClientRect().toJSON(),
+                            gridColumn:getComputedStyle(element).gridColumn,
+                            gridRow:getComputedStyle(element).gridRow,
+                            position:getComputedStyle(element).position
+                        }))
                 })""")
-                raise AssertionError(f"{viewport}切换 {board_id} 后固定栏渲染稳定时与基准位置不符：{layout}") from exc
+                raise AssertionError(f"{viewport}切换 {board_id} 后固定栏 5 秒内未稳定：{layout}") from exc
             finally:
                 frame.evaluate("delete window.__assetManagerFixedRowsProbe")
 
-        overview_stats_box = position(vault.locator("#assetManagerRoot > .registry-overview-shell"))
-        overview_toolbar_box = position(overview_toolbar)
+        def assert_fixed_rows_equal(actual, expected, context: str) -> None:
+            assert actual == expected, f"{context}固定栏坐标变化：expected={expected}, actual={actual}"
+        overview_root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
+        overview_board = "library" if "asset-manager-root-library" in overview_root_class else "registry"
+        overview_fixed_rows = sample_fixed_rows(overview_board, "桌面基准")
+
         library_board = frame.evaluate("""() => {
             const state = JSON.parse(localStorage.getItem('asset_board_navigation_v1') || '{}');
             return (state.customBoards || []).find(board => board.name === 'DIR-T1 中文素材库') || null;
@@ -303,7 +321,8 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
         expect(vault.locator(".registry-toolbar")).to_be_visible()
         expect(vault.locator("#assetManagerRoot")).to_have_class(re.compile("asset-manager-root-library"))
         assert page.url == overview_url, "切换资源库不应导航离开当前页面"
-        wait_for_fixed_rows((overview_stats_box, overview_toolbar_box), "library", "桌面自定义库")
+        library_fixed_rows = sample_fixed_rows("library", "桌面自定义库")
+        assert_fixed_rows_equal(library_fixed_rows, overview_fixed_rows, "桌面自定义库")
         vault.locator("[data-registry-card]").filter(has_text="浏览器素材-甲.txt").wait_for(timeout=15000)
         collapsed_layout = vault.locator("#assetManagerRoot").evaluate("""root => {
             const content = root.querySelector('.registry-content').getBoundingClientRect();
@@ -330,23 +349,28 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
         fixed_toolbar = vault.locator("#assetManagerRoot > .registry-toolbar")
         expect(fixed_stats).to_be_visible()
         expect(fixed_toolbar).to_be_visible()
-        reference_boxes = (position(fixed_stats), position(fixed_toolbar))
+        filtered_reference_boxes = sample_fixed_rows("registry", "桌面项目筛选")
+        _click_asset_tree_board(vault, "registry")
+        reference_boxes = sample_fixed_rows("registry", "桌面 registry 基准")
+        assert_fixed_rows_equal(reference_boxes, filtered_reference_boxes, "桌面 registry 清除筛选")
         for board_id in ("registry", "assets", "scripts", "prompts", "canvas-assets", "local"):
             _click_asset_tree_board(vault, board_id)
             expect(vault.locator("#assetManagerRoot")).to_have_class(re.compile(f"asset-manager-root-page-{board_id}"))
             expect(fixed_stats).to_be_visible()
             expect(fixed_toolbar).to_be_visible()
             assert page.url == fixed_url, f"切换 {board_id} 不应导航离开当前页面"
-            wait_for_fixed_rows(reference_boxes, board_id, "桌面")
+            board_fixed_rows = sample_fixed_rows(board_id, "桌面")
+            assert_fixed_rows_equal(board_fixed_rows, reference_boxes, f"桌面切换 {board_id}")
         for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
             _click_asset_tree_board(vault, board_id, force_project_toggle=board_id == "projects")
             assert page.url == fixed_url, f"打开 {route_name} 不应导航离开当前页面"
-            wait_for_fixed_rows(reference_boxes, "registry", f"桌面{route_name}")
+            board_fixed_rows = sample_fixed_rows("registry", f"桌面{route_name}")
+            assert_fixed_rows_equal(board_fixed_rows, reference_boxes, f"桌面打开 {route_name}")
         page.set_viewport_size({"width": 500, "height": 900})
         _click_asset_tree_board(vault, "registry")
         expect(fixed_stats).to_be_visible()
         expect(fixed_toolbar).to_be_visible()
-        narrow_reference = (position(fixed_stats), position(fixed_toolbar))
+        narrow_reference = sample_fixed_rows("registry", "窄屏基准")
         for board_id in ("assets", "scripts", "prompts", "canvas-assets", "local"):
             _click_asset_tree_board(vault, board_id)
             expect(fixed_stats).to_be_visible()
@@ -354,10 +378,12 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
             assert page.url == fixed_url, f"窄屏切换 {board_id} 不应导航离开当前页面"
             expect(vault.locator("#assetManagerRoot")).to_have_class(re.compile(f"asset-manager-root-page-{board_id}"))
             expect(vault.locator(".asset-tree-panel")).to_be_visible()
-            wait_for_fixed_rows(narrow_reference, board_id, "窄屏")
+            board_fixed_rows = sample_fixed_rows(board_id, "窄屏")
+            assert_fixed_rows_equal(board_fixed_rows, narrow_reference, f"窄屏切换 {board_id}")
         for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
             _click_asset_tree_board(vault, board_id, force_project_toggle=board_id == "projects")
             assert page.url == fixed_url, f"窄屏打开 {route_name} 不应导航离开当前页面"
-            wait_for_fixed_rows(narrow_reference, "registry", f"窄屏{route_name}")
+            board_fixed_rows = sample_fixed_rows("registry", f"窄屏{route_name}")
+            assert_fixed_rows_equal(board_fixed_rows, narrow_reference, f"窄屏打开 {route_name}")
         assert bad_asset_responses == []
         assert errors == []

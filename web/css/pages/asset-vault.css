@@ -346,8 +346,9 @@ body.gw-signal.gw-page--asset-manager .asset-page::before {
 body.gw-signal.gw-page--asset-manager #assetManagerRoot:not(.asset-manager-root-registry) {
     grid-template-columns: minmax(224px, 18vw) minmax(0, 1fr) minmax(280px, 320px);
     gap: 0;
-    border-top: 1px solid var(--vault-line-soft) !important;
+    border-top: 0 !important;
     border-bottom: 1px solid var(--vault-line-soft) !important;
+    box-shadow: inset 0 1px var(--vault-line-soft) !important;
     background: var(--vault-inset) !important;
 }
 body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-library {
