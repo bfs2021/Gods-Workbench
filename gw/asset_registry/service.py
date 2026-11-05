@@ -65,7 +65,7 @@ _PROVENANCE_SIDECAR_DIR = "provenance"
 # asset_id 参与 sidecar 文件名，必须排除路径分隔符与遍历写法。
 _SAFE_ASSET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-_STRUCTURED_KINDS = {"image", "video", "audio", "document", "model", "font", "other"}
+_STRUCTURED_KINDS = {"image", "video", "audio", "document", "model", "font", "lut", "other"}
 _STRUCTURED_FILTER_FIELDS = {"kind", "project_id", "tag_id", "created_at", "status"}
 _STRUCTURED_SORTS = {"newest", "oldest", "name", "asset_id"}
 _STRUCTURED_INCLUDES = {"facets", "preview"}

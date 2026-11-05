@@ -1355,6 +1355,19 @@ class IndexJobs:
                                 "%Y-%m-%dT%H:%M:%SZ", time.gmtime(info.st_mtime)
                             ),
                         }
+                        if path.suffix.lower() == ".cube":
+                            from gw.asset_registry.lut_cube import (
+                                LutCubeError,
+                                parse_lut_cube_file,
+                            )
+
+                            try:
+                                item["kind"] = "lut"
+                                item["metadata"] = {
+                                    "lut": parse_lut_cube_file(path)
+                                }
+                            except LutCubeError as exc:
+                                _error(422, exc.code, str(exc))
                         if path.suffix.lower() in VIDEO_SUFFIXES:
                             video_metadata, duration = _video_index_data(path)
                             item["metadata"] = video_metadata
@@ -1449,6 +1462,7 @@ class IndexJobs:
                     existing = known.get(identity)
                     if existing is not None:
                         changed = False
+                        was_lut = existing.get("kind") == "lut"
                         for field in (
                             "storage_root_id",
                             "canonical_relpath",
@@ -1456,10 +1470,14 @@ class IndexJobs:
                             "size_bytes",
                             "sha256",
                             "modified_at",
+                            "kind",
                         ):
                             if field in item and existing.get(field) != item[field]:
                                 existing[field] = item.get(field)
                                 changed = True
+                        if was_lut and "kind" not in item:
+                            existing["kind"] = "indexed"
+                            changed = True
                         if "metadata" in item:
                             current_metadata = existing.get("metadata")
                             if not isinstance(current_metadata, dict):
@@ -1479,6 +1497,18 @@ class IndexJobs:
                                             field
                                         )
                                         changed = True
+                            if "lut" in scanned_metadata:
+                                if current_metadata.get("lut") != scanned_metadata["lut"]:
+                                    current_metadata["lut"] = scanned_metadata["lut"]
+                                    changed = True
+                            elif was_lut and "lut" in current_metadata:
+                                current_metadata.pop("lut")
+                                changed = True
+                        elif was_lut:
+                            current_metadata = existing.get("metadata")
+                            if isinstance(current_metadata, dict) and "lut" in current_metadata:
+                                current_metadata.pop("lut")
+                                changed = True
                         if "duration" in item and existing.get("duration") != item[
                             "duration"
                         ]:
@@ -1493,11 +1523,16 @@ class IndexJobs:
                         continue
                     asset_id = f"ast_{next_asset_number:04d}"
                     next_asset_number += 1
+                    asset_kind = item.get("kind", "indexed")
                     record = repo._plain_asset(
                         asset_id,
                         item["name"],
-                        "indexed",
-                        **{k: v for k, v in item.items() if k != "name"},
+                        asset_kind,
+                        **{
+                            k: v
+                            for k, v in item.items()
+                            if k not in {"name", "kind"}
+                        },
                     )
                     raw["assets"][asset_id] = record
                     known[identity] = record
