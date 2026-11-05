@@ -13043,8 +13043,8 @@ async function renameLocalUploadFolder(){
     const name = window.prompt('重命名文件夹', current);
     if(!String(name || '').trim() || name === current) return;
     try {
-        const currentFolderName = String(activeLocalUploadFolder).replace(/\\/g, '/').split('/').filter(Boolean).pop() || activeLocalUploadFolder;
-        const data = await apiJsonResponse(assetManagerApi.updateLocalAssetFolder({kind:activeLocalLibraryKind(), name:currentFolderName, new_name:name}));
+        const currentFolderPath = String(activeLocalUploadFolder).replace(/\\/g, '/');
+        const data = await apiJsonResponse(assetManagerApi.updateLocalAssetFolder({kind:activeLocalLibraryKind(), root_path:activeLocalLibraryPath(), name:currentFolderPath, new_name:name}));
         localAssets = Array.isArray(data.items) ? data.items : localAssets;
         localUploadTree = data.tree || localUploadTree;
         activeLocalUploadFolder = data.folder?.path || activeLocalUploadFolder;

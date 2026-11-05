@@ -254,12 +254,24 @@ async def update_local_asset_folder(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """重命名数据目录内的真实文件夹。"""
+    """重命名数据目录或素材来源内的真实文件夹并返回当前目录树。"""
     _write(authorization, x_user_role)
     payload = await _body(request)
-    return repo.rename_local_folder(
-        str(payload.get("name") or ""), str(payload.get("new_name") or "")
+    kind = str(payload.get("kind") or "").strip() or None
+    result = repo.rename_local_folder(
+        str(payload.get("name") or ""),
+        str(payload.get("new_name") or ""),
+        root_path=str(payload.get("root_path") or "").strip() or None,
     )
+    items = _all_local_asset_items(kind)
+    result.update(
+        {
+            "items": items,
+            "tree": _local_asset_tree(items),
+            "folder": {"path": str(result.get("to") or "")},
+        }
+    )
+    return result
 
 
 @router.post("/api/local-assets/classify", status_code=status.HTTP_200_OK)

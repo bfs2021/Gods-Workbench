@@ -44,7 +44,9 @@ test('AC2 页面从列表响应读取并渲染目录树', () => {
 
 test('AC3 文件夹改名发送后端接收的旧名与新名字段', () => {
     const source = functionSource('renameLocalUploadFolder');
-    assert.match(source, /name:\s*currentFolderName/);
+    assert.match(source, /root_path:\s*activeLocalLibraryPath\(\)/);
+    assert.match(source, /name:\s*currentFolderPath/);
+    assert.match(source, /currentFolderPath\s*=\s*String\(activeLocalUploadFolder\)/);
     assert.match(source, /new_name:\s*name/);
     assert.match(source, /updateLocalAssetFolder\(/);
 });

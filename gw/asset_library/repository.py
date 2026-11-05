@@ -1308,7 +1308,188 @@ def create_local_folder(name: str) -> dict[str, Any]:
     return {"name": clean, "display_path": "local_assets/" + clean, "created": True}
 
 
-def rename_local_folder(name: str, new_name: str) -> dict[str, Any]:
+def _rename_source_local_folder(
+    name: str, new_name: str, root_path: str
+) -> dict[str, Any]:
+    """在指定素材来源根内重命名目录，并同步其全部索引后代。"""
+    if not Path(root_path).expanduser().is_absolute():
+        raise CleanroomException(400, "INVALID_PATH", "素材来源目录必须是绝对路径")
+    source_root = storage.resolve_request_path(root_path)
+    if not source_root.is_dir():
+        raise CleanroomException(404, "FOLDER_NOT_FOUND", "素材来源目录不存在")
+
+    requested = str(name or "").strip().replace("\\", "/")
+    canonical_requested = storage.canonical_relpath(requested)
+    clean = _safe_name(new_name, what="新文件夹名称")
+    root_id, _ = storage.location_identity(source_root)
+    source_prefix = storage.relative_display(source_root).replace("\\", "/")
+    if source_prefix == ".":
+        source_prefix = ""
+    canonical_prefix = (
+        storage.canonical_relpath(source_prefix) if source_prefix else ""
+    )
+
+    # 目录树路径通常相对允许根；调用方也可传相对素材来源根的路径。
+    if canonical_prefix and (
+        canonical_requested == canonical_prefix
+        or canonical_requested.startswith(canonical_prefix + "/")
+    ):
+        src = storage.resolve_request_path(requested, root_id=root_id)
+    else:
+        relative_parts = requested.split("/")
+        src = storage.resolve_request_path(
+            str(source_root.joinpath(*relative_parts)), root_id=root_id
+        )
+
+    try:
+        src.relative_to(source_root)
+    except ValueError:
+        raise CleanroomException(400, "INVALID_PATH", "目录必须位于素材来源内") from None
+    if src == source_root or not src.is_dir():
+        raise CleanroomException(404, "FOLDER_NOT_FOUND", "文件夹不存在")
+
+    dst = src.with_name(clean)
+    if dst.exists():
+        raise CleanroomException(409, "TARGET_EXISTS", "目标文件夹已存在")
+    source_key = storage.relative_display(src)
+    target_key = storage.relative_display(dst)
+    source_canonical = storage.canonical_relpath(source_key)
+    target_canonical = storage.canonical_relpath(target_key)
+    source_root_identity = _local_root_identity(src)
+    state = _local_state()
+    known_root_ids = {
+        storage.root_identity_id(root) for root in storage.allowed_roots()
+    }
+    root_identity_cache: dict[str, str | None] = {
+        root_id: root_id,
+        source_root_identity: root_id,
+    }
+
+    def belongs_to_root(entry: dict[str, Any]) -> bool:
+        recorded_root = entry.get("_root_identity") or entry.get("root_id")
+        if recorded_root is None or not str(recorded_root).strip():
+            return len(known_root_ids) == 1 and root_id in known_root_ids
+        value = str(recorded_root).strip()
+        if value not in root_identity_cache:
+            root_identity_cache[value] = storage.coerce_root_id(value)
+        entry_root_id = root_identity_cache[value]
+        return entry_root_id == root_id
+
+    def canonical_entry_path(entry: dict[str, Any]) -> str | None:
+        recorded_path = entry.get("canonical_relpath") or entry.get("display_path")
+        if not recorded_path:
+            return None
+        try:
+            return storage.canonical_relpath(str(recorded_path))
+        except CleanroomException:
+            return None
+
+    def belongs_to_source(entry: dict[str, Any]) -> bool:
+        if not belongs_to_root(entry):
+            return False
+        canonical_path = canonical_entry_path(entry)
+        return bool(canonical_path and canonical_path.startswith(source_canonical + "/"))
+
+    before = state.read().get("entries", {})
+    moving_keys = {key for key, entry in before.items() if belongs_to_source(entry)}
+    target_prefix = target_canonical + "/"
+    for key, entry in before.items():
+        if key in moving_keys or not belongs_to_root(entry):
+            continue
+        canonical_path = canonical_entry_path(entry)
+        if canonical_path is None:
+            continue
+        if canonical_path == target_canonical or canonical_path.startswith(target_prefix):
+            raise CleanroomException(
+                409, "LOCAL_ASSET_INDEX_TARGET_CONFLICT", "目标路径已有索引记录"
+            )
+
+    src.replace(dst)
+    try:
+
+        def move_folder_index(raw: dict[str, Any]) -> int:
+            entries = raw.setdefault("entries", {})
+            current_moving = {
+                key: entry
+                for key, entry in entries.items()
+                if belongs_to_source(entry)
+            }
+            moving_source_keys = set(current_moving)
+            for key, entry in entries.items():
+                if key in moving_source_keys or not belongs_to_root(entry):
+                    continue
+                canonical_path = canonical_entry_path(entry)
+                if canonical_path and (
+                    canonical_path == target_canonical
+                    or canonical_path.startswith(target_prefix)
+                ):
+                    raise CleanroomException(
+                        409, "LOCAL_ASSET_INDEX_TARGET_CONFLICT", "目标路径已有索引记录"
+                    )
+            updated: list[tuple[str, str, dict[str, Any]]] = []
+            for key, entry in current_moving.items():
+                old_path = str(entry.get("display_path") or "").replace("\\", "/")
+                suffix = old_path[len(source_key) :]
+                new_path = target_key + suffix
+                new_key = _local_entry_key(source_root_identity, new_path)
+                if new_key in entries and new_key not in moving_source_keys:
+                    raise CleanroomException(
+                        409, "LOCAL_ASSET_INDEX_TARGET_CONFLICT", "目标路径已有索引记录"
+                    )
+                updated.append((key, new_key, entry))
+
+            for old_key, _new_key, _entry in updated:
+                entries.pop(old_key, None)
+            for _old_key, new_key, entry in updated:
+                old_path = str(entry.get("display_path") or "").replace("\\", "/")
+                suffix = old_path[len(source_key) :]
+                new_path = target_key + suffix
+                entry.update(
+                    {
+                        "display_path": new_path,
+                        "canonical_relpath": storage.canonical_relpath(new_path),
+                        "_root_identity": source_root_identity,
+                        "root_id": source_root_identity,
+                        "moved_at": storage.now_iso(),
+                    }
+                )
+                entries[new_key] = entry
+            return len(updated)
+
+        moved_count = state.mutate(move_folder_index)
+    except Exception as exc:
+        try:
+            dst.replace(src)
+        except OSError:
+            raise CleanroomException(
+                500,
+                "LOCAL_ASSET_FOLDER_PARTIAL_FAILURE",
+                "文件夹已移动，但索引更新与磁盘回滚均失败",
+                extra={"from": source_key, "to": target_key},
+                expose_extra_fields={"from", "to"},
+            ) from exc
+        if isinstance(exc, CleanroomException):
+            raise
+        raise CleanroomException(
+            500,
+            "LOCAL_ASSET_INDEX_UPDATE_FAILED",
+            "索引更新失败；文件夹已回滚到原路径",
+        ) from exc
+
+    return {
+        "from": source_key,
+        "to": target_key,
+        "renamed": True,
+        "moved_count": moved_count,
+    }
+
+
+def rename_local_folder(
+    name: str, new_name: str, *, root_path: str | None = None
+) -> dict[str, Any]:
+    if root_path:
+        with _LOCAL_ASSET_DOMAIN_LOCK:
+            return _rename_source_local_folder(name, new_name, root_path)
     src = _local_dir() / _safe_name(name, what="文件夹名称")
     clean = _safe_name(new_name, what="新文件夹名称")
     if not src.is_dir():

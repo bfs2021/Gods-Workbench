@@ -84,3 +84,72 @@ def test_local_asset_folder_rename_uses_server_request_fields(local_assets_runti
     assert renamed.json()["renamed"] is True
     assert not (data_dir / "local_assets" / "before").exists()
     assert (data_dir / "local_assets" / "after").is_dir()
+
+
+def test_uploaded_source_folder_rename_updates_items_and_tree(local_assets_runtime):
+    root, _data_dir = local_assets_runtime
+    with _client() as client:
+        uploaded = client.post(
+            "/api/local-assets/upload",
+            headers=AUTH,
+            data={"path": str(root), "folder": "incoming", "kind": "local"},
+            files=[("files", ("sample.png", b"sample", "image/png"))],
+        )
+        renamed = client.patch(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={
+                "kind": "local",
+                "root_path": str(root),
+                "name": "incoming",
+                "new_name": "renamed",
+            },
+        )
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert renamed.status_code == 200, renamed.text
+    assert (root / "renamed" / "sample.png").is_file()
+    assert not (root / "incoming").exists()
+    payload = renamed.json()
+    assert payload["renamed"] is True
+    assert payload["folder"]["path"] == "renamed"
+    assert any(item["display_path"] == "renamed/sample.png" for item in payload["items"])
+    assert payload["tree"]["children"][0]["path"] == "renamed"
+
+
+def test_uploaded_nested_folder_rename_keeps_source_relative_parent(local_assets_runtime):
+    root, _data_dir = local_assets_runtime
+    with _client() as client:
+        uploaded = client.post(
+            "/api/local-assets/upload",
+            headers=AUTH,
+            data={
+                "path": str(root),
+                "folder": "incoming/characters/lead",
+                "kind": "local",
+            },
+            files=[("files", ("portrait.png", b"portrait", "image/png"))],
+        )
+        renamed = client.patch(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={
+                "kind": "local",
+                "root_path": str(root),
+                "name": "incoming/characters",
+                "new_name": "cast",
+            },
+        )
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert renamed.status_code == 200, renamed.text
+    assert (root / "incoming" / "cast" / "lead" / "portrait.png").is_file()
+    payload = renamed.json()
+    assert payload["folder"]["path"] == "incoming/cast"
+    assert any(
+        item["display_path"] == "incoming/cast/lead/portrait.png"
+        for item in payload["items"]
+    )
+    incoming = payload["tree"]["children"][0]
+    assert incoming["path"] == "incoming"
+    assert incoming["children"][0]["path"] == "incoming/cast"
