@@ -143,6 +143,17 @@ def _visible(record: Dict[str, Any]) -> bool:
     return asset_visible(record)
 
 
+def _is_builtin_record(record: Dict[str, Any]) -> bool:
+    """QIN-553：内置分发资产（QIN-553 内置 LUT 包以 metadata.builtin=True 标记）。"""
+    metadata = record.get("metadata")
+    return isinstance(metadata, dict) and metadata.get("builtin") is True
+
+
+def _hidden_builtin(record: Dict[str, Any]) -> bool:
+    """QIN-553：用户已隐藏的内置条目——从列表/统计/预热/收件箱全部读路径剔除。"""
+    return _is_builtin_record(record) and bool(record.get("hidden"))
+
+
 def _removed_root_ids() -> set[str]:
     removed: set[str] = set()
     try:
@@ -651,10 +662,19 @@ def update_asset(asset_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     def mutate(raw: Dict[str, Any]) -> Any:
         item = _require(raw, asset_id)
         _cas(raw, payload.get("expected_version"))
+        builtin = _is_builtin_record(item)
+        if "hidden" in payload and payload["hidden"] is not None:
+            if not builtin:
+                raise CleanroomException(400, "INVALID_REQUEST",
+                                         "仅内置资产支持隐藏开关")
+            item["hidden"] = bool(payload["hidden"])
         if payload.get("name"):
             item["name"] = str(payload["name"]).strip()
         for key in ("kind", "display_path", "archived"):
             if key in payload and payload[key] is not None:
+                if builtin:
+                    raise CleanroomException(403, "BUILTIN_ASSET_PROTECTED",
+                                             "内置资产不允许改类型、路径或归档，隐藏请用 hidden 开关")
                 item[key] = payload[key]
         if "tags" in payload and isinstance(payload["tags"], list):
             item["tags"] = payload["tags"]
@@ -726,6 +746,9 @@ def archive_assets(asset_ids: List[str], expected_version: Optional[int]) -> Dic
             if item is None:
                 continue
             item = _require(raw, asset_id)
+            if _is_builtin_record(item):
+                raise CleanroomException(403, "BUILTIN_ASSET_PROTECTED",
+                                         "内置资产不允许归档，请使用隐藏")
             item["archived"] = True
             item["archived_at"] = storage.now_iso()
             item["version"] = int(item.get("version", 1)) + 1
@@ -753,6 +776,9 @@ def delete_asset(asset_id: str, expected_version: Optional[int], context=None) -
     from gw.asset_library.service import default_asset_library_service
     snapshot = state().read()
     _require(snapshot, asset_id)
+    if _is_builtin_record(snapshot["assets"][asset_id]):
+        raise CleanroomException(403, "BUILTIN_ASSET_PROTECTED",
+                                 "内置资产不可移入回收站，可在卡片上选择隐藏")
     _cas(snapshot, expected_version, required=True)
     library_item = default_asset_library_service.remove_item_snapshot(asset_id)
     try:
@@ -1064,7 +1090,8 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
     removed_ids = set() if include_removed else _removed_root_ids()
     items = [
         dict(a) for a in raw["assets"].values()
-        if asset_visible(a) and (include_removed or not _is_removed_asset(a, removed_ids))
+        if asset_visible(a) and not _hidden_builtin(a)
+        and (include_removed or not _is_removed_asset(a, removed_ids))
     ]
     root_facets = []
     if root_id or any(
@@ -1108,6 +1135,11 @@ def list_assets(limit: int, offset: int, query: Optional[str], kind: Optional[st
         visible_sources = set(board_scope["visible"])
         known_sources = set(board_scope["known"])
         def belongs_to_board(asset: Dict[str, Any]) -> bool:
+            # QIN-553：内置分发资产无用户来源根，放行到看板后由前端
+            # customAssetLibraryBaseItems 按 kinds/extensions 收敛，只在
+            # 匹配类型的看板（如 LUT 库）显示，不混入其他看板。
+            if _is_builtin_record(asset):
+                return True
             source = str(asset.get("storage_root_id") or "")
             if board_scope["automatic_only"]:
                 return bool(visible_sources and board_scope["automatic"] and source not in known_sources)
@@ -1588,7 +1620,8 @@ def _list_structured_assets(
     items = [
         dict(asset)
         for asset in raw["assets"].values()
-        if asset_visible(asset) and (include_removed or not _is_removed_asset(asset, removed_ids))
+        if asset_visible(asset) and not _hidden_builtin(asset)
+        and (include_removed or not _is_removed_asset(asset, removed_ids))
     ]
     needle = normalized["text"].casefold()
     if needle:
@@ -1778,7 +1811,8 @@ def list_unassigned_assets(owner_key: str, limit: int = 100, offset: int = 0, *,
 
     removed_ids = _removed_root_ids()
     items = [_annotate_inbox_asset(dict(a)) for a in raw["assets"].values()
-             if _visible(a) and not _is_removed_asset(a, removed_ids) and asset_is_unassigned(a) and inbox_member(a)]
+             if _visible(a) and not _is_builtin_record(a)
+             and not _is_removed_asset(a, removed_ids) and asset_is_unassigned(a) and inbox_member(a)]
     items.sort(key=lambda a: a["asset_id"])
     total = len(items)
     page = items[offset:offset + limit]
@@ -1870,7 +1904,8 @@ def facets() -> Dict[str, Any]:
     removed_ids = _removed_root_ids()
     assets = [
         a for a in raw["assets"].values()
-        if asset_visible(a) and not _is_removed_asset(a, removed_ids)
+        if asset_visible(a) and not _hidden_builtin(a)
+        and not _is_removed_asset(a, removed_ids)
     ]
     kinds = Counter(_asset_category(asset) for asset in assets)
     categories = Counter(_asset_category(asset) for asset in assets)
@@ -1901,7 +1936,8 @@ def preview_asset_ids() -> List[str]:
     for asset_id, record in sorted(raw["assets"].items()):
         if record.get("archived"):
             continue
-        if not asset_visible(record) or _is_removed_asset(record, removed_ids):
+        if not asset_visible(record) or _hidden_builtin(record) \
+                or _is_removed_asset(record, removed_ids):
             continue
         asset_ids.append(str(asset_id))
     return asset_ids
@@ -3384,7 +3420,7 @@ def preview_asset_paths() -> Dict[str, Path]:
     for asset_id, record in sorted(raw["assets"].items()):
         if record.get("archived"):
             continue
-        if not asset_visible(record) or _is_removed_asset(record, removed_ids):
+        if not asset_visible(record) or _hidden_builtin(record) or _is_removed_asset(record, removed_ids):
             continue
         try:
             path = _media_file_in_state(raw, str(asset_id))

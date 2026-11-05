@@ -218,6 +218,11 @@ def rename_file(asset_id: str, payload: dict[str, Any], actor: Any) -> dict[str,
     """同步执行单文件重命名，先落 pending 日志，成功后更新登记与索引。"""
     from gw.asset_registry import repository as repo
 
+    # QIN-553：内置分发资产的源文件不可物理重命名（用户不可删/改源文件）。
+    if repo._is_builtin_record(repo.state().read()["assets"].get(asset_id) or {}):
+        raise CleanroomException(403, "BUILTIN_ASSET_PROTECTED",
+                                 "内置资产的源文件不允许重命名")
+
     expected = payload.get("expected_version")
     if type(expected) is not int or expected < 1:
         raise CleanroomException(

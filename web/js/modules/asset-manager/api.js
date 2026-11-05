@@ -709,6 +709,14 @@ export function createAssetManagerApi(http) {
                 credentials: 'same-origin',
             });
         },
+        ensureBuiltinLuts(reveal = false, init = {}) {
+            const suffix = reveal ? '?reveal=true' : '';
+            return transport.request(`/api/asset-registry/builtin-luts/ensure${suffix}`, {
+                ...init,
+                method: 'POST',
+                credentials: 'same-origin',
+            });
+        },
         getRegistryPresets(init = {}) {
             return transport.request('/api/asset-registry/presets', {
                 ...init,

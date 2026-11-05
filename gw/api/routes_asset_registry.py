@@ -777,6 +777,20 @@ def get_registry_facets(
     return repo.facets()
 
 
+@router.post("/builtin-luts/ensure", summary="幂等登记内置 LUT 包",
+             status_code=status.HTTP_200_OK)
+def ensure_builtin_lut_assets(
+    reveal: bool = Query(False, description="true 时恢复显示已隐藏的内置 LUT"),
+    authorization: Optional[str] = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """QIN-553：把内置 LUT 登记为资产（重复调用不产生重复条目）。"""
+    _edit_auth(authorization, x_user_role)
+    from gw.asset_registry import builtin_luts
+
+    return builtin_luts.ensure_builtin_luts(reveal=reveal)
+
+
 @router.get("/folders", summary="读取素材文件夹登记", status_code=status.HTTP_200_OK)
 def get_registry_folders(
     root_id: Optional[str] = Query(None),

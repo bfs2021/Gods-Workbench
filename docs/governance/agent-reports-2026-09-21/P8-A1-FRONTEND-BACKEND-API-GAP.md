@@ -19,3 +19,18 @@ QIN-514 在资产设置中接入旧 JPEG 无损转码工具。前端调用与后
 - 本地单独复跑确认是基线未更新，不是运行时或时序偶发。
 - 基线更新后的窄测：`python -m pytest tests/contracts/projects/test_phase8_frontend_backend_api_gap.py -v`，7 passed。
 - 完整 CI 将随 QIN-514 更新提交重新运行；本报告记录基线变更，不提前宣称全量门禁通过。
+
+## 2026-11-05：QIN-553 / GitHub #618
+
+QIN-553 新增预置 LUT 包的幂等登记能力。后端实现与前端 LUT 库入口各新增以下路径，已同步加入 `tests/contracts/projects/test_phase8_frontend_backend_api_gap.py` 的 `KNOWN_IMPLEMENTED` 与 `KNOWN_BACKEND_PATHS`：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/api/asset-registry/builtin-luts/ensure` | 首次进入 LUT 库时幂等登记内置 LUT 资产（重复调用不重复登记，支持隐藏条目恢复显示） |
+
+该路径是本票有意新增的已实现接口，不属于未实现路径集合。其余基线不变。
+
+### 验证
+
+- 本地首跑守卫在两个集合断言中发现上述新增路径未登记；登记后 `python -m pytest tests/contracts/projects/test_phase8_frontend_backend_api_gap.py -v`，7 passed。
+- 完整 CI 将随 QIN-553 提交重新运行；本报告记录基线变更，不提前宣称全量门禁通过。

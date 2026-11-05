@@ -84,6 +84,7 @@ tests/frontend/qin-544-asset-tree-panel.test.mjs
 tests/frontend/qin-548-local-assets-contract.test.mjs
 tests/frontend/qin-550-registry-upload-preview.mjs
 tests/frontend/qin-552-lut-library.test.mjs
+tests/frontend/qin-553-builtin-luts.test.mjs
 tests/frontend/qin-559-asset-keyboard.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs

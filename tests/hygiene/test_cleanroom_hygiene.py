@@ -1240,6 +1240,42 @@ def test_qin_552_lut_library_files_are_registered(repo_root: Path):
     }
 
 
+def test_qin_553_builtin_lut_pack_files_are_registered(repo_root: Path):
+    """QIN-553 内置 LUT 包（登记、隐藏守卫、窄测与数据文件）按本票分片登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 618
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #618 (QIN-553), 2026-11-05"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "gw/api/routes_asset_registry.py",
+        "gw/asset_registry/builtin_luts.py",
+        "gw/asset_registry/lifecycle.py",
+        "gw/asset_registry/repository.py",
+        "web/js/modules/asset-manager.js",
+        "web/js/modules/asset-manager/api.js",
+        "web/vendor/luts/README.md",
+        "web/vendor/luts/builtin_lut_cinematic.cube",
+        "web/vendor/luts/builtin_lut_cool.cube",
+        "web/vendor/luts/builtin_lut_high_contrast.cube",
+        "web/vendor/luts/builtin_lut_neutral.cube",
+        "web/vendor/luts/builtin_lut_warm.cube",
+        "tests/contracts/assets/test_qin_553_builtin_luts.py",
+        "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+        "docs/governance/agent-reports-2026-09-21/P8-A1-FRONTEND-BACKEND-API-GAP.md",
+        "tests/hygiene/fixtures/admissions/issue-537.json",
+        "tests/frontend/qin-553-builtin-luts.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-618.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }
+
+
 def test_qin_541_registry_card_info_layout_files_are_registered(repo_root: Path):
     """QIN-541 标准卡信息层级重排所涉文件按本票登记。"""
     metadata = _load_admission_metadata(repo_root)

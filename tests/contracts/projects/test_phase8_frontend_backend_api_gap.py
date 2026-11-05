@@ -251,6 +251,9 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/asset-registry/assets/{p}/video/clip",
         "/api/asset-registry/assets/{p}/video/frame",
         "/api/asset-registry/assets/{p}/video/storyboard",
+        # 2026-11-05 QIN-553（issue #618）：内置 LUT 包幂等登记端点，
+        # 前端 LUT 库入口显式调用、后端 ensure 真实实现，证据见 P8-A1 报告。
+        "/api/asset-registry/builtin-luts/ensure",
         "/api/asset-registry/facets",
         "/api/asset-registry/folders",
         "/api/asset-registry/governance/asset-trash/{p}/restore",
@@ -507,6 +510,8 @@ KNOWN_BACKEND_PATHS = frozenset(
         "/api/asset-registry/assets/{p}/video/clip",
         "/api/asset-registry/assets/{p}/video/frame",
         "/api/asset-registry/assets/{p}/video/storyboard",
+        # 2026-11-05 QIN-553（issue #618）：内置 LUT 包幂等登记端点已后端注册。
+        "/api/asset-registry/builtin-luts/ensure",
         "/api/asset-registry/facets",
         "/api/asset-registry/folders",
         "/api/asset-registry/governance/asset-trash/{p}/restore",

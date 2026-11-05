@@ -1103,6 +1103,10 @@ async function activateAssetBoard(id){
     resetBoardSelections();
     renderBoardNavigation();
     if(!board.system){
+        // 【QIN-553】进入 LUT 库（含 lut 预设看板）时幂等登记内置 LUT 包。
+        if(board.preset === 'lut' || (board.kinds || []).includes('lut')){
+            try { await ensureBuiltinLutsRegistered(); } catch(err){ setStatus(err.message || '内置 LUT 登记失败'); }
+        }
         const selectedSource = board.sourceBoard ? board.rootId : (boardSourceSelection[board.id] || '');
         applyRegistryFilterDefinition({category:board.category || '', rootId:selectedSource === '__automatic__' ? '' : selectedSource, groupSimilar:registryGroupSimilar});
         const queryKey = registryQueryString();
@@ -6656,9 +6660,42 @@ function registryCanRecycle(item={}){
         ? item.can_recycle
         : Boolean(item.storage_root_path && !item.storage_root_read_only && !item.is_remote);
 }
+// 【QIN-553】内置 LUT 包：首次进入 LUT 库幂等登记；隐藏/恢复显示经服务端守卫。
+// ensure 只做登记并同步隐藏态集合，列表刷新由调用方统一执行，避免双刷新。
+let registryBuiltinLutsEnsured = false;
+let registryBuiltinHiddenIds = new Set();
+async function ensureBuiltinLutsRegistered(options={}){
+    if(registryBuiltinLutsEnsured && !options.reveal) return null;
+    const data = await apiJsonResponse(assetManagerApi.ensureBuiltinLuts(Boolean(options.reveal)));
+    registryBuiltinLutsEnsured = true;
+    registryBuiltinHiddenIds = new Set(Array.isArray(data?.hidden) ? data.hidden : []);
+    return data;
+}
+async function toggleRegistryBuiltinHidden(assetId, hidden){
+    if(!assetId) return;
+    try {
+        await apiJsonResponse(assetManagerApi.updateRegistryAsset(assetId, {
+            hidden,
+            expected_version: requireExpectedVersion(registryStatus.revision, '资产注册表'),
+        }));
+        if(hidden) registryBuiltinHiddenIds.add(assetId);
+        else registryBuiltinHiddenIds.delete(assetId);
+        await Promise.all([refreshRegistryAssets(false), refreshRegistryFacetData()]);
+        render();
+        setStatus(hidden ? '内置 LUT 已隐藏（源文件保留）' : '内置 LUT 已恢复显示');
+    } catch(err){
+        setStatus(err.message || '内置 LUT 显示状态更新失败');
+    }
+}
 function renderRegistryRecycleButton(item={}, className=''){
     if(item.is_remote){
         return `<button class="${escapeAttr(className)} registry-card-recycle" type="button" data-registry-delete-remote="${escapeAttr(item.id || '')}" title="删除 URL 资产" aria-label="删除 ${escapeAttr(item.name || 'URL 资产')}"><i data-lucide="trash-2"></i></button>`;
+    }
+    // 【QIN-553】内置资产不可移入回收站（服务端同步 403 守卫），卡片提供隐藏开关。
+    if(item.metadata?.builtin === true || item.builtin === true){
+        const hidden = item.hidden === true;
+        const label = hidden ? '显示内置 LUT' : '隐藏内置 LUT';
+        return `<button class="${escapeAttr(className)} registry-card-recycle registry-card-builtin-hide" type="button" data-registry-builtin-hidden="${escapeAttr(item.id || '')}" data-hidden-state="${hidden ? '1' : '0'}" title="${label}" aria-label="${label} ${escapeAttr(item.name || '内置素材')}"><i data-lucide="${hidden ? 'eye' : 'eye-off'}"></i></button>`;
     }
     const disabled = !registryCanRecycle(item);
     const title = disabled ? '当前素材来源为只读，不能移入回收站' : '移入 god-recycler';
@@ -10575,6 +10612,10 @@ function renderRegistryFilterChips(){
         chips.push(`<button type="button" data-registry-clear="project">项目：${escapeHtml(proj?.name || registryProjectFilterId)} <i data-lucide="x"></i></button>`);
     }
     if(registryStatCategory) chips.push(`<button type="button" data-registry-clear="category">统计：${escapeHtml(registryCategoryLabel(registryStatCategory))} <i data-lucide="x"></i></button>`);
+    // 【QIN-553】LUT 视图存在已隐藏的内置条目时，提供一键恢复显示入口。
+    if(registryBuiltinHiddenIds.size && registryStatCategory === 'lut'){
+        chips.push(`<button type="button" data-registry-reveal-builtin>恢复显示内置 LUT（${registryBuiltinHiddenIds.size}）<i data-lucide="eye"></i></button>`);
+    }
     if(registryRecentDays) chips.push(`<button type="button" data-registry-clear="recent">最近 ${registryRecentDays} 天 <i data-lucide="x"></i></button>`);
     if(registryKind) chips.push(`<button type="button" data-registry-clear="kind">类型：${escapeHtml(registryKindLabel(registryKind))} <i data-lucide="x"></i></button>`);
     if(registryCollectionId){
@@ -13940,6 +13981,10 @@ async function handleClick(event){
             return;
         }
         applyRegistryFilterDefinition({category, groupSimilar:registryGroupSimilar});
+        // 【QIN-553】首次打开 LUT 库统计视图时，幂等登记内置 LUT 包。
+        if(category === 'lut'){
+            try { await ensureBuiltinLutsRegistered(); } catch(err){ setStatus(err.message || '内置 LUT 登记失败'); }
+        }
         await refreshRegistryAssets();
         return;
     }
@@ -14031,6 +14076,23 @@ async function handleClick(event){
     if(registryDeleteRemote){ await deleteRegistryRemoteAsset(registryDeleteRemote.dataset.registryDeleteRemote || ''); return; }
     const registryFreshApply = target.closest?.('[data-registry-fresh-apply]');
     if(registryFreshApply){ event.stopPropagation(); await refreshRegistryAssets(); return; }
+    const registryBuiltinHidden = target.closest?.('[data-registry-builtin-hidden]');
+    if(registryBuiltinHidden){
+        event.stopPropagation();
+        await toggleRegistryBuiltinHidden(registryBuiltinHidden.dataset.registryBuiltinHidden || '',
+            registryBuiltinHidden.dataset.hiddenState !== '1');
+        return;
+    }
+    if(target.closest?.('[data-registry-reveal-builtin]')){
+        event.stopPropagation();
+        try {
+            await ensureBuiltinLutsRegistered({reveal:true});
+            await Promise.all([refreshRegistryAssets(false), refreshRegistryFacetData()]);
+            render();
+            setStatus('已恢复显示内置 LUT');
+        } catch(err){ setStatus(err.message || '恢复显示内置 LUT 失败'); }
+        return;
+    }
     const registryRecycle = target.closest?.('[data-registry-recycle]');
     if(registryRecycle){ event.stopPropagation(); await openRegistryRecycleDialog(registryRecycle.dataset.registryRecycle || ''); return; }
     const registryRecent = target.closest?.('[data-registry-recent]');

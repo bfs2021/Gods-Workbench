@@ -1,0 +1,43 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 618,
+  "authorization_basis": "GitHub Issue #618 (QIN-553), 2026-11-05",
+  "files": [
+    "gw/api/routes_asset_registry.py",
+    "gw/asset_registry/builtin_luts.py",
+    "gw/asset_registry/lifecycle.py",
+    "gw/asset_registry/repository.py",
+    "web/js/modules/asset-manager.js",
+    "web/js/modules/asset-manager/api.js",
+    "web/vendor/luts/README.md",
+    "web/vendor/luts/builtin_lut_cinematic.cube",
+    "web/vendor/luts/builtin_lut_cool.cube",
+    "web/vendor/luts/builtin_lut_high_contrast.cube",
+    "web/vendor/luts/builtin_lut_neutral.cube",
+    "web/vendor/luts/builtin_lut_warm.cube",
+    "tests/contracts/assets/test_qin_553_builtin_luts.py",
+    "tests/contracts/projects/test_phase8_frontend_backend_api_gap.py",
+    "docs/governance/agent-reports-2026-09-21/P8-A1-FRONTEND-BACKEND-API-GAP.md",
+    "tests/hygiene/fixtures/admissions/issue-537.json",
+    "tests/frontend/qin-553-builtin-luts.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-618.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/contracts/assets/test_qin_553_builtin_luts.py",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #618 (QIN-553), 2026-11-05",
+      "admission": "accepted"
+    },
+    {
+      "path": "tests/frontend/qin-553-builtin-luts.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #618 (QIN-553), 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-553 预置 5 个程序生成 Apache-2.0 内置 .cube（web/vendor/luts），首次进入 LUT 库幂等登记为 builtin 资产（数据根受管副本 + 稳定 asset_id），支持隐藏/恢复显示并守卫删除、归档与源文件重命名。"
+}
