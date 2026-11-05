@@ -85,6 +85,7 @@ tests/frontend/qin-548-local-assets-contract.test.mjs
 tests/frontend/qin-550-registry-upload-preview.mjs
 tests/frontend/qin-552-lut-library.test.mjs
 tests/frontend/qin-559-asset-keyboard.test.mjs
+tests/frontend/qin-563-registry-stat-canvas-filter.test.mjs
 tests/frontend/settings-workbench-visual.test.mjs
 tests/frontend/test_c18_omnibar_hotkeys.mjs
 tests/frontend/test_c18_video_jump.mjs
@@ -96,4 +97,3 @@ tests/frontend/workflow-auth-behavior.test.mjs
 tests/frontend/workflow-link-slots.test.mjs
 tests/frontend/workflow-remediation.test.mjs
 tests/frontend/workflow-workbench.test.mjs
-tests/frontend/qin-563-registry-stat-canvas-filter.test.mjs
