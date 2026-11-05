@@ -35,6 +35,17 @@ const WHEEL_THRESHOLD = 36;
 
 let fullscreenView = null;
 let embeddedView = null;
+const EDIT_BACKQUOTE_WINDOW_MS = 500;
+let lastEditBackquoteTap = null;
+
+function isBackquoteKey(event) {
+    return event.code === 'Backquote' || ['·', '~', '`'].includes(event.key);
+}
+
+function isBackquoteShortcut(event) {
+    return isBackquoteKey(event)
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing;
+}
 
 function asText(value, fallback = '') {
     const text = String(value == null ? '' : value).trim();
@@ -204,6 +215,12 @@ function requestEdit(view) {
         assetId: item.id,
         currentAssetId: item.id,
         asset: item.raw,
+        assets: view.items.map(value => value.raw),
+        total: view.total,
+        hasMore: view.hasMore,
+        loadMore: view.loadMore,
+        trigger: view.trigger,
+        parent: view.parent,
     });
 }
 
@@ -554,6 +571,7 @@ function destroyEmbedded({notify = true} = {}) {
 
 function handleKeydown(view, event) {
     if (event.defaultPrevented) return;
+    if (!isBackquoteShortcut(event)) lastEditBackquoteTap = null;
     if (event.key === 'ArrowLeft') {
         event.preventDefault();
         event.stopPropagation();
@@ -564,16 +582,31 @@ function handleKeydown(view, event) {
         void move(view, 1, 'keyboard', {focusCurrent: true});
     } else if (view.mode === 'fullscreen'
         && !event.ctrlKey && !event.metaKey && !event.altKey
-        && (event.key === '·' || event.key === '~' || event.key === '`' || event.code === 'Backquote')) {
-        // In the fullscreen asset browser, the middle-dot/backquote shortcut
-        // edits the focused image. Embedded rails intentionally let this key
-        // bubble so the owning editor can close or handle it.
+        && String(event.key || '').toLowerCase() === 'f') {
         event.preventDefault();
         event.stopPropagation();
-        requestEdit(view);
+        lastEditBackquoteTap = null;
+        requestFullscreenClose();
+    } else if (view.mode === 'fullscreen' && isBackquoteShortcut(event)) {
+        // Coverflow reserves Backquote for edit entry only after a deliberate
+        // double tap. Embedded rails let the owning editor handle the key.
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        const item = viewItem(view);
+        const context = `${view.source}:${view.scope}:${item?.id || ''}`;
+        const now = Date.now();
+        if (lastEditBackquoteTap?.context === context
+            && now - lastEditBackquoteTap.at <= EDIT_BACKQUOTE_WINDOW_MS) {
+            lastEditBackquoteTap = null;
+            requestEdit(view);
+        } else {
+            lastEditBackquoteTap = {at: now, context};
+        }
     } else if (event.key === 'Escape' && view.mode === 'fullscreen' && !window.FloatingDismissal) {
         event.preventDefault();
         event.stopPropagation();
+        lastEditBackquoteTap = null;
         requestFullscreenClose();
     }
 }

@@ -6096,10 +6096,52 @@ function mountDetailReferenceCanvasCoverflow(shell){
         mode:'editor', source, scope:'reference-canvas', structureId:detailViewerState.referenceCanvasStructureId || '', host:shell, assets, currentAssetId, total:assets.length,
     }}));
 }
+function detailMediaCanvasSelectedCoverflowAssets(){
+    const source = detailViewerState.source || 'registry';
+    const selectedIds = new Set(detailMediaCanvasExpandedObjectIds(detailMediaCanvasSelectionOrder()));
+    const seen = new Set();
+    return detailMediaCanvasItems().filter(item => selectedIds.has(String(item.id || ''))).map(item => {
+        const id = String(detailMediaCanvasPersistId(item,source) || item.id || '').trim();
+        const mediaKind = registryCoverflowSourceMediaKind(source,item);
+        const rawUrl = String(detailViewerUrl(source,item) || item.public_url || item.url || item.mediaSrc || '').trim();
+        if(!id || !mediaKind || !rawUrl || seen.has(id)) return null;
+        seen.add(id);
+        const preview = assetPreviewUrl(rawUrl,512,item) || rawUrl;
+        return {...item,id,asset_id:id,kind:mediaKind,mediaKind,url:rawUrl,public_url:rawUrl,mediaSrc:rawUrl,backdropSrc:preview,src:preview,previewUrl:preview,preview_url:preview,thumbnail_url:preview};
+    }).filter(Boolean);
+}
+function openDetailMediaCanvasSelectionCoverflow(trigger=null){
+    const assets = detailMediaCanvasSelectedCoverflowAssets();
+    if(!assets.length){ setStatus('请先选择可预览的图片或视频'); return false; }
+    const source = detailViewerState.source || 'registry';
+    const activeItem = detailMediaCanvasItems().find(item => String(item.id || '') === String(detailViewerState.mediaCanvasActiveId || ''));
+    const activeId = String(detailMediaCanvasPersistId(activeItem,source) || activeItem?.id || '');
+    const currentAssetId = assets.some(item => item.id === activeId) ? activeId : assets[0].id;
+    const referenceCanvas = Boolean(detailViewerState.referenceCanvasMode);
+    window.dispatchEvent(new CustomEvent('gw:asset-coverflow-open', {detail:{
+        mode:'fullscreen',
+        source,
+        scope:referenceCanvas ? 'reference-canvas' : 'library',
+        structureId:referenceCanvas ? detailViewerState.referenceCanvasStructureId || '' : '',
+        assets,
+        currentAssetId,
+        total:assets.length,
+        trigger:trigger || document.activeElement,
+        parent:document.querySelector('.asset-detail-viewer'),
+    }}));
+    return true;
+}
 async function openRegistryCoverflowAssetInEditor(detail={}){
     const source = String(detail.source || 'registry');
     const id = String(detail.assetId || detail.currentAssetId || '').trim();
     if(!id) return;
+    const returnToCoverflow = detail.mode === 'fullscreen' ? {
+        mode:'fullscreen', source, scope:String(detail.scope || 'library'),
+        structureId:String(detail.structureId || ''), assets:Array.isArray(detail.assets) ? detail.assets : [],
+        currentAssetId:id, total:Number(detail.total || detail.assets?.length || 0),
+        hasMore:Boolean(detail.hasMore), loadMore:typeof detail.loadMore === 'function' ? detail.loadMore : null,
+        trigger:detail.trigger || null, parent:detail.parent || null,
+    } : null;
     const requestedAsset = detail.asset
         || detailReferenceCanvasCoverflowAssets().find(item => item.id === id)
         || detailMediaCanvasLibraryItems().find(item => String(detailMediaCanvasPersistId(item, source) || item.id || '') === id)
@@ -6124,21 +6166,28 @@ async function openRegistryCoverflowAssetInEditor(detail={}){
         && source === detailViewerState.source
         ? detailMediaCanvasLibraryItems().find(value => String(detailMediaCanvasPersistId(value, source) || value.id || '') === id)
         : null;
-    if(referenceCanvasItem || referenceCanvasLibraryItem){
-        const item = referenceCanvasItem || referenceCanvasLibraryItem;
-        await openDetailImageEditor(item.id, {item});
+    const hasDetailMediaCanvas = detailViewerState.open
+        && source === detailViewerState.source
+        && (detailViewerState.referenceCanvasMode || Boolean(document.querySelector('[data-detail-media-canvas-viewport]')));
+    const detailMediaCanvasItem = hasDetailMediaCanvas
+        ? detailMediaCanvasItems().find(value => String(detailMediaCanvasPersistId(value, source) || value.id || '') === id)
+        : null;
+    if(referenceCanvasItem || referenceCanvasLibraryItem || detailMediaCanvasItem){
+        const item = referenceCanvasItem || referenceCanvasLibraryItem || detailMediaCanvasItem;
+        if(detail.mode === 'fullscreen') window.dispatchEvent(new CustomEvent('gw:asset-coverflow-close', {detail:{mode:'fullscreen'}}));
+        await openDetailImageEditor(item.id, {item,returnToCoverflow});
         return;
     }
     if(detail.mode === 'fullscreen') window.dispatchEvent(new CustomEvent('gw:asset-coverflow-close', {detail:{mode:'fullscreen'}}));
-    const item = detailViewerItem(source, id) || detail.asset || requestedAsset || null;
+    const item = detailMediaCanvasItem || detailViewerItem(source, id) || detail.asset || requestedAsset || null;
     if(!item) throw new Error('未找到 Coverflow 当前图片');
     if(source === 'registry'){
         registryCoverflowCurrentAssetId = id;
         selectedRegistryAssetId = id;
         registryDetail = registryAssets.find(value => value.id === id) || item;
     }
-    showDetailPreview(source, id);
-    await openDetailImageEditor(id, {item});
+    if(!detailMediaCanvasItem) showDetailPreview(source, id);
+    await openDetailImageEditor(id, {item,returnToCoverflow});
 }
 async function switchDetailImageEditorAsset(detail={}){
     const state = detailImageEditorState;
@@ -15873,8 +15922,8 @@ function renderDetailMediaVideoControls(item={}){
         <div class="asset-detail-video-control-panel transport-bar-trough">
             <div class="asset-detail-video-controls asset-detail-video-primary-controls">
                 <button class="asset-detail-video-play hw-tactile-btn" type="button" data-detail-video-action="toggle" title="播放（Space）" aria-label="播放（Space）"><div class="hw-tactile-btn-inner hw-play-tactile-inner"><i class="asset-detail-video-icon-play" data-lucide="play"></i><i class="asset-detail-video-icon-pause" data-lucide="pause"></i></div></button>
-                <button class="hw-tactile-btn" type="button" data-detail-video-action="previous-frame" title="上一帧（D）" aria-label="上一帧（D）"><div class="hw-tactile-btn-inner"><i data-lucide="step-back"></i></div></button>
-                <button class="hw-tactile-btn" type="button" data-detail-video-action="next-frame" title="下一帧（F）" aria-label="下一帧（F）"><div class="hw-tactile-btn-inner"><i data-lucide="step-forward"></i></div></button>
+                <button class="hw-tactile-btn" type="button" data-detail-video-action="previous-frame" title="上一帧（A）" aria-label="上一帧（A）"><div class="hw-tactile-btn-inner"><i data-lucide="step-back"></i></div></button>
+                <button class="hw-tactile-btn" type="button" data-detail-video-action="next-frame" title="下一帧（D）" aria-label="下一帧（D）"><div class="hw-tactile-btn-inner"><i data-lucide="step-forward"></i></div></button>
                 <output class="asset-detail-video-time timecode-recessed" aria-live="off"><span data-detail-video-current>0:00</span><i>/</i><span data-detail-video-duration>${duration ? formatDetailVideoTime(duration) : '--:--'}</span></output>
                 <div class="asset-detail-video-progress-wrap scrubber-track">
                     <div class="scrubber-track-bar">
@@ -16312,7 +16361,7 @@ function renderDetailViewerInspectorContent(item, type, tags, rows, url, extraCo
             ${source === 'registry' && ['image','text'].includes(type) ? `<button class="hw-btn" type="button" data-detail-export-pdf="${escapeAttr(item.id || '')}" ${registryPdfBusy ? 'disabled' : ''}><i data-lucide="file-down"></i><span>导出 PDF</span></button>` : ''}
             <button class="hw-btn" type="button" data-detail-viewer-close><i data-lucide="x"></i><span>关闭详情</span></button>
         </div>
-        <div class="asset-detail-shortcuts"><span><kbd>←</kbd><kbd>→</kbd> 切换</span>${type === 'video' ? '<span><kbd>D</kbd><kbd>F</kbd> 上一帧 / 下一帧</span><span><kbd>Enter</kbd> 全屏播放</span>' : ''}${['audio','video'].includes(type) ? '<span><kbd>Space</kbd> 播放 / 暂停</span>' : ''}<span><kbd>·</kbd><kbd>Esc</kbd> 关闭 / 返回</span></div>`;
+        <div class="asset-detail-shortcuts"><span><kbd>←</kbd><kbd>→</kbd> 切换</span>${type === 'video' ? '<span><kbd>A</kbd><kbd>D</kbd> 上一帧 / 下一帧</span><span><kbd>F</kbd> 切换全屏</span><span><kbd>Enter</kbd> 全屏播放</span>' : ''}${['audio','video'].includes(type) ? '<span><kbd>Space</kbd> 播放 / 暂停</span>' : ''}<span><kbd>·</kbd><kbd>Esc</kbd> 关闭 / 返回</span></div>`;
 }
 function renderDetailInspectorHeader(){
     return `<header class="asset-detail-inspector-head">
@@ -17351,11 +17400,9 @@ async function loadDetailViewerText(){
         renderDetailViewer();
         return;
     }
-    const url = detailViewerUrl(detailViewerState.source, item);
-    const params = new URLSearchParams({limit:String(4 * 1024 * 1024)});
-    if(item.id && item.storage_root_id && !item.is_remote) params.set('asset_id', String(item.id));
-    else if(url) params.set('url', url);
-    else {
+    const params = detailViewerFileParams(detailViewerState.source, item);
+    params.set('limit', String(4 * 1024 * 1024));
+    if(!params.has('asset_id') && !params.has('url')){
         detailViewerState.textError = '该内容没有可读取的本地文件。';
         renderDetailViewer();
         return;
@@ -18405,6 +18452,22 @@ async function enterDetailVideoFullscreen(){
         return true;
     } catch(err){
         setStatus(err.message || '无法进入全屏播放');
+        return false;
+    }
+}
+async function toggleDetailVideoFullscreen(){
+    const video = detailViewerVideo();
+    if(!video) return false;
+    try {
+        if(document.fullscreenElement === video){
+            await document.exitFullscreen?.();
+            return true;
+        }
+        await video.requestFullscreen?.();
+        await video.play?.();
+        return true;
+    } catch(err){
+        setStatus(err.message || '无法切换视频全屏');
         return false;
     }
 }
@@ -19796,9 +19859,10 @@ function loadDetailImageEditorImage(url){
 }
 async function openDetailImageEditor(itemId, options={}){
     const suppliedItem = options?.item || null;
+    const returnToCoverflow = options?.returnToCoverflow || null;
     const requestedItemId = String(suppliedItem?.id || itemId || '').trim();
     if(detailImageEditorOpeningPromise && detailImageEditorOpeningItemId === requestedItemId) return detailImageEditorOpeningPromise;
-    const opening = openDetailImageEditorNow(requestedItemId, suppliedItem);
+    const opening = openDetailImageEditorNow(requestedItemId, suppliedItem, returnToCoverflow);
     detailImageEditorOpeningPromise = opening;
     detailImageEditorOpeningItemId = requestedItemId;
     try {
@@ -19810,7 +19874,7 @@ async function openDetailImageEditor(itemId, options={}){
         }
     }
 }
-async function openDetailImageEditorNow(itemId, suppliedItem=null){
+async function openDetailImageEditorNow(itemId, suppliedItem=null, returnToCoverflow=null){
     const item = suppliedItem
         || detailMediaCanvasItems().find(value => value.id === itemId)
         || detailViewerItem(detailViewerState.source, itemId);
@@ -19847,6 +19911,7 @@ async function openDetailImageEditorNow(itemId, suppliedItem=null){
         cropDraft:null,cropRatio:'free',zoom:1,panX:0,panY:0,eraserCursor:null,inlineTextId:'',lastTextClickId:'',lastTextClickAt:0,dirty:false,saving:false,pendingCanvasSave:false,
         assetVersionId:String(stored.asset_version_id || ''),assetVersionNumber:Number(stored.asset_version_number || 0),
         coverflowAssetId:item.id,
+        returnToCoverflow,
     };
     renderDetailImageEditor();
     document.body.classList.add('asset-image-editor-open');
@@ -20356,13 +20421,24 @@ async function saveDetailImageEditorAs(){
     }
     setStatus(`编辑图片已另存为：${filename}`);
 }
+function restoreDetailImageEditorCoverflow(state){
+    const detail = state?.returnToCoverflow;
+    if(!detail) return;
+    requestAnimationFrame(() => {
+        if(!detailImageEditorState){
+            window.dispatchEvent(new CustomEvent('gw:asset-coverflow-open', {detail}));
+        }
+    });
+}
 function discardDetailImageEditor(){
+    const state = detailImageEditorState;
     const restoreReferenceCanvas = detailViewerState.open && detailViewerState.referenceCanvasMode;
     document.querySelector('[data-image-editor-overlay]')?.remove();
     detailImageEditorState = null;
     detailImageEditorPointer = null;
     document.body.classList.remove('asset-image-editor-open');
     if(restoreReferenceCanvas) renderDetailViewer();
+    restoreDetailImageEditorCoverflow(state);
     setStatus('已放弃本次单图编辑修改');
 }
 async function closeDetailImageEditor({save=true}={}){
@@ -20376,6 +20452,7 @@ async function closeDetailImageEditor({save=true}={}){
         detailImageEditorPointer = null;
         document.body.classList.remove('asset-image-editor-open');
         renderDetailViewer();
+        restoreDetailImageEditorCoverflow(state);
         if(save){
             setStatus(`已保存 ${state.name} 的最新版本 V${state.assetVersionNumber || 1}，原素材未修改${state.pendingCanvasSave ? '；如需固定到参考画布，请点击更新参考画布' : ''}`);
         } else {
@@ -21805,7 +21882,96 @@ function handleDetailCinemaPointer(event){
     }
     detailCinemaClickState = {id,at:now};
 }
+const DETAIL_BACKQUOTE_DOUBLE_TAP_MS = 500;
+let lastDetailBackquoteTap = null;
+let detailPreviewBackquoteCloseTimer = 0;
+let detailImageEditorBackquoteCloseTimer = 0;
+let detailTextEditorBackquoteInput = null;
+function isBackquoteKey(event){
+    return event.code === 'Backquote' || ['·','~','`'].includes(event.key);
+}
+function isBackquoteShortcut(event){
+    return isBackquoteKey(event)
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing;
+}
+function detailBackquoteTappedTwice(event, context){
+    if(!isBackquoteShortcut(event) || event.repeat) return false;
+    const now = Date.now();
+    if(lastDetailBackquoteTap?.context === context
+        && now - lastDetailBackquoteTap.at <= DETAIL_BACKQUOTE_DOUBLE_TAP_MS){
+        lastDetailBackquoteTap = null;
+        return true;
+    }
+    lastDetailBackquoteTap = {at:now,context};
+    return false;
+}
+function detailBackquoteContext(source, id){
+    return `${String(source || '')}:${String(id || '')}`;
+}
+function detailEditableType(source, item){
+    const type = detailViewerType(source,item);
+    if(type === 'image') return true;
+    return type === 'text' && detailViewerCanEditText(source,item);
+}
+function enterCurrentDetailEditableContent(){
+    if(!detailViewerState.open) return false;
+    const item = detailViewerState.items[detailViewerState.index]
+        || detailViewerItem(detailViewerState.source,detailViewerState.id);
+    if(!item) return false;
+    const type = detailViewerType(detailViewerState.source,item);
+    if(type === 'image'){
+        openDetailImageEditor(item.id,{item}).catch(err => setStatus(err.message || '无法打开单图编辑器'));
+        return true;
+    }
+    if(type === 'text' && detailViewerCanEditText(detailViewerState.source,item)){
+        if(detailViewerState.textLoading || detailViewerState.textError || detailViewerState.textTruncated){
+            setStatus('正文尚未准备好，暂时无法编辑');
+            return false;
+        }
+        startDetailTextEdit();
+        return true;
+    }
+    return false;
+}
+function deferDetailPreviewCloseForBackquote(state){
+    clearTimeout(detailPreviewBackquoteCloseTimer);
+    detailPreviewBackquoteCloseTimer = setTimeout(() => {
+        detailPreviewBackquoteCloseTimer = 0;
+        if(detailViewerState === state && state.open) closeDetailPreview();
+    },DETAIL_BACKQUOTE_DOUBLE_TAP_MS);
+}
+function deferDetailImageEditorCloseForBackquote(state){
+    clearTimeout(detailImageEditorBackquoteCloseTimer);
+    detailImageEditorBackquoteCloseTimer = setTimeout(() => {
+        detailImageEditorBackquoteCloseTimer = 0;
+        if(detailImageEditorState === state){
+            requestCloseDetailImageEditor('关闭编辑器')
+                .catch(err => setStatus(err.message || '单图编辑关闭失败'));
+        }
+    },DETAIL_BACKQUOTE_DOUBLE_TAP_MS);
+}
+function restoreSingleBackquoteInput(editor, pending){
+    if(!editor || !pending || pending.editor !== editor) return;
+    const inserted = ['·','~','`'].includes(pending.key) ? pending.key : '';
+    const expected = pending.before.slice(0,pending.start) + inserted + pending.before.slice(pending.end);
+    if(editor.value !== expected) return;
+    editor.value = pending.before;
+    editor.setSelectionRange?.(pending.start,pending.end);
+}
+function exitDetailTextEditFromBackquote(editor, pending){
+    restoreSingleBackquoteInput(editor,pending);
+    detailTextEditorBackquoteInput = null;
+    if(String(editor?.value || '') === String(detailViewerState.text || '')){
+        cancelDetailTextEdit();
+        return;
+    }
+    saveDetailTextEdit().catch(err => setStatus(err.message || '正文保存失败'));
+}
 document.addEventListener('keydown', event => {
+    if(!isBackquoteShortcut(event)){
+        lastDetailBackquoteTap = null;
+        detailTextEditorBackquoteInput = null;
+    }
     if(event.key === 'Escape'){
         // 缓存目录切换弹窗属于最上层确认框，先于目录设置页自身状态处理。
         if(thumbnailCacheSwitchState.open){
@@ -21869,12 +22035,25 @@ document.addEventListener('keydown', event => {
             return;
         }
         if(formControl) return;
-        const editorToggleShortcut = !event.ctrlKey && !event.metaKey && !event.altKey
-            && (event.key === 'Escape' || event.code === 'Backquote' || event.key === '~' || event.key === '`' || event.key === '·');
-        if(editorToggleShortcut){
+        if(event.key === 'Escape'){
             event.preventDefault();
-            requestCloseDetailImageEditor(event.key === 'Escape' ? '退出编辑器' : '关闭编辑器')
+            requestCloseDetailImageEditor('退出编辑器')
                 .catch(err => setStatus(err.message || '单图编辑关闭失败'));
+            return;
+        }
+        if(isBackquoteShortcut(event)){
+            event.preventDefault();
+            event.stopPropagation();
+            if(event.repeat) return;
+            const context = `image-editor:${state.itemId || ''}`;
+            if(detailBackquoteTappedTwice(event,context)){
+                clearTimeout(detailImageEditorBackquoteCloseTimer);
+                detailImageEditorBackquoteCloseTimer = 0;
+                requestCloseDetailImageEditor('关闭编辑器')
+                    .catch(err => setStatus(err.message || '单图编辑关闭失败'));
+            } else {
+                deferDetailImageEditorCloseForBackquote(state);
+            }
             return;
         }
         const key=String(event.key||'').toLowerCase();
@@ -21906,7 +22085,7 @@ document.addEventListener('keydown', event => {
     }
     const keyboardEditing = ['INPUT','TEXTAREA','SELECT'].includes(String(event.target?.tagName || '').toUpperCase()) || event.target?.isContentEditable;
     const interactiveTarget = event.target?.closest?.('button,a,input,textarea,select');
-    const detailToggleShortcut = !event.ctrlKey && !event.metaKey && !event.altKey && (event.code === 'Backquote' || event.key === '~' || event.key === '`' || event.key === '·');
+    const detailToggleShortcut = isBackquoteShortcut(event);
     const focusedRegistryVersionStructure = event.target?.closest?.('[data-registry-structure-card][data-registry-structure-type="version"]')
         || document.activeElement?.closest?.('[data-registry-structure-card][data-registry-structure-type="version"]');
     if(detailToggleShortcut && focusedRegistryVersionStructure && !keyboardEditing && !detailViewerState.open){
@@ -21919,10 +22098,35 @@ document.addEventListener('keydown', event => {
     }
     if(detailToggleShortcut && !keyboardEditing){
         event.preventDefault();
-        if(detailViewerState.open) closeDetailPreview();
-        else {
+        event.stopPropagation();
+        if(event.repeat) return;
+        if(detailViewerState.open){
+            const item = detailViewerState.items[detailViewerState.index]
+                || detailViewerItem(detailViewerState.source,detailViewerState.id);
+            if(item && detailEditableType(detailViewerState.source,item)){
+                const context = detailBackquoteContext(detailViewerState.source,item.id);
+                if(detailBackquoteTappedTwice(event,context)){
+                    clearTimeout(detailPreviewBackquoteCloseTimer);
+                    detailPreviewBackquoteCloseTimer = 0;
+                    enterCurrentDetailEditableContent();
+                } else {
+                    deferDetailPreviewCloseForBackquote(detailViewerState);
+                }
+            } else {
+                closeDetailPreview();
+            }
+        } else {
             const reference = currentDetailViewerReference();
-            if(reference?.id) showDetailPreview(reference.source, reference.id);
+            if(reference?.id){
+                const item = detailViewerItem(reference.source,reference.id);
+                const editable = item && detailEditableType(reference.source,item);
+                const isDouble = editable && detailBackquoteTappedTwice(
+                    event,
+                    detailBackquoteContext(reference.source,reference.id),
+                );
+                showDetailPreview(reference.source,reference.id);
+                if(isDouble) enterCurrentDetailEditableContent();
+            }
         }
         return;
     }
@@ -21945,6 +22149,30 @@ document.addEventListener('keydown', event => {
             } else if((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's'){
                 event.preventDefault();
                 saveDetailTextEdit().catch(err => setStatus(err.message || '正文保存失败'));
+            } else if(isBackquoteShortcut(event)){
+                if(event.repeat){
+                    event.preventDefault();
+                    lastDetailBackquoteTap = null;
+                    detailTextEditorBackquoteInput = null;
+                    return;
+                }
+                const editor = event.target;
+                const context = `text-editor:${detailBackquoteContext(detailViewerState.source,detailViewerState.id)}`;
+                if(detailBackquoteTappedTwice(event,context)){
+                    event.preventDefault();
+                    exitDetailTextEditFromBackquote(editor,detailTextEditorBackquoteInput);
+                } else {
+                    const start = Number(editor.selectionStart || 0);
+                    const end = Number(editor.selectionEnd || start);
+                    detailTextEditorBackquoteInput = {
+                        context,
+                        editor,
+                        before:String(editor.value || ''),
+                        start,
+                        end,
+                        key:event.key,
+                    };
+                }
             }
             return;
         }
@@ -22012,14 +22240,36 @@ document.addEventListener('keydown', event => {
         }
         const detailType = detailViewerType(detailViewerState.source, detailViewerState.items[detailViewerState.index] || {});
         const focusedMediaNode = event.target.closest?.('[data-detail-media-canvas-node]');
+        const focusedMediaCanvas = event.target.closest?.('[data-detail-media-canvas-viewport]');
+        const key = String(event.key || '').toLowerCase();
+        if(detailType === 'video' && !interactiveTarget
+            && !event.ctrlKey && !event.metaKey && !event.altKey && key === 'f'
+            && (document.fullscreenElement || detailMediaCanvasSelectedCoverflowAssets().length <= 1)){
+            event.preventDefault();
+            toggleDetailVideoFullscreen();
+            return;
+        }
+        if((focusedMediaNode || focusedMediaCanvas) && !interactiveTarget
+            && !event.ctrlKey && !event.metaKey && !event.altKey && key === 'f'){
+            event.preventDefault();
+            openDetailMediaCanvasSelectionCoverflow(event.target);
+            return;
+        }
         if(focusedMediaNode && !interactiveTarget && ['Enter',' '].includes(event.key)){
             event.preventDefault();
             activateDetailMediaCanvasItem(focusedMediaNode.dataset.detailMediaCanvasNode || '');
             return;
         }
-        if(detailType === 'video' && !interactiveTarget && ['d','f'].includes(event.key.toLowerCase())){
+        if(detailType === 'video' && !interactiveTarget
+            && !event.ctrlKey && !event.metaKey && !event.altKey && ['a','d'].includes(key)){
             event.preventDefault();
-            stepDetailVideoFrame(event.key.toLowerCase() === 'f' ? 1 : -1);
+            stepDetailVideoFrame(key === 'd' ? 1 : -1);
+            return;
+        }
+        if(detailType === 'video' && !interactiveTarget
+            && !event.ctrlKey && !event.metaKey && !event.altKey && key === 'f'){
+            event.preventDefault();
+            toggleDetailVideoFullscreen();
             return;
         }
         if(detailType === 'video' && !interactiveTarget && event.key === 'Enter'){
@@ -22094,7 +22344,10 @@ document.addEventListener('keydown', event => {
             });
             return;
         }
-        if(event.key === 'Enter' && !interactiveTarget){
+        const registryFullscreenShortcut = event.key === 'Enter'
+            || (String(event.key || '').toLowerCase() === 'f'
+                && !event.ctrlKey && !event.metaKey && !event.altKey);
+        if(registryFullscreenShortcut && !interactiveTarget){
             const current = registryAssets.find(item => item.id === selectedRegistryAssetId)
                 || (registryDetail?.id === selectedRegistryAssetId ? registryDetail : null)
                 || visible.find(item => item.id === selectedRegistryAssetId || item.asset_id === selectedRegistryAssetId)
