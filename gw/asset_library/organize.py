@@ -184,14 +184,14 @@ def _atomic_write_version(version: int) -> None:
         if tmp_file.exists():
             try:
                 tmp_file.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("清理版本临时文件失败 %s: %s", tmp_file, exc)
 
 
 def get_organize_version() -> int:
     """读取当前资产整理状态的 CAS 版本号。
 
-    若版本文件缺失或内容损坏，直接抛出 500 VERSION_STATE_CORRUPTED，绝不静默回退默认值。
+    若版本文件缺失或内容损坏，直接抛出 500 VERSION_STATE_CORRUPTED，绝不静默回退默认值，禁止重置 CAS 历史。
     """
     vfile = _organize_version_file()
     if not vfile.exists():
@@ -206,8 +206,8 @@ def get_organize_version() -> int:
         raise CleanroomException(500, "VERSION_STATE_CORRUPTED", "版本状态文件损坏，拒绝操作") from exc
 
 
-def ensure_organize_version_file(initial_version: int = 1) -> int:
-    """在版本文件不存在时安全初始化版本文件（仅供服务启动或查询接口使用）。"""
+def init_organize_version_file(initial_version: int = 1) -> int:
+    """显式初始化版本文件（仅供系统冷启动或测试夹具初始化，禁止 GET 接口隐式重建）。"""
     with _ORGANIZE_LOCK:
         vfile = _organize_version_file()
         if not vfile.exists():
@@ -275,9 +275,35 @@ def check_root_writable(root: Path, root_id: str | None = None) -> None:
     rid = root_id or storage.root_identity_id(root)
     if source_policy.get(rid, False):
         raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
+
+    # snapshot.local_libraries 为 list[dict]，安全按 dict 读取并恢复按库 id 的只读校验
     for lib in snapshot.local_libraries:
-        if lib.root_identity_id == rid or str(lib.path) == str(root):
-            if lib.read_only:
+        if not isinstance(lib, dict):
+            continue
+        lib_id = str(lib.get("id") or lib.get("library_id") or "").strip()
+        lib_rid = str(lib.get("root_identity_id") or "").strip()
+        lib_path = str(lib.get("path") or lib.get("root_path") or "").strip()
+
+        is_match = False
+        if lib_rid and (lib_rid == rid or storage.coerce_root_id(lib_rid) == storage.coerce_root_id(rid)):
+            is_match = True
+        elif lib_id and (lib_id == rid or storage.coerce_root_id(lib_id) == storage.coerce_root_id(rid)):
+            is_match = True
+        elif lib_path:
+            try:
+                res_lib = Path(lib_path).resolve()
+                if resolved_root == res_lib or resolved_root.is_relative_to(res_lib):
+                    is_match = True
+            except (ValueError, OSError):
+                pass
+
+        if is_match:
+            # 校验库自身的 read_only 以及通过库 id 配置在 source_policy 中的只读策略
+            if lib.get("read_only", False):
+                raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
+            if lib_id and source_policy.get(lib_id, False):
+                raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
+            if lib_rid and source_policy.get(lib_rid, False):
                 raise CleanroomException(403, "SOURCE_READ_ONLY", "该素材源为只读，拒绝写入")
 
 
@@ -334,7 +360,9 @@ def _recycler_dir() -> Path:
 
 def _is_within_recycler(p: Path) -> bool:
     try:
-        return p.resolve().is_relative_to(_recycler_dir())
+        res = p.resolve()
+        recycler = _recycler_dir().resolve()
+        return res.is_relative_to(recycler) and res != recycler
     except (ValueError, OSError):
         return False
 
@@ -412,9 +440,6 @@ def _restore_from_recycler(stash_record: dict[str, Any], root_id: str | None = N
     if not _is_within_recycler(stashed_path):
         raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "回收暂存路径不在回收站受管目录内")
 
-    if not stashed_path.exists():
-        raise CleanroomException(404, "RECYCLE_PAYLOAD_NOT_FOUND", "回收暂存内容不存在")
-
     staging_dir_raw = stash_record.get("staging_dir")
     if staging_dir_raw:
         staging_dir = Path(str(staging_dir_raw))
@@ -423,8 +448,12 @@ def _restore_from_recycler(stash_record: dict[str, Any], root_id: str | None = N
     else:
         staging_dir = stashed_path.parent
 
+    # 严格校验 staging_dir 必须位于回收站内且非回收区根目录，禁止清空整个回收区
     if not _is_within_recycler(staging_dir):
         raise CleanroomException(403, "PATH_OUTSIDE_ALLOWED_ROOTS", "暂存目录不在回收站受管目录内")
+
+    if not stashed_path.exists():
+        raise CleanroomException(404, "RECYCLE_PAYLOAD_NOT_FOUND", "回收暂存内容不存在")
 
     # 严格读取服务端落盘在 staging_dir 的 manifest.json（Fail-Closed，不吞异常，不回退客户端输入）
     manifest_file = staging_dir / "manifest.json"
@@ -1216,20 +1245,38 @@ def undo_operation(
             orig, orig_root, _ = resolve_writable_path(orig_str, rid)
             if curr.resolve() == curr_root.resolve() or orig.resolve() == orig_root.resolve():
                 raise CleanroomException(400, "CANNOT_MOVE_ROOT", "禁止操作挂载根目录本身")
-            if not curr.exists():
-                raise CleanroomException(404, "FOLDER_NOT_FOUND", "撤销源文件夹不存在")
-            if orig.exists():
-                raise CleanroomException(409, "TARGET_EXISTS", "撤销目标文件夹已存在")
-            orig.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.move(str(curr), str(orig))
-            except Exception as exc:
-                if _is_file_locked_error(exc):
-                    raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法撤销") from exc
-                logger.error("撤销文件夹操作失败 %s -> %s: %s", curr, orig, exc)
-                raise CleanroomException(500, "UNDO_FAILED", "撤销文件夹操作失败") from exc
 
-            _incremental_update_prefix(rid, curr, orig, is_dir=True)
+            folder_restored = bool(record.get("folder_restored", False))
+            if not folder_restored:
+                if not curr.exists():
+                    if orig.exists():
+                        folder_restored = True
+                        record["folder_restored"] = True
+                        _save_undo_record(record)
+                    else:
+                        raise CleanroomException(404, "FOLDER_NOT_FOUND", "撤销源文件夹不存在")
+                else:
+                    if orig.exists():
+                        raise CleanroomException(409, "TARGET_EXISTS", "撤销目标文件夹已存在")
+                    orig.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.move(str(curr), str(orig))
+                        folder_restored = True
+                        record["folder_restored"] = True
+                        _save_undo_record(record)
+                    except Exception as exc:
+                        if _is_file_locked_error(exc):
+                            raise CleanroomException(423, "FILE_LOCKED", "文件夹被占用，无法撤销") from exc
+                        logger.error("撤销文件夹操作失败 %s -> %s: %s", curr, orig, exc)
+                        raise CleanroomException(500, "UNDO_FAILED", "撤销文件夹操作失败") from exc
+
+            # 无论本次还是此前已完成物理移动，必须完成增量索引更新；失败则保留账本供重试
+            try:
+                _incremental_update_prefix(rid, curr, orig, is_dir=True)
+            except Exception as exc:
+                logger.error("撤销文件夹更新索引失败（账本保留以供重试）: %s", exc)
+                raise CleanroomException(500, "UNDO_FAILED", "更新索引失败，撤销账本已保留供重试") from exc
+
             record_file.unlink(missing_ok=True)
             new_version = bump_organize_version()
             return {
@@ -1266,32 +1313,42 @@ def undo_operation(
                 elif not stashed_raw or not Path(str(stashed_raw)).exists():
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖暂存文件丢失，无法安全撤销")
 
-            # 第一阶段：将 A 迁回原位置 orig
+            # 第一阶段：将 A 迁回原位置 orig 并更新 A 的索引
             if not a_restored:
-                if not curr.exists():
-                    # 检查是否此前重试已将 A 迁回 orig
-                    if orig.exists() and overwritten_backup:
-                        a_restored = True
-                        record["a_restored"] = True
-                        _save_undo_record(record)
+                a_file_moved = bool(record.get("a_file_moved", False))
+                if not a_file_moved:
+                    if not curr.exists():
+                        # 检查是否此前重试已将 A 迁回 orig
+                        if orig.exists():
+                            a_file_moved = True
+                            record["a_file_moved"] = True
+                            _save_undo_record(record)
+                        else:
+                            raise CleanroomException(404, "FILE_NOT_FOUND", "撤销源文件不存在")
                     else:
-                        raise CleanroomException(404, "FILE_NOT_FOUND", "撤销源文件不存在")
-                else:
-                    if orig.exists():
-                        raise CleanroomException(409, "TARGET_EXISTS", "撤销原目标位置已存在文件")
-                    orig.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        shutil.move(str(curr), str(orig))
-                    except Exception as exc:
-                        if _is_file_locked_error(exc):
-                            raise CleanroomException(423, "FILE_LOCKED", "文件被占用，无法撤销") from exc
-                        logger.error("撤销文件移动失败 %s -> %s: %s", curr, orig, exc)
-                        raise CleanroomException(500, "UNDO_FAILED", "撤销文件移动失败") from exc
+                        if orig.exists():
+                            raise CleanroomException(409, "TARGET_EXISTS", "撤销原目标位置已存在文件")
+                        orig.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            shutil.move(str(curr), str(orig))
+                            a_file_moved = True
+                            record["a_file_moved"] = True
+                            _save_undo_record(record)
+                        except Exception as exc:
+                            if _is_file_locked_error(exc):
+                                raise CleanroomException(423, "FILE_LOCKED", "文件被占用，无法撤销") from exc
+                            logger.error("撤销文件移动失败 %s -> %s: %s", curr, orig, exc)
+                            raise CleanroomException(500, "UNDO_FAILED", "撤销文件移动失败") from exc
 
+                # 物理移回 A 成功后更新索引；若失败保留账本供重试，绝不跳过索引
+                try:
                     _incremental_update_prefix(rid, curr, orig, is_dir=False)
                     a_restored = True
                     record["a_restored"] = True
                     _save_undo_record(record)
+                except Exception as exc:
+                    logger.error("撤销文件移动更新索引失败（账本保留以供重试）: %s", exc)
+                    raise CleanroomException(500, "UNDO_FAILED", "恢复索引失败，撤销账本已保留供重试") from exc
 
             # 第二阶段：将原本被覆盖的 B 恢复到 curr（支持重试幂等）
             if overwritten_backup:

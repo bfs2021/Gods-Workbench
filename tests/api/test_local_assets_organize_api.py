@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 
 from gw.api.app import create_app
 from gw.core import storage
+from gw.asset_library import organize
 
 AUTH = {"Authorization": "Bearer cleanroom-test", "X-User-Role": "editor"}
 VIEWER = {"Authorization": "Bearer cleanroom-test", "X-User-Role": "viewer"}
@@ -100,6 +101,7 @@ def api_env(tmp_path, monkeypatch):
     storage._ALLOWED_ROOTS_STATE_CACHE = None
     storage._ALLOWED_ROOTS_STATE_PATH_CACHE = None
 
+    organize.init_organize_version_file(1)
     client = TestClient(create_app())
     return {
         "client": client,

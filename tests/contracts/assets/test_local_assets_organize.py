@@ -98,6 +98,7 @@ def organize_env(tmp_path, monkeypatch):
     storage._ALLOWED_ROOTS_STATE_CACHE = None
     storage._ALLOWED_ROOTS_STATE_PATH_CACHE = None
 
+    organize.init_organize_version_file(1)
     client = TestClient(create_app())
     return {
         "client": client,
@@ -738,7 +739,7 @@ def test_storage_internal_isolation_from_download_output(organize_env):
     dl_res = client.get(
         "/api/download-output",
         headers=read_only_auth,
-        params={"path": f"system_internal/recycler/organize/{stashed_path.name}"},
+        params={"path": str(stashed_path.relative_to(storage.data_root())).replace("\\", "/")},
     )
     assert dl_res.status_code in (400, 403, 404)
 
@@ -1531,3 +1532,209 @@ def test_organize_sync_cleanroom_403_resilience(organize_env):
     # 3. 测试 on_paths_removed 在传入外部未知路径时安全返回空列表
     removed = listener.on_paths_removed("root_user_1", out_old, is_dir=False)
     assert removed == []
+
+
+def test_local_libraries_dict_structure_and_read_only_protection(organize_env):
+    """验证 local_libraries 存为 list[dict] 时不会触发 AttributeError 500，且正确拦截只读库。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+    rid2 = organize_env["root_id_2"]
+    root2 = organize_env["user_root_2"]
+
+    # 模拟真实 settings snapshot 中 local_libraries 为包含 dict 的列表
+    fake_libraries = [
+        {"id": "lib_ro_id", "path": str(root2), "read_only": False},
+        {"id": "lib_rw_id", "path": str(root1), "read_only": False},
+    ]
+
+    from gw.settings.service import default_storage_settings_service
+    orig_get_snapshot = default_storage_settings_service.get_snapshot
+
+    class MockSnapshot:
+        def __init__(self, orig):
+            self.orig = orig
+            # 恢复按库 id 查 local_library_read_only 的只读校验
+            self.local_library_read_only = {"lib_ro_id": True}
+            self.local_libraries = fake_libraries
+
+        def __getattr__(self, name):
+            return getattr(self.orig, name)
+
+    with patch.object(default_storage_settings_service, "get_snapshot", return_value=MockSnapshot(orig_get_snapshot())):
+        v = _v(client)
+        # 1. 向只读库发起写操作，必须返回 403 SOURCE_READ_ONLY，绝不出现 AttributeError 500
+        res_ro = client.post(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={"path": "ro_child", "root_id": rid2, "expected_version": v},
+        )
+        assert res_ro.status_code == 403
+        assert res_ro.json()["detail"]["code"] == "SOURCE_READ_ONLY"
+
+        # 2. 向可写库发起写操作，正常成功返回 201，绝无 AttributeError
+        res_rw = client.post(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={"path": "rw_child", "root_id": rid1, "expected_version": v},
+        )
+        assert res_rw.status_code == 201
+        assert res_rw.json()["created"] is True
+        undo = res_rw.json()["undo"]
+        v2 = res_rw.json()["version"]
+
+        # 3. 撤销写操作，正常成功返回 200，绝无 AttributeError
+        res_undo = client.post(
+            "/api/local-assets/undo",
+            headers=AUTH,
+            json={"undo": undo, "expected_version": v2},
+        )
+        assert res_undo.status_code == 200
+        assert res_undo.json()["undone"] is True
+
+
+def test_get_version_missing_file_fail_closed_no_reset(organize_env):
+    """验证版本文件缺失时，GET /organize/version 严格 Fail-Closed 返回 500，绝不静默重建为 1。"""
+    client = organize_env["client"]
+    vfile = storage.data_root() / "system_internal" / "organize_version.json"
+    assert vfile.exists()
+
+    # 删除版本文件
+    vfile.unlink()
+    assert not vfile.exists()
+
+    # GET /api/local-assets/organize/version 必须 fail-closed 返回 500
+    res = client.get("/api/local-assets/organize/version", headers=AUTH)
+    assert res.status_code == 500
+    assert res.json()["detail"]["code"] == "VERSION_STATE_CORRUPTED"
+
+    # 断言版本文件绝未被静默重建
+    assert not vfile.exists()
+
+    # 显式恢复版本文件
+    organize.init_organize_version_file(1)
+    assert _v(client) == 1
+
+
+def test_move_file_undo_phase1_index_failure_retryable_and_folder_undo_retryable(organize_env):
+    """验证 move_file 第一阶段索引失败与文件夹撤销索引失败后，重试均能补齐索引且不报 404。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+
+    # 1. move_file 撤销第一阶段重试测试
+    fa = root1 / "file_a_retry.txt"
+    fb = root1 / "file_b_retry.txt"
+    fa.write_text("aaa", encoding="utf-8")
+    fb.write_text("bbb", encoding="utf-8")
+    asset_lib_repo.index_local_files([str(fa), str(fb)], "document")
+
+    v = _v(client)
+    move_res = client.post(
+        "/api/local-assets/move",
+        headers=AUTH,
+        json={
+            "source": "file_a_retry.txt",
+            "target": "file_b_retry.txt",
+            "root_id": rid1,
+            "conflict_resolution": "overwrite",
+            "expected_version": v,
+        },
+    )
+    assert move_res.status_code == 200
+    undo = move_res.json()["undo"]
+    v = move_res.json()["version"]
+
+    # 第一次撤销尝试：Patch _incremental_update_prefix 模拟第一阶段移动 A 后索引失败
+    with patch("gw.asset_library.organize._incremental_update_prefix", side_effect=RuntimeError("Index fail")):
+        r_undo1 = client.post(
+            "/api/local-assets/undo",
+            headers=AUTH,
+            json={"undo": undo, "expected_version": v},
+        )
+        assert r_undo1.status_code == 500
+        assert r_undo1.json()["detail"]["code"] == "UNDO_FAILED"
+
+    # 验证物理文件 A 已移回 orig，但撤销账本未销毁
+    assert (root1 / "file_a_retry.txt").exists()
+    record_file = organize._undo_records_dir() / f"{undo['undo_id']}.json"
+    assert record_file.exists()
+    record_data = json.loads(record_file.read_text(encoding="utf-8"))
+    assert record_data.get("a_file_moved") is True
+    assert record_data.get("a_restored") is not True
+
+    # 第二次撤销重试：不再抛异常，验证补齐 A 索引并完成 B 恢复，销毁账本
+    r_undo2 = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": undo, "expected_version": v},
+    )
+    assert r_undo2.status_code == 200
+    assert r_undo2.json()["undone"] is True
+    assert not record_file.exists()
+    assert (root1 / "file_a_retry.txt").exists()
+    assert (root1 / "file_b_retry.txt").exists()
+    v = r_undo2.json()["version"]
+
+    # 2. 文件夹撤销索引失败后重试测试
+    folder_orig = root1 / "dir_to_rename"
+    folder_orig.mkdir(parents=True, exist_ok=True)
+    (folder_orig / "inner.txt").write_text("inner", encoding="utf-8")
+    asset_lib_repo.index_local_files([str(folder_orig / "inner.txt")], "document")
+
+    ren_res = client.patch(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"path": "dir_to_rename", "name": "dir_renamed_try", "root_id": rid1, "expected_version": v},
+    )
+    assert ren_res.status_code == 200
+    folder_undo = ren_res.json()["undo"]
+    v = ren_res.json()["version"]
+
+    with patch("gw.asset_library.organize._incremental_update_prefix", side_effect=RuntimeError("Folder index fail")):
+        f_undo1 = client.post(
+            "/api/local-assets/undo",
+            headers=AUTH,
+            json={"undo": folder_undo, "expected_version": v},
+        )
+        assert f_undo1.status_code == 500
+
+    # 物理文件夹已移回原位，账本保留
+    assert (root1 / "dir_to_rename").exists()
+    f_record = organize._undo_records_dir() / f"{folder_undo['undo_id']}.json"
+    assert f_record.exists()
+
+    # 重试文件夹撤销，验证成功完成索引并销毁账本，绝不报 404
+    f_undo2 = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": folder_undo, "expected_version": v},
+    )
+    assert f_undo2.status_code == 200
+    assert f_undo2.json()["undone"] is True
+    assert not f_record.exists()
+
+
+def test_is_within_recycler_guard_against_root(organize_env):
+    """验证 _is_within_recycler 严格防御回收区根目录本身，禁止清空整个回收区。"""
+    rec_root = organize._recycler_dir()
+
+    # 1. 根目录本身返回 False
+    assert organize._is_within_recycler(rec_root) is False
+
+    # 2. 根目录外部路径返回 False
+    assert organize._is_within_recycler(storage.data_root()) is False
+
+    # 3. 根目录子路径返回 True
+    sub = rec_root / "del_sub"
+    assert organize._is_within_recycler(sub) is True
+
+    # 4. 模拟恶意或损坏的 stash_record 将 staging_dir 指向回收区根目录，必须抛 403 拒绝
+    malicious_record = {
+        "staging_dir": str(rec_root),
+        "stashed_path": str(sub / "payload" / "file.txt"),
+    }
+    with pytest.raises(organize.CleanroomException) as exc_info:
+        organize._restore_from_recycler(malicious_record, root_id="root_user_1")
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.code == "PATH_OUTSIDE_ALLOWED_ROOTS"

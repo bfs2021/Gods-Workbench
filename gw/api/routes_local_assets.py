@@ -393,9 +393,9 @@ def get_local_assets_organize_version(
     authorization: str | None = Header(None),
     x_user_role: str = Header("editor", alias="X-User-Role"),
 ):
-    """获取当前资产整理状态的 CAS 版本号。"""
+    """获取当前资产整理状态的 CAS 版本号。版本文件缺失时 Fail-Closed，禁止静默重建。"""
     _read(authorization, x_user_role)
-    return {"version": organize.ensure_organize_version_file(1)}
+    return {"version": organize.get_organize_version()}
 
 
 @router.post("/api/local-assets/classify", status_code=status.HTTP_200_OK)
