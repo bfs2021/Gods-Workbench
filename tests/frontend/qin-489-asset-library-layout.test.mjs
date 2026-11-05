@@ -72,9 +72,11 @@ test('AC1: 资源库左侧导航承载资产看板与新建资源入口', () => 
     assert.doesNotMatch(html, /id="assetCategories" role="tablist"/);
     assert.match(shell, /querySelectorAll\('#assetBoardTabs \.asset-board-tab'\)/);
     assert.match(shell, /waitForControl\('#assetBoardTabs \[data-board-create\]'\)/);
-    for (const label of ['资产总览', '剧本资产', '项目制片', '托管资产', '工作流', '提示词', '画布资产', '上传资源', '治理建议']) {
+    for (const label of ['资产总览', '剧本资产', '项目制片', '托管资产', '工作流', '提示词', '画布资产', '上传资源']) {
         assert.ok(manager.includes(`name:'${label}'`), `缺少导航项：${label}`);
     }
+    assert.doesNotMatch(manager, /\{id:'governance', name:'治理建议'/);
+    assert.match(manager, /data-governance-open/);
     assert.match(vaultCss, /html\.vault-shell-embedded[^\n]*#assetBoardTabs \{ display: none !important; \}/);
 });
 
@@ -328,9 +330,10 @@ test('AC7: 左栏全部入口共用固定统计行和工具栏行，视图留在
     assert.match(vaultCss, /#assetManagerRoot > \.registry-overview-shell \{[\s\S]*grid-row: 1;/);
     assert.match(vaultCss, /#assetManagerRoot > \.registry-toolbar \{[\s\S]*grid-row: 2;/);
     assert.match(vaultCss, /#assetManagerRoot > \.asset-panel\.asset-content \{[\s\S]*grid-row: 3;/);
-    for (const id of ['registry', 'scripts', 'projects', 'assets', 'workflows', 'prompts', 'canvas-assets', 'local', 'governance']) {
+    for (const id of ['registry', 'scripts', 'projects', 'assets', 'workflows', 'prompts', 'canvas-assets', 'local']) {
         assert.ok(manager.includes(`id:'${id}'`), `资源库缺少入口：${id}`);
     }
+    assert.doesNotMatch(manager, /activeTab === 'governance'/);
 });
 
 test('资产列表将本地 indexed 素材映射为媒体 URL 并兼容 size_bytes', () => {
