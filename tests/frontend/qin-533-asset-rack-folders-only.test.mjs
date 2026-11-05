@@ -3,7 +3,7 @@
  *
  * 断言面覆盖票面 AC1～AC5：
  * - AC1 智能筛选页与双段拨片下线，机架外壳只渲染目录层级，模式状态与记忆键删除；
- * - AC2 缺省收起为 44px 图标条，图标条保留展开 / 目录层级 / 清空筛选；
+ * - AC2 目录层级工具条保留展开 / 目录层级 / 清空筛选；旧机架折叠态由 QIN-544 单栏树取代；
  * - AC3 自定义看板的分组目录与参考画布入口迁到目录层级页底部，能力不丢；
  * - AC4 筛选数据通道与清空筛选行为不变；
  * - AC5 测试登记到 node-files.txt 并完成卫生准入分片。
@@ -96,7 +96,7 @@ test('AC1: 中栏智能筛选页与双段拨片下线，机架只渲染目录层
     );
 });
 
-test('AC2: 中栏缺省收起为图标条，图标条保留展开 / 目录层级 / 清空筛选', () => {
+test('AC2: 目录层级工具条保留展开 / 目录层级 / 清空筛选', () => {
     const read = functionSource('readAssetRackCollapsed');
     assert.match(
         MANAGER,
@@ -120,11 +120,6 @@ test('AC2: 中栏缺省收起为图标条，图标条保留展开 / 目录层级
     );
     assert.match(functionSource('setAssetRackCollapsed'), /saveAssetRackCollapsed\(assetRackCollapsed\)/);
     assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不再写入旧中栏折叠态');
-    assert.match(
-        CSS,
-        /\.asset-manager-root\.asset-manager-root-registry\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\); \}/,
-        '总览折叠态必须仍收为 44px'
-    );
 });
 
 test('AC3: 看板分组目录与参考画布入口迁到目录层级页底部', () => {

@@ -39,17 +39,12 @@ button { border:0; cursor:pointer; }
 .asset-tabs svg { width:17px; height:17px; display:block; flex:0 0 auto; }
 .hw-btn svg,.hw-btn.hw-btn-icon svg,.asset-row-icon svg,.detail-empty svg { width:14px; height:14px; display:block; flex:0 0 auto; }
 .asset-manager-root { min-height:0; flex:1; display:grid; grid-template-columns:360px minmax(640px, 1fr) 360px; gap:14px; }
-/* QIN-524：统一资产库中栏收敛为 240px 紧凑机架，折叠态收为 44px 图标条 */
+/* QIN-524：统一资产库中栏收敛为 240px 紧凑机架 */
 .asset-manager-root.asset-manager-root-registry { grid-template-columns:240px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
-.asset-manager-root.asset-manager-root-registry.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr); }
-/* 嵌入资产金库外壳时 asset-vault.css 用 !important 钉死 240px，折叠态需同等重要度且特异度更高才能生效 */
-html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-registry.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) !important; }
-html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-registry.asset-rack-collapsed > .registry-content { grid-column:2 !important; }
 .asset-manager-root.asset-manager-root-library { position:relative; grid-template-columns:360px minmax(0,1fr) var(--registry-detail-width,360px); }
 .asset-manager-root.asset-manager-root-library.registry-detail-collapsed { grid-template-columns:360px minmax(0,1fr) 44px; }
 /* QIN-527：系统看板（剧本/制片/托管/工作流/提示词/画布/上传）中栏同样收敛为机架 240px */
 .asset-manager-root.asset-manager-root-rack { grid-template-columns:240px minmax(0,1fr) var(--registry-detail-width,360px); }
-.asset-manager-root.asset-manager-root-rack.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) var(--registry-detail-width,360px); }
 .asset-manager-root.asset-manager-root-rack > .asset-content { grid-column:2; }
 .system-rack-tools { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:10px 12px 0; }
 .system-board-rack .asset-context-tree { padding:4px 8px 12px; }
@@ -3512,17 +3507,13 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
 
 /* ============================================================================
  * QIN-527 · 双模机架覆盖自定义资源库看板
- * 看板中栏与资产总览同宽同折叠态；空状态给登记入口；分组/参考画布压缩展示。
+ * 看板中栏与资产总览同宽；空状态给登记入口；分组/参考画布压缩展示。
  * ========================================================================= */
 .asset-manager-root.asset-manager-root-library { grid-template-columns:240px minmax(0,1fr) var(--registry-detail-width,360px); }
 .asset-manager-root.asset-manager-root-library.registry-detail-collapsed { grid-template-columns:240px minmax(0,1fr) 44px; }
-.asset-manager-root.asset-manager-root-library.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) var(--registry-detail-width,360px); }
-.asset-manager-root.asset-manager-root-library.asset-rack-collapsed.registry-detail-collapsed { grid-template-columns:44px minmax(0,1fr) 44px; }
 .asset-manager-root.asset-manager-root-library > .asset-rack { grid-column:1; grid-row:1 / 3; }
-.asset-manager-root.asset-manager-root-library.asset-rack-collapsed > .asset-rack { grid-column:1; }
 @media (max-width:1280px){
     .asset-manager-root.asset-manager-root-library { grid-template-columns:200px minmax(0,1fr) var(--registry-detail-width,320px); }
-    .asset-manager-root.asset-manager-root-library.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) var(--registry-detail-width,320px); }
 }
 
 /* 行内隐藏文件夹开关：仅看板态出现，鼠标悬停或已隐藏时可点 */
@@ -3550,11 +3541,6 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
 .asset-rack-board-extras .library-group-row span { font-size:var(--gw-type-label-md); font-weight:650; }
 .asset-rack-board-extras .tree-empty { display:none; }
 
-/* 折叠态必须压过资产金库外壳对库视图 240px 的钉死定义（外壳特异度 1,4,1 / 嵌入 1,5,2） */
-body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-library.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) var(--registry-detail-width,340px); }
-body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-library.asset-rack-collapsed.registry-detail-collapsed { grid-template-columns:44px minmax(0,1fr) 44px; }
-html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-library.asset-rack-collapsed { grid-template-columns:44px minmax(0,1fr) var(--registry-detail-width,340px) !important; }
-html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot.asset-manager-root-library.asset-rack-collapsed.registry-detail-collapsed { grid-template-columns:44px minmax(0,1fr) 44px !important; }
 
 
 /* Parametric SVG rendering support for image versions */

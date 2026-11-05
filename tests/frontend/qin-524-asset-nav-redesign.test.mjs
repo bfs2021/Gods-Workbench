@@ -158,22 +158,11 @@ test('AC3: 智能筛选页已由 QIN-533 下线，机架不再渲染任何筛选
     assert.match(functionSource('renderAssetRackRail'), /data-registry-clear="all"/, '图标条必须保留清空筛选');
 });
 
-test('AC4: 中栏 240px、可折叠为 44px 图标条、只用黑金令牌', () => {
+test('AC4: 中栏 240px、只用黑金令牌', () => {
     assert.match(
         CSS,
         /\.asset-manager-root\.asset-manager-root-registry \{ grid-template-columns:240px minmax\(0,1fr\);/,
         '统一资产库中栏必须收窄为 240px'
-    );
-    assert.match(
-        CSS,
-        /\.asset-manager-root\.asset-manager-root-registry\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\); \}/,
-        '折叠态必须收为 44px 图标条'
-    );
-    // 嵌入资产金库外壳中的 240px 为 !important 且特异度更高，折叠态必须同等反制
-    assert.match(
-        CSS,
-        /html\.vault-shell-embedded body\.gw-signal\.gw-page--asset-manager #assetManagerRoot\.asset-manager-root-registry\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\) !important; \}/,
-        '嵌入态折叠必须能覆盖外壳的 240px !important'
     );
 
     const rack = functionSource('renderAssetRack');

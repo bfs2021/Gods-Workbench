@@ -85,16 +85,11 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
         assert.ok(!MANAGER.includes(noisy), `必须彻底清除冗长灰字提示：${noisy}`);
     }
 
-    // 看板中栏同样 240px，且可折叠为 44px 图标条
+    // 看板中栏同样 240px，后续单栏树改造由 QIN-544 覆盖
     assert.match(
         CSS,
         /\.asset-manager-root\.asset-manager-root-library \{ grid-template-columns:240px minmax\(0,1fr\) var\(--registry-detail-width,360px\); \}/,
         '看板中栏必须与总览一致收窄为 240px'
-    );
-    assert.match(
-        CSS,
-        /\.asset-manager-root\.asset-manager-root-library\.asset-rack-collapsed \{ grid-template-columns:44px minmax\(0,1fr\)/,
-        '看板中栏折叠态必须收为 44px'
     );
     assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不得沿用旧机架折叠态');
     assert.match(
