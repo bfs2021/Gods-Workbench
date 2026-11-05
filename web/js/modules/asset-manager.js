@@ -5076,6 +5076,13 @@ function currentWorkflowItems(){
     });
 }
 function canvasAssetCategories(){
+    // 【QIN-563】「全部画布」虚拟分类：聚合三类画布与全部画布资产，供统计卡单击筛选与树顶入口使用。
+    const all = {
+        id:'all',
+        name:'全部画布',
+        count:(canvasAssetsData.items || []).length,
+        canvas_count:(canvasAssetsData.canvases || []).length
+    };
     const cats = Array.isArray(canvasAssetsData.categories) && canvasAssetsData.categories.length
         ? canvasAssetsData.categories.filter(cat => ['smart','classic','reference'].includes(cat.id))
         : [
@@ -5083,14 +5090,15 @@ function canvasAssetCategories(){
             {id:'classic', name:'普通画布', count:(canvasAssetsData.items || []).filter(item => (item.canvas_kind || 'classic') === 'classic').length, canvas_count:(canvasAssetsData.canvases || []).filter(item => (item.kind || 'classic') === 'classic').length},
             {id:'reference', name:'参考画布', count:(canvasAssetsData.items || []).filter(item => item.canvas_kind === 'reference').length, canvas_count:(canvasAssetsData.canvases || []).filter(item => item.kind === 'reference').length}
         ];
-    return cats;
+    return [all, ...cats];
 }
 function activeCanvasAssetCategoryInfo(){
-    return canvasAssetCategories().find(cat => cat.id === activeCanvasAssetCategory) || canvasAssetCategories()[0] || {id:'smart', name:'智能画布', count:0, canvas_count:0};
+    return canvasAssetCategories().find(cat => cat.id === activeCanvasAssetCategory) || canvasAssetCategories()[0] || {id:'all', name:'全部画布', count:0, canvas_count:0};
 }
 function defaultCanvasAssetCategory(){
-    const cats = canvasAssetCategories();
-    return cats.find(cat => Number(cat.canvas_count || 0) > 0)?.id || cats[0]?.id || 'smart';
+    // 【QIN-563】默认落地分类跳过「全部画布」，保持普通入口仍落在具体分类。
+    const cats = canvasAssetCategories().filter(cat => cat.id !== 'all');
+    return cats.find(cat => Number(cat.canvas_count || 0) > 0)?.id || (cats[0] ? cats[0].id : 'smart');
 }
 function uniqueCanvasAssets(items){
     const seen = new Set();
@@ -5107,6 +5115,10 @@ function canvasAssetCountForCanvas(canvasId){
     return uniqueCanvasAssets(canvasAssetsData.items || []).filter(item => item.canvas_id === canvasId).length;
 }
 function canvasAssetsForCategory(categoryId=activeCanvasAssetCategory){
+    // 【QIN-563】「全部画布」聚合三类画布列表；具体分类仍按画布类型过滤。
+    if(categoryId === 'all'){
+        return (Array.isArray(canvasAssetsData.canvases) ? canvasAssetsData.canvases.slice() : []).sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN', {numeric:true, sensitivity:'base'}));
+    }
     let list = Array.isArray(canvasAssetsData.canvases) ? canvasAssetsData.canvases.slice() : [];
     list = list.filter(canvas => (canvas.kind || 'classic') === categoryId);
     return list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN', {numeric:true, sensitivity:'base'}));
@@ -5141,7 +5153,8 @@ function canvasAssetSortLabel(){
 function currentCanvasAssetItems(){
     const q = String(canvasAssetQuery || '').trim().toLowerCase();
     let list = uniqueCanvasAssets(canvasAssetsData.items || []).filter(item => {
-        if((item.canvas_kind || 'classic') !== activeCanvasAssetCategory) return false;
+        // 【QIN-563】「全部画布」不按画布类型过滤，聚合智能/普通/参考画布的全部资产。
+        if(activeCanvasAssetCategory !== 'all' && (item.canvas_kind || 'classic') !== activeCanvasAssetCategory) return false;
         if(activeCanvasAssetCanvasId && item.canvas_id !== activeCanvasAssetCanvasId) return false;
         if(!q) return true;
         return [
@@ -8787,7 +8800,7 @@ function normalizeCanvasAssetState(){
         activeCanvasAssetCanvasId
         && (
             !activeCanvas
-            || (activeCanvas.kind || 'classic') !== activeCanvasAssetCategory
+            || (activeCanvasAssetCategory !== 'all' && (activeCanvas.kind || 'classic') !== activeCanvasAssetCategory)
         )
     ) activeCanvasAssetCanvasId = '';
     const items = currentCanvasAssetItems();
@@ -13928,15 +13941,14 @@ async function handleClick(event){
     if(registryStat){
         const category = registryStat.dataset.registryStat || '';
         if(category === 'reference-canvas'){
-            // 【QIN-531 修复】画布卡片改为双击才跳转，单击只做选中反馈，避免误触直接离开素材库。
-            document.querySelectorAll('.registry-stat-card.active').forEach(card => {
-                if(card === registryStat) return;
-                card.classList.remove('active');
-                card.setAttribute('aria-pressed', 'false');
-            });
-            registryStat.classList.add('active');
-            registryStat.setAttribute('aria-pressed', 'true');
-            setStatus('双击「画布」进入画布资产库');
+            // 【QIN-563】单击「画布」统计卡：直接筛选展示全部画布资产（智能+普通+参考），不再要求双击。
+            registryStatCategory = '';
+            activeTab = 'canvas-assets';
+            activeCanvasAssetCategory = 'all';
+            activeCanvasAssetCanvasId = '';
+            selectedCanvasAssetId = '';
+            selectedCanvasAssetIds.clear();
+            render();
             return;
         }
         applyRegistryFilterDefinition({category, groupSimilar:registryGroupSimilar});
@@ -21543,20 +21555,7 @@ document.querySelector('.asset-breadcrumbs .asset-heading-row')?.addEventListene
     if(crumb) handleAssetTreeCrumbClick(crumb.dataset.assetTreeCrumb || '');
 });
 root.addEventListener('dblclick', event => {
-    const canvasStatCard = event.target.closest?.('[data-registry-stat="reference-canvas"]');
-    if(canvasStatCard){
-        // 【QIN-531 修复】概览「画布」卡片：双击进入画布资产库（单击只切换选中态）。
-        event.preventDefault();
-        event.stopPropagation();
-        registryStatCategory = '';
-        activeTab = 'canvas-assets';
-        activeCanvasAssetCategory = 'reference';
-        activeCanvasAssetCanvasId = '';
-        selectedCanvasAssetId = '';
-        selectedCanvasAssetIds.clear();
-        render();
-        return;
-    }
+    // 【QIN-563】统计卡「画布」单击即筛选全部画布资产，双击分支随 QIN-531 双击交互一并移除。
     const groupCard = event.target.closest?.('[data-registry-structure-card][data-registry-structure-type="group"]');
     if(groupCard){
         // Action buttons own their double-click semantics. Do not let a

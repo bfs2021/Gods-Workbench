@@ -157,17 +157,18 @@ assert.match(
   '浅色主题下概览卡应同样换成有边界的立体卡面'
 );
 
-// AC6：「画布」卡片改为双击跳转，单击只做选中反馈。
+// AC6：【QIN-563 更新】「画布」卡片单击即筛选全部画布资产（QIN-531 的双击交互已按 QIN-563 移除）。
 const statClickBlock = js.slice(
   js.indexOf("const registryStat = target.closest?.('[data-registry-stat]')"),
   js.indexOf("const registryFeature = target.closest?.('[data-registry-feature-toggle]')")
 );
 assert.ok(statClickBlock, '必须存在概览卡片点击分支');
-assert.match(statClickBlock, /双击「画布」进入画布资产库/, '单击画布卡片应提示双击跳转');
-assert.doesNotMatch(statClickBlock, /activeTab = 'canvas-assets'/, '单击画布卡片不得直接跳转');
+assert.match(statClickBlock, /category === 'reference-canvas'/, '单击分支必须识别画布统计卡');
+assert.match(statClickBlock, /activeTab = 'canvas-assets'/, '单击画布卡片应进入画布资产视图');
+assert.match(statClickBlock, /activeCanvasAssetCategory = 'all';/, '单击画布卡片应筛选全部画布');
+assert.doesNotMatch(js, /双击「画布」/, '双击提示必须移除');
 const dblClickOpen = js.slice(js.indexOf("root.addEventListener('dblclick'"), js.indexOf("const groupCard = event.target.closest?.('[data-registry-structure-card][data-registry-structure-type=\"group\"]')"));
-assert.match(dblClickOpen, /\[data-registry-stat="reference-canvas"\]/, '双击监听应识别画布卡片');
-assert.match(dblClickOpen, /activeTab = 'canvas-assets'/, '双击画布卡片应跳转到画布资产库');
+assert.doesNotMatch(dblClickOpen, /data-registry-stat/, '双击监听不得再处理统计卡');
 
 // AC8：整排概览卡宽度压到 2/3，卡间距（gap）保持 8px 不变，整排向左对齐、右侧留白。
 // 宽度公式「扣掉 gap 再乘 2/3、最后把 gap 加回」保证每张卡恰为原宽度的三分之二，而 gap 一像素不动。

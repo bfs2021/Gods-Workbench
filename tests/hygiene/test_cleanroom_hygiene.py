@@ -1283,3 +1283,26 @@ def test_qin_545_disk_organization_files_are_registered(repo_root: Path):
         "tests/hygiene/fixtures/admissions/issue-601.json",
         "tests/hygiene/test_cleanroom_hygiene.py",
     }
+
+
+def test_github_issue_636_file_scope_is_registered(repo_root: Path):
+    """#636（QIN-563）的统计条布局、画布资产虚拟分类与前端测试按票面逐项登记。"""
+    metadata = _load_admission_metadata(repo_root)
+    registrations = [
+        item
+        for item in metadata.get("authorized_issue_file_sets", [])
+        if item.get("issue") == 636
+    ]
+    assert len(registrations) == 1
+    assert registrations[0].get("authorization_basis") == (
+        "GitHub Issue #636 (QIN-563), 2026-11-05"
+    )
+    assert set(registrations[0].get("files", [])) == {
+        "web/css/pages/asset-vault.css",
+        "web/js/modules/asset-manager.js",
+        "tests/frontend/qin-531-asset-topbar-cards.test.mjs",
+        "tests/frontend/qin-563-registry-stat-canvas-filter.test.mjs",
+        "tests/frontend/node-files.txt",
+        "tests/hygiene/fixtures/admissions/issue-636.json",
+        "tests/hygiene/test_cleanroom_hygiene.py",
+    }
