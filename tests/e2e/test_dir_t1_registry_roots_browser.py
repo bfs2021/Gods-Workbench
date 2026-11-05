@@ -20,7 +20,7 @@ def _storage_settings_get(response) -> bool:
     return response.request.method == "GET" and "/api/storage-settings" in response.url
 
 
-def _click_asset_tree_board(vault, board_id: str) -> None:
+def _click_asset_tree_board(vault, board_id: str, *, force_project_toggle: bool = False) -> None:
     root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
     if "asset-manager-root-local" in root_class:
         vault.locator("[data-localup-back-to-tree]").click()
@@ -51,8 +51,14 @@ def _click_asset_tree_board(vault, board_id: str) -> None:
     entry.wait_for(state="visible", timeout=15000)
     if board_id == "projects":
         branch = vault.locator('[data-asset-tree-node-key="system:projects"]')
+        if force_project_toggle and branch.get_attribute("aria-expanded") == "true":
+            entry.click()
+            expect(branch).to_have_attribute("aria-expanded", "false")
         if branch.get_attribute("aria-expanded") != "true":
             entry.click()
+        expect(branch).to_have_attribute("aria-expanded", "true")
+        expect(branch.locator(":scope > .asset-tree-children")).to_be_visible()
+        expect(vault.locator('[data-asset-tree-node-key^="system:projects:"]').first).to_be_visible()
         return
     try:
         entry.click(timeout=5000)
@@ -119,6 +125,12 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
     monkeypatch.setenv("GW_ALLOWED_ROOTS", str(allowed))
 
     with settings_browser(monkeypatch, tmp_path) as (page, base, errors, _):
+        project_response = page.context.request.post(
+            base + "/api/asset-registry/projects",
+            data={"name": "DIR-T1 树展开验证项目", "project_type": "other"},
+            headers={"Origin": base},
+        )
+        assert project_response.status == 201, project_response.text()
         bad_asset_responses = []
         bootstrap = {"facets": False}
         page.on(
@@ -232,6 +244,7 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
 
         def wait_for_fixed_rows(expected, board_id: str, viewport: str):
             try:
+                frame.evaluate("delete window.__assetManagerFixedRowsProbe")
                 frame.wait_for_function(
                     """({expected, boardId}) => {
                         const root = document.querySelector('#assetManagerRoot');
@@ -239,16 +252,33 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
                             root?.querySelector(':scope > .registry-overview-shell'),
                             root?.querySelector(':scope > .registry-toolbar')
                         ];
-                        if (!root || !rows.every(Boolean) || !root.classList.contains(`asset-manager-root-page-${boardId}`)) return false;
+                        const hasBoardClass = root?.classList.contains(`asset-manager-root-page-${boardId}`)
+                            || root?.classList.contains(`asset-manager-root-${boardId}`);
+                        if (!root || !rows.every(Boolean) || !hasBoardClass) {
+                            delete window.__assetManagerFixedRowsProbe;
+                            return false;
+                        }
                         const rootRect = root.getBoundingClientRect();
-                        return rows.every((element, index) => {
+                        const positions = rows.map(element => {
                             const rect = element.getBoundingClientRect();
-                            return Math.abs(rect.x - rootRect.x - expected[index].x) <= 1
-                                && Math.abs(rect.y - rootRect.y - expected[index].y) <= 1;
+                            return {x:rect.x - rootRect.x, y:rect.y - rootRect.y};
                         });
+                        const now = performance.now();
+                        const previous = window.__assetManagerFixedRowsProbe;
+                        const stable = previous?.boardId === boardId && positions.every((position, index) =>
+                            Math.abs(position.x - previous.positions[index].x) <= 0.25
+                            && Math.abs(position.y - previous.positions[index].y) <= 0.25
+                        );
+                        const stableSince = stable ? previous.stableSince : now;
+                        window.__assetManagerFixedRowsProbe = {boardId, positions, stableSince};
+                        if (now - stableSince < 200) return false;
+                        return positions.every((position, index) =>
+                            Math.abs(position.x - expected[index].x) <= 1
+                            && Math.abs(position.y - expected[index].y) <= 1
+                        );
                     }""",
                     arg={"expected": expected, "boardId": board_id},
-                    timeout=5000,
+                    timeout=10000,
                 )
             except PlaywrightTimeout as exc:
                 layout = vault.locator("#assetManagerRoot").evaluate("""root => ({
@@ -257,9 +287,11 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
                     rows:[...root.querySelectorAll(':scope > .registry-overview-shell, :scope > .registry-toolbar')]
                         .map(element => ({className:element.className,rect:element.getBoundingClientRect().toJSON()}))
                 })""")
-                raise AssertionError(f"{viewport}切换 {board_id} 后固定栏位置变化：{layout}") from exc
+                raise AssertionError(f"{viewport}切换 {board_id} 后固定栏渲染稳定时与基准位置不符：{layout}") from exc
+            finally:
+                frame.evaluate("delete window.__assetManagerFixedRowsProbe")
 
-        overview_stats_box = position(overview_stats)
+        overview_stats_box = position(vault.locator("#assetManagerRoot > .registry-overview-shell"))
         overview_toolbar_box = position(overview_toolbar)
         library_board = frame.evaluate("""() => {
             const state = JSON.parse(localStorage.getItem('asset_board_navigation_v1') || '{}');
@@ -271,10 +303,7 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
         expect(vault.locator(".registry-toolbar")).to_be_visible()
         expect(vault.locator("#assetManagerRoot")).to_have_class(re.compile("asset-manager-root-library"))
         assert page.url == overview_url, "切换资源库不应导航离开当前页面"
-        custom_stats_box = position(vault.locator(".registry-overview-stats"))
-        custom_toolbar_box = position(vault.locator(".registry-toolbar"))
-        assert (custom_stats_box["x"], custom_stats_box["y"]) == (overview_stats_box["x"], overview_stats_box["y"])
-        assert (custom_toolbar_box["x"], custom_toolbar_box["y"]) == (overview_toolbar_box["x"], overview_toolbar_box["y"])
+        wait_for_fixed_rows((overview_stats_box, overview_toolbar_box), "library", "桌面自定义库")
         vault.locator("[data-registry-card]").filter(has_text="浏览器素材-甲.txt").wait_for(timeout=15000)
         collapsed_layout = vault.locator("#assetManagerRoot").evaluate("""root => {
             const content = root.querySelector('.registry-content').getBoundingClientRect();
@@ -310,7 +339,7 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
             assert page.url == fixed_url, f"切换 {board_id} 不应导航离开当前页面"
             wait_for_fixed_rows(reference_boxes, board_id, "桌面")
         for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
-            _click_asset_tree_board(vault, board_id)
+            _click_asset_tree_board(vault, board_id, force_project_toggle=board_id == "projects")
             assert page.url == fixed_url, f"打开 {route_name} 不应导航离开当前页面"
             wait_for_fixed_rows(reference_boxes, "registry", f"桌面{route_name}")
         page.set_viewport_size({"width": 500, "height": 900})
@@ -327,7 +356,7 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
             expect(vault.locator(".asset-tree-panel")).to_be_visible()
             wait_for_fixed_rows(narrow_reference, board_id, "窄屏")
         for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
-            _click_asset_tree_board(vault, board_id)
+            _click_asset_tree_board(vault, board_id, force_project_toggle=board_id == "projects")
             assert page.url == fixed_url, f"窄屏打开 {route_name} 不应导航离开当前页面"
             wait_for_fixed_rows(narrow_reference, "registry", f"窄屏{route_name}")
         assert bad_asset_responses == []

@@ -24,6 +24,13 @@ def test_local_assets_show_error_retry_and_load_next_page(
     local_repo.index_local_files(paths, "local")
 
     with settings_browser(monkeypatch, tmp_path) as (page, base, errors, _):
+        project_response = page.context.request.post(
+            base + "/api/asset-registry/projects",
+            data={"name": "QIN-560 返回筛选回归项目", "project_type": "other"},
+            headers={"Origin": base},
+        )
+        assert project_response.status == 201, project_response.text()
+        project_id = project_response.json()["project"]["project_id"]
         failures = {"remaining": 1}
 
         def fail_once(route):
@@ -43,6 +50,22 @@ def test_local_assets_show_error_retry_and_load_next_page(
         page.route("**/api/local-assets?*", fail_once)
         goto_ready(page, base + "/static/pages/assets.html")
         vault = page.frame_locator("#assetVaultFrame")
+        system_tab = vault.locator('[data-asset-tree-tab="system"]')
+        if system_tab.get_attribute("aria-selected") != "true":
+            system_tab.click()
+        project_branch = vault.locator('[data-asset-tree-node="system:projects"]')
+        branch_state = vault.locator('[data-asset-tree-node-key="system:projects"]')
+        project_branch.wait_for(state="visible")
+        if branch_state.get_attribute("aria-expanded") != "true":
+            project_branch.click()
+        project_entry = vault.locator(f'[data-asset-tree-node="system:projects:{project_id}"]')
+        project_entry.wait_for(state="visible")
+        project_entry.click()
+        filtered_project = vault.locator(f'[data-asset-tree-node-key="system:projects:{project_id}"]')
+        filtered_project.wait_for(state="visible")
+        assert filtered_project.get_attribute("aria-selected") == "true"
+        assert vault.locator('[data-registry-clear="project"]').is_visible()
+
         vault.locator('[data-asset-tree-tab="mine"]').click()
         local_entry = vault.locator('[data-asset-tree-node="mine:board:local"]')
         local_entry.wait_for(state="visible")
@@ -83,5 +106,6 @@ def test_local_assets_show_error_retry_and_load_next_page(
         vault.locator("[data-localup-back-to-tree]").click()
         vault.locator("#assetManagerRoot.asset-manager-root-page-registry").wait_for(timeout=15000)
         assert vault.locator('[data-asset-tree-tab="mine"]').get_attribute("aria-selected") == "true"
+        assert vault.locator('[data-registry-clear="project"]').count() == 0
         assert vault.locator("[data-asset-tree-node-key].is-selected").count() == 0
         assert errors == []

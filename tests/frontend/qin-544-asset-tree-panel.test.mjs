@@ -40,6 +40,71 @@ function renderAssetTreeNodeForTest(options){
     return renderer(options);
 }
 
+function renderAssetTreePanelForTest(){
+    const escape = value => String(value ?? '');
+    const renderNode = options => renderAssetTreeNodeForTest(options);
+    const projectBranch = new Function(
+        'assetTreeExpanded',
+        'projects',
+        'AssetRegistryDefaultEntityTypes',
+        'assetTreeProjectDetail',
+        'assetTreeProjectGroupNode',
+        'renderAssetTreeNode',
+        'escapeAttr',
+        'escapeHtml',
+        `${functionSource('renderAssetTreeProjectsBranch')}; return renderAssetTreeProjectsBranch;`
+    )(
+        new Set(['system:projects']),
+        [{id:'project-render-544', name:'渲染验证项目', asset_count:0, template:{entity_types:[]}}],
+        [],
+        () => null,
+        () => '',
+        renderNode,
+        escape,
+        escape
+    );
+    const boards = new Map([
+        ['scripts', {id:'scripts', name:'剧本资产', icon:'scroll'}],
+        ['canvas-assets', {id:'canvas-assets', name:'画布资产', icon:'clapperboard'}],
+        ['prompts', {id:'prompts', name:'提示词库', icon:'text'}],
+    ]);
+    const systemBoards = new Function(
+        'assetBoardById',
+        `${functionSource('assetTreeSystemBoards')}; return assetTreeSystemBoards;`
+    )(id => boards.get(id));
+    const systemTree = new Function(
+        'renderAssetTreeProjectsBranch',
+        'assetTreeSystemBoards',
+        'renderAssetTreeNode',
+        'escapeAttr',
+        'escapeHtml',
+        `${functionSource('renderAssetTreeSystemTree')}; return renderAssetTreeSystemTree;`
+    )(projectBranch, systemBoards, renderNode, escape, escape);
+    const panel = new Function(
+        'activeTab',
+        'assetTreeTab',
+        'renderAssetTreeSystemTree',
+        'renderAssetTreeMineTree',
+        'renderLocalUploadFolderPanel',
+        `${functionSource('renderAssetTreePanel')}; return renderAssetTreePanel;`
+    )('registry', 'system', systemTree, () => '', () => '<aside class="local-upload-panel"></aside>');
+    return panel();
+}
+
+test('AC1/AC2: 单栏树面板实际渲染系统标签、展开项目与三个系统节点', () => {
+    const markup = renderAssetTreePanelForTest();
+    assert.match(markup, /aria-label="资产导航树"/);
+    assert.match(markup, /data-asset-tree-view="system"/);
+    assert.match(markup, /data-asset-tree-node="system:projects"/);
+    assert.match(markup, /aria-expanded="true" data-asset-tree-node-key="system:projects"/);
+    assert.match(markup, /data-asset-tree-node="system:projects:project-render-544"/);
+    for(const key of ['scripts', 'canvas-assets', 'prompts']){
+        assert.match(markup, new RegExp(`data-asset-tree-node="system:${key}"`));
+    }
+    assert.match(markup, /提示词库/);
+    assert.doesNotMatch(markup, /workflows|工作流/);
+});
+
 test('AC1: 左栏顶部系统资源/我的资源两个标签页，各一棵树', () => {
     const panel = functionSource('renderAssetTreePanel');
     assert.match(panel, /data-asset-tree-tab="system"[^>]*>系统资源</, '系统资源标签页应存在');

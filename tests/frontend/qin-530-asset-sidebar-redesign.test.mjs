@@ -67,13 +67,26 @@ test('QIN-560 AC3: 点击单栏树入口切换托管、上传与用户资源库�
   assert.deepEqual(activatedBoardIds, ['assets', 'local', 'library_example', 'source_library_example']);
 });
 
-test('QIN-560 AC3: 上传资源页用明确返回按钮回到树并清除旧选中态', () => {
+test('QIN-560 AC3: 上传资源页返回根面包屑并清除 registry 筛选和旧选中态', async () => {
   const activatedBoardIds = [];
+  const refreshCalls = [];
+  const renderCalls = [];
   const context = createContext({
     assetTreeSelectedKey: 'mine:board:local',
+    registryProjectFilterId: 'project-r3',
+    registryProjectEntityFilter: { projectId: 'project-r3', entityTypes: new Set(['scene']), entityId: 'scene-r3' },
+    registryNavFolder: { rootId: 'root-r3', path: 'characters/lead' },
+    registryRootId: 'root-r3',
+    activeTab: 'local',
+    registryGroupSimilar: false,
     activateAssetBoard: id => activatedBoardIds.push(id),
+    refreshRegistryAssets: force => { refreshCalls.push(force); return Promise.resolve(); },
+    render: () => renderCalls.push('render'),
   });
-  runInContext(functionSource('handleLocalUploadBackClick'), context);
+  runInContext([
+    functionSource('handleAssetTreeCrumbClick'),
+    functionSource('handleLocalUploadBackClick'),
+  ].join('\n'), context);
   const button = {};
   context.event = {
     target: {
@@ -83,7 +96,16 @@ test('QIN-560 AC3: 上传资源页用明确返回按钮回到树并清除旧选�
 
   assert.equal(runInContext('handleLocalUploadBackClick(event)', context), true);
   assert.equal(runInContext('assetTreeSelectedKey', context), '');
-  assert.deepEqual(activatedBoardIds, ['registry']);
+  assert.equal(runInContext('registryProjectFilterId', context), '');
+  assert.equal(runInContext('registryProjectEntityFilter', context), null);
+  assert.equal(runInContext('registryNavFolder.rootId', context), '');
+  assert.equal(runInContext('registryNavFolder.path', context), '');
+  assert.equal(runInContext('registryRootId', context), '');
+  assert.equal(runInContext('activeTab', context), 'registry');
+  assert.deepEqual(refreshCalls, [false]);
+  assert.deepEqual(activatedBoardIds, []);
+  await Promise.resolve();
+  assert.equal(renderCalls.length, 2, '根面包屑立即渲染，并在 registry 请求完成后再次渲染');
   context.event.target.closest = () => null;
   assert.equal(runInContext('handleLocalUploadBackClick(event)', context), false);
 });

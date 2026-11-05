@@ -12069,8 +12069,7 @@ function handleAssetTreeNodeClick(event){
 function handleLocalUploadBackClick(event){
     const button = event?.target?.closest?.('[data-localup-back-to-tree]');
     if(!button) return false;
-    assetTreeSelectedKey = '';
-    void activateAssetBoard('registry');
+    handleAssetTreeCrumbClick('registry');
     return true;
 }
 function renderAssetRack(extraAttrs='', extraClass=''){
