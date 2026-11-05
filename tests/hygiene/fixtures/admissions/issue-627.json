@@ -1,0 +1,24 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 627,
+  "authorization_basis": "GitHub Issue #627, user-approved QIN-521/#556 guide hash update, 2026-11-05",
+  "files": [
+    "docs/guides/KEYBOARD-SHORTCUTS.md",
+    "tests/frontend/node-files.txt",
+    "tests/frontend/qin-559-asset-keyboard.test.mjs",
+    "tests/hygiene/fixtures/admissions/issue-556.json",
+    "tests/hygiene/fixtures/admissions/issue-627.json",
+    "web/js/modules/asset-manager.js",
+    "web/js/modules/asset-manager/coverflow.js"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-559-asset-keyboard.test.mjs",
+      "classification": "frontend_test",
+      "authorization_basis": "GitHub Issue #627, 2026-11-05",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-559 前端键盘交互回归测试；按用户授权同步更新已准入快捷键指南在 issue-556 分片中的哈希。"
+}
