@@ -11536,14 +11536,14 @@ function assetTreeSystemBoards(){
     // AC2：系统资源树顶层节点（剧本/画布/提示词）；工作流入口删除（独立页面），系统资源只读
     return ['scripts', 'canvas-assets', 'prompts'].map(id => assetBoardById(id)).filter(Boolean);
 }
-function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, emptyAble=true, groupLabel=false}){
+function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false}){
     // AC6 管线样式：竖线与节点圆点由 CSS 依 --tree-depth 定位；is-path=根到选中支路，
     // is-selected=选中淡金底，is-empty=数量为 0 的目录变暗，is-group-label=分组标题小号灰字。
     const pathKeys = assetTreeSelectedPathKeys();
     const selected = assetTreeSelectedKey === key;
     const countValue = Number(count);
     const showCount = Number.isFinite(countValue) && countValue > 0;
-    const zeroDim = emptyAble && !showCount && !hasChildren;
+    const zeroDim = count !== null && count !== undefined && Number.isFinite(countValue) && countValue === 0;
     return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'} ${zeroDim ? 'is-empty' : ''}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
         <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" aria-label="${escapeAttr(name)}">
             <span class="asset-tree-twisty" ${hasChildren ? `data-asset-tree-toggle="${escapeAttr(key)}" aria-expanded="${Boolean(expanded)}" title="${expanded ? '折叠' : '展开'}"` : ''}>${hasChildren ? `<i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i>` : ''}</span>
@@ -11644,7 +11644,7 @@ function renderAssetTreeMineTree(){
     const inboxCount = Number(document.querySelector('[data-unassigned-count]')?.textContent || '') || 0;
     const inboxNode = renderAssetTreeNode({
         key:'mine:inbox', icon:'inbox', name:'收集箱', count:inboxCount, depth:0,
-        hasChildren:false, emptyAble:false,
+        hasChildren:false,
     });
     const roots = assetTreeRootsList();
     const rootNodes = roots.map(root => {
@@ -11656,7 +11656,7 @@ function renderAssetTreeMineTree(){
             : '';
         return renderAssetTreeNode({
             key, icon:'hard-drive', name:root.name, count:root.count, depth:1,
-            children, expanded, hasChildren:true, emptyAble:false,
+            children, expanded, hasChildren:true,
         });
     }).join('');
     const mountLabel = `<div class="asset-tree-group-label">挂载文件夹</div>`;
@@ -11672,7 +11672,7 @@ function renderAssetTreeSystemTree(){
     const projectBranch = renderAssetTreeProjectsBranch();
     const boardNodes = assetTreeSystemBoards().map(board => renderAssetTreeNode({
         key:`system:${board.id}`, icon:board.icon, name:board.name, count:'', depth:0,
-        hasChildren:false, emptyAble:false,
+        hasChildren:false,
     })).join('');
     return `<div class="asset-tree-scroll" role="tree" aria-label="系统资源树" tabindex="0" data-asset-tree-view="system">${projectBranch}${boardNodes}</div>`;
 }

@@ -21,6 +21,25 @@ function functionSource(name){
     assert.fail(`函数未闭合：${name}`);
 }
 
+function renderAssetTreeNodeForTest(options){
+    const start = source.indexOf('function renderAssetTreeNode(');
+    const end = source.indexOf(String.fromCharCode(10) + '}', start) + 2;
+    assert.ok(start >= 0 && end > 1, 'renderer 函数应存在且闭合');
+    const renderer = new Function(
+        'assetTreeSelectedPathKeys',
+        'assetTreeSelectedKey',
+        'escapeAttr',
+        'escapeHtml',
+        `${source.slice(start, end)}; return renderAssetTreeNode;`
+    )(
+        () => new Set(),
+        '',
+        value => String(value ?? ''),
+        value => String(value ?? '')
+    );
+    return renderer(options);
+}
+
 test('AC1: 左栏顶部系统资源/我的资源两个标签页，各一棵树', () => {
     const panel = functionSource('renderAssetTreePanel');
     assert.match(panel, /data-asset-tree-tab="system"[^>]*>系统资源</, '系统资源标签页应存在');
@@ -98,8 +117,20 @@ test('AC6: 管线样式：竖线+圆点、金色支路、选中淡金底、空�
     const nodeRow = source.slice(nodeStart, source.indexOf(String.fromCharCode(10) + '}', nodeStart) + 2);
     assert.match(nodeRow, /is-path/, '节点渲染应输出支路状态类');
     assert.match(nodeRow, /is-selected/, '节点渲染应输出选中态类');
-    assert.match(nodeRow, /zeroDim \? 'is-empty' : ''/, '数量为 0 的叶子目录应获得变暗类');
     assert.match(nodeRow, /is-group-label/, '节点渲染应输出分组标题类');
+    const emptyNodeHtml = renderAssetTreeNodeForTest({
+        key:'system:projects:project:group:scene', name:'场景', count:0, hasChildren:true, emptyAble:false,
+    });
+    const emptyNodeClasses = emptyNodeHtml.match(/<div class="([^"]+)"/)?.[1].split(/\s+/) || [];
+    assert.ok(emptyNodeClasses.includes('is-empty'), '可展开的零数量分组渲染后应含 is-empty 类');
+    const populatedNodeHtml = renderAssetTreeNodeForTest({
+        key:'system:projects:project:group:character', name:'角色', count:2, hasChildren:true,
+    });
+    assert.doesNotMatch(populatedNodeHtml, /class="[^"]*\bis-empty\b/, '有数量的可展开分组不应变暗');
+    const uncountedNodeHtml = renderAssetTreeNodeForTest({
+        key:'system:projects:project:group:shot', name:'镜头', count:null, hasChildren:true,
+    });
+    assert.doesNotMatch(uncountedNodeHtml, /class="[^"]*\bis-empty\b/, '未提供数量的节点不应视为零数量');
 });
 test('AC7: 面包屑逐级可点击 + 键盘上下切换与回车进入', () => {
     assert.match(functionSource('renderAssetTreeBreadcrumb'), /data-asset-tree-crumb/, '面包屑应输出可点击节点');
