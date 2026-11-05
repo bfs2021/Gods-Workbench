@@ -111,6 +111,8 @@ test('画布 F 使用选择集，视频 A/D 逐帧且 F 切换全屏', () => {
     assert.match(toggleFullscreen, /document\.fullscreenElement === video/);
     assert.match(MANAGER, /title="上一帧（A）" aria-label="上一帧（A）"/);
     assert.match(MANAGER, /title="下一帧（D）" aria-label="下一帧（D）"/);
+    assert.match(MANAGER, /<kbd>A<\/kbd><kbd>D<\/kbd> 上一帧 \/ 下一帧/);
+    assert.match(MANAGER, /<kbd>F<\/kbd> 切换全屏/);
     assert.match(MANAGER, /data-detail-video-action="rate-reset" title="恢复原始速度（Z）"/);
     assert.match(MANAGER, /title="减速 0\.1 倍（X）"/);
     assert.match(MANAGER, /title="加速 0\.1 倍（C）"/);
