@@ -258,6 +258,12 @@ let activeTab = 'registry';
 let boardNavigationState = null;
 let assetRackCollapsed = readAssetRackCollapsed();
 const assetRackExpandedFolders = new Set(readAssetRackExpandedFolders());
+// 【QIN-544】左栏单栏树状态：系统/我的两个标签页，各一棵树
+let assetTreeTab = 'system'; // 'system' | 'mine'
+const assetTreeExpanded = new Set(); // 展开的树节点 key
+let assetTreeSelectedKey = ''; // 当前选中树节点 key
+const assetTreeProjectData = new Map(); // projectId -> QIN-543 项目详情（entities/groups）
+let registryProjectEntityFilter = null; // 项目条目素材过滤 {projectId, entityTypes:Set, entityId}
 // 目录层级模式下的目录过滤（rootId + 物理相对路径），纯前端过滤，不触发网络请求
 let registryNavFolder = {rootId:'', path:''};
 let registryRegisteredFolders = [];
@@ -921,7 +927,7 @@ function renderScriptAssetsManager(){
         </article>`;
     }).join('');
 
-    root.innerHTML = `${renderSystemBoardRack('', renderAssetSmartFilterContents('剧本资产'))}<section class="asset-workspace-panel script-assets-panel">
+    root.innerHTML = `${renderAssetTreePanel()}}<section class="asset-workspace-panel script-assets-panel">
         <header class="asset-workspace-panel-head">
             <div>
                 <span class="asset-panel-kicker">WRITING ARCHIVE</span>
@@ -7633,9 +7639,128 @@ function registryNavFolderLabel(){
     const folderName = registryNavFolder.path.split('/').filter(Boolean).pop() || '';
     return [rootName, folderName].filter(Boolean).join(' / ') || rootName;
 }
+function registryProjectEntityMatches(asset){
+    // AC2：树点分组/条目后，右侧素材按 QIN-543 entities[].assets 收敛（前端过滤）
+    if(!registryProjectEntityFilter) return true;
+    const filter = registryProjectEntityFilter;
+    const detail = assetTreeProjectDetail(filter.projectId);
+    if(!detail) return true;
+    const ids = filter.entityId
+        ? assetTreeEntityAssetIds(detail, entity => String(entity.id || '') === String(filter.entityId))
+        : assetTreeEntityAssetIds(detail, entity => filter.entityTypes?.has(String(entity.entity_type || '')) || false);
+    return ids.has(String(asset.id || ''));
+}
+function assetTreeBreadcrumbTrail(){
+    // AC7：右侧顶部面包屑层级链，每级可点击（data-asset-tree-crumb=对应树节点 key）
+    const trail = [{key:'registry', label:'资产库'}];
+    const board = assetBoardById(activeTab);
+    if(registryProjectEntityFilter?.entityId){
+        const detail = assetTreeProjectDetail(registryProjectEntityFilter.projectId);
+        const entity = (detail?.entities || []).find(item => String(item.id) === String(registryProjectEntityFilter.entityId));
+        const project = projects.find(item => String(item.id) === String(registryProjectEntityFilter.projectId));
+        if(project) trail.push({key:`system:projects:${project.id}`, label:project.name});
+        if(entity) trail.push({key:`system:projects:${registryProjectEntityFilter.projectId}:group:${entity.entity_type}:entity:${entity.id}`, label:entity.name || entity.code || '条目'});
+        return trail;
+    }
+    if((registryProjectEntityFilter?.entityTypes?.size || 0) || registryProjectFilterId){
+        const project = projects.find(item => String(item.id) === String(registryProjectFilterId));
+        if(project) trail.push({key:`system:crumbs:project`, label:project.name});
+        return trail;
+    }
+    if(registryNavFolderActive()){
+        const root = (registryFacets.roots || []).find(item => String(item.id) === String(registryNavFolder.rootId));
+        if(root) trail.push({key:`mine:root:${root.id}`, label:root.name});
+        const segments = String(registryNavFolder.path || '').split('/').filter(Boolean);
+        let path = '';
+        segments.forEach(segment => {
+            path = path ? `${path}/${segment}` : segment;
+            trail.push({key:`mine:root:${registryNavFolder.rootId}::${path}`, label:segment});
+        });
+        return trail;
+    }
+    if(board && activeTab !== 'registry') trail.push({key:`system:${board.id}`, label:board.name});
+    return trail;
+}
+function renderAssetTreeBreadcrumb(){
+    // AC7：更新右侧顶部面包屑（embeds/asset-manager.html 预留的 .asset-breadcrumbs 壳）
+    const holder = document.querySelector('.asset-breadcrumbs .asset-heading-row');
+    if(!holder) return;
+    const trail = assetTreeBreadcrumbTrail();
+    holder.innerHTML = trail.map((item, index) => {
+        const last = index === trail.length - 1;
+        return `<button class="asset-tree-crumb ${last ? 'is-current' : ''}" type="button" data-asset-tree-crumb="${escapeAttr(item.key)}" ${last ? 'aria-current="location"' : ''}>${escapeHtml(item.label)}</button>`;
+    }).join('');
+}
+function handleAssetTreeCrumbClick(key){
+    // 每级可点击：回退到对应层级（清空更深层的过滤态）
+    const value = String(key || '');
+    if(!value || value === 'registry'){
+        // 根级「资产库」：清空项目/条目/目录过滤，回总览
+        registryProjectFilterId = '';
+        registryProjectEntityFilter = null;
+        registryNavFolder = {rootId:'', path:''};
+        registryRootId = '';
+        activeTab = 'registry';
+        assetTreeSelectedKey = '';
+        render();
+        void refreshRegistryAssets(false).then(render, render);
+        return;
+    }
+    if(value.startsWith('system:crumbs:project')){
+        // 项目级：保留项目过滤、清条目过滤
+        registryProjectEntityFilter = null;
+        void refreshRegistryAssetsFromRack().catch(() => null);
+        render();
+        return;
+    }
+    if(value.startsWith('mine:root:')){
+        const body = value.slice('mine:root:'.length);
+        const separator = body.indexOf('::');
+        const rootId = separator > 0 ? body.slice(0, separator) : body;
+        const path = separator > 0 ? body.slice(separator + 2) : '';
+        selectAssetRackFolder(rootId, path);
+        return;
+    }
+    selectAssetTreeNode(value);
+}
+function focusAssetTreeSelectedRow(){
+    // render 重建 DOM 后焦点随旧节点丢失；下一帧把焦点挪回新树的选中行，保证连续键盘导航
+    requestAnimationFrame(() => {
+        const key = String(assetTreeSelectedKey || '');
+        if(!key) return;
+        const fresh = root.querySelector(`.asset-tree-panel [data-asset-tree-node="${CSS.escape(key)}"]`);
+        fresh?.focus();
+    });
+}
+function assetTreeDomNodes(){
+    // 键盘导航按 DOM 顺序遍历（与视觉顺序一致），不重算树逻辑
+    return [...root.querySelectorAll('.asset-tree-panel .asset-tree-row')];
+}
+function moveAssetTreeSelection(delta){
+    const nodes = assetTreeDomNodes();
+    if(!nodes.length) return;
+    const currentIndex = nodes.findIndex(node => node.dataset.assetTreeNode === assetTreeSelectedKey);
+    const nextIndex = currentIndex < 0 ? (delta > 0 ? 0 : nodes.length - 1) : Math.min(nodes.length - 1, Math.max(0, currentIndex + delta));
+    const next = nodes[nextIndex];
+    if(next) selectAssetTreeNode(next.dataset.assetTreeNode || '');
+    focusAssetTreeSelectedRow();
+}
+function handleAssetTreeKeydown(event){
+    // AC7：键盘上下键切换、右键展开、左键折叠、回车展开或进入；树内按键不向下穿透
+    const panel = event.target?.closest?.('.asset-tree-panel');
+    if(!panel) return;
+    const row = event.target.closest('.asset-tree-row');
+    const key = row?.dataset.assetTreeNode || assetTreeSelectedKey;
+    if(event.key === 'ArrowDown'){ event.preventDefault(); event.stopPropagation(); moveAssetTreeSelection(1); }
+    else if(event.key === 'ArrowUp'){ event.preventDefault(); event.stopPropagation(); moveAssetTreeSelection(-1); }
+    else if(event.key === 'ArrowRight'){ event.preventDefault(); event.stopPropagation(); if(key) toggleAssetTreeNode(key); }
+    else if(event.key === 'ArrowLeft'){ event.preventDefault(); event.stopPropagation(); if(key){ assetTreeExpanded.delete(key); render(); } }
+    else if(event.key === 'Enter'){ event.preventDefault(); event.stopPropagation(); if(key){ selectAssetTreeNode(key); focusAssetTreeSelectedRow(); } }
+}
 function registryVisibleAssets(){
     // 【QIN-524】目录层级选中的物理目录即时收敛右网格（仅对已加载分页生效，页脚区分总库与当前显示）
-    return registryVisibleAssetList(registryAssets).filter(registryNavFolderMatches);
+    // 【QIN-544】树点分组/条目后按 QIN-543 条目素材集合收敛
+    return registryVisibleAssetList(registryAssets).filter(registryNavFolderMatches).filter(registryProjectEntityMatches);
 }
 function renderLocalLibrarySources(){
     const libs = localLibraries.length ? localLibraries : [{id:'local', kind:'local', name:DEFAULT_LOCAL_LIBRARY_NAME, path:''}];
@@ -9124,10 +9249,11 @@ function render(){
     const scrollState = [...document.querySelectorAll('.nav-scroll,.content-scroll,.detail-scroll')]
         .map((el, index) => ({index, top:el.scrollTop, left:el.scrollLeft}));
     renderBoardNavigation();
+    renderAssetTreeBreadcrumb();
     const customLibraryActive = assetBoardById(activeTab)?.system === false;
     const systemRackActive = systemBoardRackActive();
     const pageClass = String(activeTab || 'assets').replace(/[^a-z0-9_-]/gi, '-');
-    root.className = `asset-manager-root asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${(activeTab === 'registry' || customLibraryActive || systemRackActive) && assetRackCollapsed ? ' asset-rack-collapsed' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}${systemRackActive ? ' asset-manager-root-rack' : ''}`;
+    root.className = `asset-manager-root asset-tree-layout asset-manager-root-page-${pageClass}${activeTab === 'local' ? ' asset-manager-root-local' : ''}${activeTab === 'registry' ? ' asset-manager-root-registry' : ''}${customLibraryActive ? ' asset-manager-root-library' : ''}${customLibraryActive && registryDetailPanelCollapsed ? ' registry-detail-collapsed' : ''}${systemRackActive ? ' asset-manager-root-rack' : ''}`;
     syncRegistryDetailGridWidth();
     if(activeTab === 'registry') renderRegistryManager();
     else if(activeTab === 'scripts') renderScriptAssetsManager();
@@ -9247,11 +9373,7 @@ function renderCanvasAssetsManager(){
     const total = uniqueCanvasAssets(canvasAssetsData.items || []).length;
     const detail = selectedCanvasAsset();
     root.innerHTML = `
-        ${renderSystemBoardRack('', `${renderAssetSmartFilterContents('画布资产')}
-                <section class="asset-context-tree"><div class="nav-section-title">画布分类</div><div class="nav-tree canvas-asset-tree">
-                    ${canvasAssetCategories().map(cat => renderCanvasAssetTreeBranch(cat)).join('')}
-                </div></section>
-                <div class="nav-hint">共 ${canvasAssetsData.canvases?.length || 0} 个画布，${total} 个可下载资产。</div>`)}
+        ${renderAssetTreePanel()}}
         <section class="asset-panel asset-content ${canvasAssetManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -9548,16 +9670,7 @@ function renderLocalManager(){
     const imageCount = selectedLocalUploadImageItems().length;
     const folderTitle = localUploadFolderTitle();
     root.innerHTML = `
-        ${renderSystemBoardRack(`<button class="hw-btn hw-btn-icon" type="button" data-localup-folder-new title="新建文件夹"><i data-lucide="folder-plus"></i></button>
-                    <button class="hw-btn hw-btn-icon" type="button" data-localup-folder-rename title="重命名文件夹" ${activeLocalUploadFolder ? '' : 'disabled'}><i data-lucide="pencil"></i></button>`, `${renderAssetSmartFilterContents('上传资源')}
-                <section class="asset-context-tree"><div class="nav-section-title">${escapeHtml(activeLocalLibraryName())}</div><div class="asset-context-path">${escapeHtml(activeLocalLibraryPath() || 'assets/uploads')}</div>
-                ${renderLocalLibrarySources()}
-                <section class="registry-ai-overview local-ai-overview"><span><i data-lucide="sparkles"></i></span><div><strong>AI 分类与标签</strong><small>支持批量识别、智能标签与筛选</small></div><button type="button" data-local-ai-start>开始</button></section>
-                <div class="nav-tree">
-                    ${renderLocalUploadFolderBranch(localUploadTree || {path:'', name:'全部上传', count:total, children:[]})}
-                    ${renderLocalUploadSmartClassTree()}
-                </div>
-                <div class="nav-hint" style="padding:10px 12px;font-size:var(--gw-type-body-sm);opacity:.7;">选择图片/视频/音频文件即可上传，文件保存在项目 assets/uploads 目录。</div></section>`)}
+        ${renderAssetTreePanel()}}
         <section class="asset-panel asset-content ${localUploadManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -11222,7 +11335,7 @@ async function loadAssetRackRegisteredFolders(force=false){
         if(activeTab === 'registry' || assetRackBoard()) render();
         return;
     }
-    if((activeTab === 'registry' || assetRackBoard()) && !assetRackCollapsed && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
+    if((activeTab === 'registry' || assetRackBoard()) && (registryIndexedFolders.length || diskResults.some(entries => entries.length))) render();
 }
 let assetRackDirectoryIndexPromise = null;
 function resetAssetRackDirectoryIndex(){
@@ -11448,6 +11561,283 @@ function renderAssetRackFolders(){
         ${board ? renderAssetRackBoardExtras(board) : ''}
     </div>`;
 }
+/* ---------------------------------------------------------------------------
+ * 【QIN-544】左栏单栏树：系统资源 / 我的资源两个标签页，各一棵树。
+ * 管线样式（竖线+节点圆点，根到选中支路点亮金色）、右侧顶部面包屑、键盘导航。
+ * ------------------------------------------------------------------------- */
+const ASSET_TREE_GROUP_LABELS = {
+    episode:'剧集', scene:'场景', shot:'镜头', character:'角色', task:'任务',
+};
+function assetTreeKeyPath(key=''){
+    // 根到当前节点的祖先 key 链：按 `:` 分段生成；目录 key（mine:root:<id>::<path>）
+    // 中路径可能含 `:`，但祖先链只在 root 层（mine:root:<id>）需要命中，安全。
+    const parts = String(key || '').split(':');
+    const chain = [];
+    for(let index = 1; index < parts.length; index += 1){
+        chain.push(parts.slice(0, index).join(':'));
+    }
+    return chain;
+}
+function assetTreeSelectedPathKeys(){
+    const selected = String(assetTreeSelectedKey || '');
+    if(!selected) return new Set();
+    return new Set(assetTreeKeyPath(selected).concat([selected]));
+}
+function assetTreeSystemBoards(){
+    // AC2：系统资源树顶层节点（剧本/画布/提示词）；工作流入口删除（独立页面），系统资源只读
+    return ['scripts', 'canvas-assets', 'prompts'].map(id => assetBoardById(id)).filter(Boolean);
+}
+function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false}){
+    // AC6 管线样式：竖线与节点圆点由 CSS 依 --tree-depth 定位；is-path=根到选中支路，
+    // is-selected=选中淡金底，is-empty=数量为 0 的目录变暗，is-group-label=分组标题小号灰字。
+    const pathKeys = assetTreeSelectedPathKeys();
+    const selected = assetTreeSelectedKey === key;
+    const countValue = Number(count);
+    const hasCount = count !== null && count !== undefined && String(count).trim() !== '' && Number.isFinite(countValue);
+    const showCount = hasCount && countValue > 0;
+    const zeroDim = hasCount && countValue === 0;
+    return `<div class="asset-tree-node ${selected ? 'is-selected' : ''} ${pathKeys.has(key) ? 'is-path' : 'is-path-dim'} ${zeroDim ? 'is-empty' : ''}" style="--tree-depth:${Math.min(depth, 8)}" role="treeitem" aria-selected="${selected}" aria-expanded="${hasChildren ? String(Boolean(expanded)) : ''}" data-asset-tree-node-key="${escapeAttr(key)}">
+        <button class="asset-tree-row" type="button" data-asset-tree-node="${escapeAttr(key)}" aria-label="${escapeAttr(name)}">
+            <span class="asset-tree-twisty" ${hasChildren ? `data-asset-tree-toggle="${escapeAttr(key)}" aria-expanded="${Boolean(expanded)}" title="${expanded ? '折叠' : '展开'}"` : ''}>${hasChildren ? `<i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i>` : ''}</span>
+            <span class="asset-tree-dot"></span>
+            <i class="asset-tree-icon" data-lucide="${escapeAttr(icon || 'folder')}"></i>
+            <span class="asset-tree-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
+            ${groupLabel ? '' : `<span class="asset-tree-count">${showCount ? countValue.toLocaleString('zh-CN') : ''}</span>`}
+        </button>
+        ${children}
+    </div>`;
+}
+function ensureAssetTreeProjectData(projectId){
+    // AC2：展开项目时懒加载 QIN-543 详情（entities/groups）；Promise 缓存避免重复请求
+    const id = String(projectId || '');
+    if(!id) return Promise.resolve(null);
+    const existing = assetTreeProjectData.get(id);
+    if(existing) return Promise.resolve(existing).then(() => assetTreeProjectData.get(id));
+    const promise = apiJsonResponse(assetManagerApi.getRegistryProject(id))
+        .then(detail => {
+            assetTreeProjectData.set(id, detail || {entities:[], groups:[]});
+            return detail;
+        })
+        .catch(() => { assetTreeProjectData.set(id, {entities:[], groups:[]}); return null; });
+    assetTreeProjectData.set(id, promise);
+    return promise;
+}
+function assetTreeProjectDetail(projectId){
+    // 已落地的详情数据（Promise 未决时为 null，渲染自然降级为空分组）
+    const value = assetTreeProjectData.get(String(projectId || ''));
+    return value && typeof value === 'object' && !value.then ? value : null;
+}
+function assetTreeEntityAssetIds(detail, predicate){
+    // 从 QIN-543 entities[].assets 摘要收集素材 ID 集合（前端过滤数据源）
+    const ids = new Set();
+    (detail?.entities || []).forEach(entity => {
+        if(predicate && !predicate(entity)) return;
+        (entity.assets || []).forEach(asset => { if(asset?.id) ids.add(String(asset.id)); });
+    });
+    return ids;
+}
+function assetTreeProjectGroupNode(pid, type, detail){
+    // 单类条目分组节点：剧集/场景/镜头/角色/任务，点分组筛选到该类条目的素材
+    const pKey = `system:projects:${pid}`;
+    const gKey = `${pKey}:group:${type.id}`;
+    const gExpanded = assetTreeExpanded.has(gKey);
+    const group = (detail.groups || []).find(item => item.entity_type === type.id);
+    const entities = (detail.entities || []).filter(item => item.entity_type === type.id);
+    const entityNodes = gExpanded ? entities.map(entity => renderAssetTreeNode({
+        key:`${gKey}:entity:${entity.id}`, icon:'tag', name:entity.name || entity.code || entity.id,
+        count:entity.asset_count, depth:3, hasChildren:false,
+    })) : '';
+    return renderAssetTreeNode({
+        key:gKey, icon:'layers', name:ASSET_TREE_GROUP_LABELS[type.id] || type.name || type.id,
+        count:group?.asset_count, depth:2,
+        children:`<div class="asset-tree-children" role="group">${entityNodes}</div>`,
+        expanded:gExpanded, hasChildren:true,
+    });
+}
+function renderAssetTreeProjectsBranch(){
+    // AC2：项目制片 › 项目 › 条目分组 › 条目；点项目显全部素材、点分组/条目筛选素材
+    const expanded = assetTreeExpanded.has('system:projects');
+    const projectNodes = expanded ? projects.map(project => {
+        const pid = String(project.id || '');
+        const pKey = `system:projects:${pid}`;
+        const detail = assetTreeProjectDetail(pid);
+        const gExpanded = assetTreeExpanded.has(pKey);
+        const types = (project?.template?.entity_types || AssetRegistryDefaultEntityTypes);
+        const groupNodes = (detail && gExpanded)
+            ? types.map(type => assetTreeProjectGroupNode(pid, type, detail)).join('')
+            : '';
+        return renderAssetTreeNode({
+            key:pKey, icon:'clapperboard', name:project.name || pid, count:project.asset_count, depth:1,
+            children:`<div class="asset-tree-children" role="group">${groupNodes}</div>`,
+            expanded:gExpanded, hasChildren:true,
+        });
+    }).join('') : '';
+    return renderAssetTreeNode({
+        key:'system:projects', icon:'clapperboard', name:'项目制片',
+        count:projects.reduce((sum, item) => sum + Number(item.asset_count || 0), 0), depth:0,
+        children:`<div class="asset-tree-children" role="group">${projectNodes}</div>`,
+        expanded, hasChildren:true,
+    });
+}
+function assetTreeFolderNodeFor(rootId, node, depth=0){
+    // 【QIN-542】完整磁盘子目录树：展开时逐层懒加载磁盘子目录（含空目录）
+    const key = `mine:root:${rootId}::${node.path}`;
+    const expanded = assetTreeExpanded.has(key);
+    const children = expanded
+        ? `<div class="asset-tree-children" role="group">${node.children.map(child => assetTreeFolderNodeFor(rootId, child, depth + 1)).join('')}</div>`
+        : '';
+    return renderAssetTreeNode({
+        key, icon:'folder', name:node.name, count:node.count, depth,
+        children, expanded, hasChildren:true,
+    });
+}
+function renderAssetTreeMineTree(){
+    // AC3：收集箱第一位（QIN-547 未合入，先占位）；挂载文件夹完整磁盘子目录树；底部「+ 挂载文件夹」
+    const inboxCount = Number(document.querySelector('[data-unassigned-count]')?.textContent || '') || 0;
+    const inboxNode = renderAssetTreeNode({
+        key:'mine:inbox', icon:'inbox', name:'收集箱', count:inboxCount, depth:0,
+        hasChildren:false,
+    });
+    const roots = assetTreeRootsList();
+    const rootNodes = roots.map(root => {
+        const key = `mine:root:${root.id}`;
+        const expanded = assetTreeExpanded.has(key);
+        const tree = expanded ? assetRackFolderTree(root.id) : [];
+        const children = expanded
+            ? `<div class="asset-tree-children" role="group">${tree.map(node => assetTreeFolderNodeFor(root.id, node, 1)).join('')}</div>`
+            : '';
+        return renderAssetTreeNode({
+            key, icon:'hard-drive', name:root.name, count:root.count, depth:1,
+            children, expanded, hasChildren:true,
+        });
+    }).join('');
+    const mountLabel = `<div class="asset-tree-group-label">挂载文件夹</div>`;
+    const emptyGuide = roots.length ? '' : `<div class="asset-tree-empty-guide"><p>尚未挂载文件夹</p><small>挂载后按真实磁盘子目录浏览</small></div>`;
+    return `<div class="asset-tree-scroll" role="tree" aria-label="我的资源目录树" tabindex="0" data-asset-tree-view="mine">${inboxNode}<div class="asset-tree-mount-section">${mountLabel}${rootNodes}${emptyGuide}</div></div>`;
+}
+function assetTreeRootsList(){
+    // 根目录清单沿用 facets 口径（含离线来源），保证与目录层级数据同源
+    return assetRackRoots();
+}
+function renderAssetTreeSystemTree(){
+    // AC2：系统资源树（只读）：项目制片、剧本资产、画布资产、提示词库
+    const projectBranch = renderAssetTreeProjectsBranch();
+    const boardNodes = assetTreeSystemBoards().map(board => renderAssetTreeNode({
+        key:`system:${board.id}`, icon:board.icon, name:board.id === 'prompts' ? '提示词库' : board.name, count:'', depth:0,
+        hasChildren:false,
+    })).join('');
+    return `<div class="asset-tree-scroll" role="tree" aria-label="系统资源树" tabindex="0" data-asset-tree-view="system">${projectBranch}${boardNodes}</div>`;
+}
+function renderAssetTreePanel(extraClass=''){
+    // AC1：左栏顶部「系统资源 / 我的资源」标签页，各一棵树；AC3 底部「+ 挂载文件夹」
+    const mine = assetTreeTab === 'mine';
+    const treeBody = mine ? renderAssetTreeMineTree() : renderAssetTreeSystemTree();
+    return `<aside class="asset-panel asset-nav asset-tree-panel ${extraClass}" aria-label="资产导航树">
+        <div class="asset-tree-tabs" role="tablist" aria-label="资产导航标签页">
+            <button class="asset-tree-tab ${mine ? '' : 'active'}" type="button" role="tab" aria-selected="${mine ? 'false' : 'true'}" data-asset-tree-tab="system">系统资源</button>
+            <button class="asset-tree-tab ${mine ? 'active' : ''}" type="button" role="tab" aria-selected="${mine ? 'true' : 'false'}" data-asset-tree-tab="mine">我的资源</button>
+        </div>
+        ${treeBody}
+        <div class="asset-tree-footer">
+            ${mine ? `<button class="hw-btn hw-btn-gold" type="button" data-asset-tree-mount aria-label="挂载文件夹"><i data-lucide="folder-plus"></i><span>挂载文件夹</span></button>` : ''}
+        </div>
+    </aside>`;
+}
+function activateAssetTreeTab(tab){
+    // AC1：系统资源/我的资源标签页切换（各一棵树）
+    const next = tab === 'mine' ? 'mine' : 'system';
+    if(assetTreeTab === next) return;
+    assetTreeTab = next;
+    render();
+}
+function toggleAssetTreeNode(key){
+    // 展开/折叠树节点；展开项目节点时懒加载 QIN-543 详情，展开目录时懒加载磁盘子目录
+    const value = String(key || '');
+    if(!value) return;
+    if(assetTreeExpanded.has(value)){
+        assetTreeExpanded.delete(value);
+        render();
+        return;
+    }
+    assetTreeExpanded.add(value);
+    if(value.startsWith('system:projects:') && !value.includes(':group:')){
+        const pid = value.slice('system:projects:'.length);
+        void ensureAssetTreeProjectData(pid).then(() => { if(assetTreeExpanded.has(value)) render(); });
+    }
+    if(value.startsWith('mine:root:')){
+        const body = value.slice('mine:root:'.length);
+        const separator = body.indexOf('::');
+        const rootId = separator > 0 ? body.slice(0, separator) : body;
+        const path = separator > 0 ? body.slice(separator + 2) : '';
+        if(path){
+            // 【QIN-542】加载完成即重绘（呈现深层子目录或空目录标记）
+            void loadAssetRackDiskFolders(rootId, path).then(() => { if(assetTreeExpanded.has(value)) render(); });
+        }
+    }
+    render();
+}
+function selectAssetTreeNode(key){
+    // AC2/AC3：树节点点击分发——系统看板切换、项目/分组/条目素材筛选、目录过滤
+    const value = String(key || '');
+    if(!value) return;
+    assetTreeSelectedKey = value;
+    if(value === 'mine:inbox'){
+        // AC3：收集箱由 QIN-547 提供，先占位
+        setStatus('收集箱功能即将提供');
+        render();
+        return;
+    }
+    if(value.startsWith('mine:root:')){
+        const body = value.slice('mine:root:'.length);
+        const separator = body.indexOf('::');
+        const rootId = separator > 0 ? body.slice(0, separator) : body;
+        const path = separator > 0 ? body.slice(separator + 2) : '';
+        selectAssetRackFolder(rootId, path === '__root__' ? '' : path);
+        return;
+    }
+    if(value === 'system:projects'){
+        // 组节点点击=仅展开/折叠，不做素材筛选
+        toggleAssetTreeNode(value);
+        return;
+    }
+    if(value.startsWith('system:projects:')){
+        const body = value.slice('system:projects:'.length);
+        const pid = body.split(':')[0];
+        const rest = body.slice(pid.length);
+        if(!rest){
+            // 点项目：右侧显示该项目全部素材
+            registryProjectEntityFilter = null;
+            registryProjectFilterId = pid;
+            activeProjectId = pid;
+            void loadProjectBoard(pid, false).then(() => render());
+            void refreshRegistryAssetsFromRack().catch(() => null);
+            return;
+        }
+        const rest2 = rest.startsWith(':') ? rest.slice(1) : rest;
+        if(rest2.startsWith('group:')){
+            const gBody = rest2.slice('group:'.length);
+            const typeId = gBody.split(':')[0];
+            const entityPart = gBody.slice(typeId.length);
+            if(entityPart.startsWith(':entity:')){
+                // 点条目：筛选到该条目素材
+                const entityId = entityPart.slice(':entity:'.length);
+                registryProjectFilterId = pid;
+                activeProjectId = pid;
+                registryProjectEntityFilter = {projectId:pid, entityTypes:null, entityId};
+                void ensureAssetTreeProjectData(pid).then(() => { void refreshRegistryAssetsFromRack().catch(() => null); render(); });
+                return;
+            }
+            // 点分组：筛选到该类条目的素材
+            registryProjectFilterId = pid;
+            activeProjectId = pid;
+            registryProjectEntityFilter = {projectId:pid, entityTypes:new Set([typeId]), entityId:''};
+            void ensureAssetTreeProjectData(pid).then(() => { void refreshRegistryAssetsFromRack().catch(() => null); render(); });
+            return;
+        }
+    }
+    if(value.startsWith('system:')){ activateAssetBoard(value.slice('system:'.length)); return; }
+    render();
+}
 function renderAssetRack(extraAttrs='', extraClass=''){
     const collapsed = assetRackCollapsed;
     return `<aside class="asset-panel asset-nav registry-nav asset-rack ${extraClass} ${collapsed ? 'is-collapsed' : ''}" ${extraAttrs}>
@@ -11488,7 +11878,7 @@ function renderSystemBoardRack(tools='', body=''){
 function renderRegistryManager(){
     const visible = registryVisibleAssets();
     const embeddedVault = document.documentElement.classList.contains('vault-shell-embedded');
-    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}${renderAssetRack(embeddedVault ? 'id="registryFacetPopover" popover="auto" aria-label="目录层级"' : '')}
+    root.innerHTML = `${embeddedVault ? '' : renderRegistryOverview()}${renderAssetTreePanel()}
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(null, registryCategoryLabel(registryStatCategory), `${registryProjectFilterId ? `【项目: ${projects.find(item => item.id === registryProjectFilterId)?.name || registryProjectFilterId}】` : ''}${registryTotalSummary(visible.length)}${registryTotalKnown && registryTotal > visible.length ? `，当前显示 ${visible.length} 项` : ''}`, {allowUrl:true,hideHeading:true})}
         ${renderRegistryFilterChips()}
@@ -11498,8 +11888,9 @@ function renderRegistryManager(){
         ${renderRegistrySelectionBar(null)}
     </section>`;
     syncRegistryFacetLayout();
-    if(!assetRackCollapsed) loadAssetRackRegisteredFolders().catch(() => null);
-    if(!assetRackCollapsed) void ensureAssetRackDirectoryIndex();
+    // 【QIN-544】树面板常驻，目录索引与根目录清单始终加载（不再依赖中栏折叠态）
+    loadAssetRackRegisteredFolders().catch(() => null);
+    void ensureAssetRackDirectoryIndex();
 }
 function renderCustomAssetLibrary(board){
     if(!board){ activeTab = 'registry'; renderRegistryManager(); return; }
@@ -11523,7 +11914,7 @@ function renderCustomAssetLibrary(board){
     const folderLabel = activeFolderPath === '__root__' ? '根目录' : activeFolderPath.split('/').filter(Boolean).pop() || '';
     const activeGroup = registryBoardCustomGroups(board).find(group => group.id === (boardGroupSelection[board.id] || '')) || null;
     const activeReferenceCanvas = (canvasAssetsData.canvases || []).find(canvas => canvas.id === (boardReferenceCanvasSelection[board.id] || '')) || null;
-    root.innerHTML = `${renderAssetRack('', 'library-board-nav')}
+    root.innerHTML = `${renderAssetTreePanel()}
     <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
         ${embeddedVault ? '' : renderRegistryToolbar(board, board.name, `${matching.length} 个匹配资产 · ${activeReferenceCanvas ? `参考画布：${activeReferenceCanvas.title || '未命名'}` : sourceLabel}${folderLabel ? ` · ${folderLabel}` : ''}${activeGroup ? ` · ${activeGroup.name}` : ''}`)}
         ${renderRegistryFilterChips()}
@@ -11537,7 +11928,7 @@ function renderCustomAssetLibrary(board){
     // 注意：这里只能触发补齐目录索引（内部有 promise 去重，不会递归重绘）；
     // 不可在此调用 loadCustomBoardFolderDirectories —— 它收尾会无条件 render()，
     // 与渲染入口互相触发会直接把页面打成死循环。
-    if(!assetRackCollapsed) void ensureAssetRackDirectoryIndex();
+    void ensureAssetRackDirectoryIndex();
 }
 function projectStatusLabel(status='pending'){
     return {pending:'待处理',in_progress:'进行中',approved:'已通过',blocked:'已阻塞'}[status] || status;
@@ -11545,19 +11936,23 @@ function projectStatusLabel(status='pending'){
 function renderProjectManager(){
     const project = projectBoard?.project || projects.find(item => item.id === activeProjectId) || null;
     const entities = projectBoard?.entities || [];
-    const gates = projectBoard?.gates || [];
-    const templateTypes = project?.template?.entity_types || AssetRegistryDefaultEntityTypes;
-    const selectedEntity = entities.find(item => item.id === selectedProjectEntityId) || null;
-    root.innerHTML = renderSystemBoardRack('<button class="hw-btn hw-btn-icon" type="button" data-project-create title="新建项目"><i data-lucide="plus"></i></button>', `${renderAssetSmartFilterContents('项目制片')}<section class="asset-context-tree"><div class="nav-section-title">项目层级</div><div class="nav-tree">${projects.map(item => `<button class="tree-row tree-parent ${item.id===activeProjectId?'active':''}" type="button" data-project="${escapeAttr(item.id)}"><span class="tree-row-icon"><i data-lucide="clapperboard"></i></span><span class="tree-row-name">${escapeHtml(item.name)}</span><span class="tree-row-count">${Number(item.asset_count || 0)}</span></button>`).join('') || '<div class="tree-empty">新建项目后开始制片管理</div>'}</div></section>`) + `<section class="asset-panel asset-content project-board">
-        <div class="content-toolbar"><div class="content-heading"><strong>${escapeHtml(project?.name || '项目制片')}</strong><span>${entities.length} 个条目 · ${Number(project?.asset_count || projectBoard?.assets?.length || 0)} 个素材</span></div><div class="asset-tools"><button class="hw-btn" type="button" data-project-proxy-settings ${project?'':'disabled'}><i data-lucide="film"></i><span>代理设置</span></button><button class="hw-btn" type="button" data-project-template ${project?'':'disabled'}><i data-lucide="settings-2"></i><span>模板设置</span></button><button class="hw-btn" type="button" data-project-add-entity ${project?'':'disabled'}><i data-lucide="plus"></i><span>新增条目</span></button></div></div>
-        <div class="project-gates">${gates.filter(gate => !gate.entity_id).map(gate => `<button type="button" class="project-gate ${escapeAttr(gate.status)}" data-project-gate="${escapeAttr(gate.id)}" data-status="${escapeAttr(gate.status)}"><span>${escapeHtml(gate.code)}</span><strong>${escapeHtml(gate.name)}</strong><em>${escapeHtml(projectStatusLabel(gate.status))}</em></button>`).join('')}</div>
-        <div class="content-scroll"><div class="project-entity-groups">${templateTypes.map(type => {
-            const list = entities.filter(item => item.entity_type === type.id);
-            return `<section class="project-entity-group"><header><strong>${escapeHtml(type.name || type.id)}</strong><span>${list.length}</span></header><div>${list.map(item => `<button class="project-entity-card ${item.id===selectedProjectEntityId?'active':''}" type="button" data-project-entity="${escapeAttr(item.id)}"><span class="project-entity-code">${escapeHtml(item.code || type.name || '')}</span><strong>${escapeHtml(item.name)}</strong><em class="${escapeAttr(item.status)}">${escapeHtml(projectStatusLabel(item.status))}</em><small>${(item.assets || []).length} 个素材</small></button>`).join('') || '<div class="tree-empty">暂无条目</div>'}</div></section>`;
-        }).join('')}</div></div>
-    </section>
-    <aside class="asset-panel asset-detail">${selectedEntity ? `<div class="panel-head"><div class="panel-title"><strong>${escapeHtml(selectedEntity.name)}</strong><span>${escapeHtml(selectedEntity.code || selectedEntity.entity_type)}</span></div></div><div class="detail-scroll"><div class="detail-body"><div class="detail-meta-grid"><div class="detail-meta"><span>状态</span><strong>${escapeHtml(projectStatusLabel(selectedEntity.status))}</strong></div><div class="detail-meta"><span>关联素材</span><strong>${(selectedEntity.assets || []).length}</strong></div></div><div class="asset-tools project-detail-actions"><button class="hw-btn" type="button" data-project-entity-status="${escapeAttr(selectedEntity.id)}" data-status="${escapeAttr(selectedEntity.status)}"><i data-lucide="circle-dot-dashed"></i><span>推进状态</span></button><button class="hw-btn hw-btn-gold" type="button" data-project-link-selected ${registrySelectedIds.size?'':'disabled'}><i data-lucide="link"></i><span>关联已选统一资产（${registrySelectedIds.size}）</span></button></div><div class="project-linked-assets">${(selectedEntity.assets || []).map(item => `<div class="project-linked-card"><div class="asset-thumb">${assetThumb({...item,url:item.public_url})}</div><span>${escapeHtml(item.name)}</span></div>`).join('') || '<div class="detail-empty"><span>尚未关联素材</span></div>'}</div></div></div>` : '<div class="panel-head"><div class="panel-title"><strong>条目详情</strong><span>选择剧集、角色、镜头或任务</span></div></div><div class="detail-empty"><i data-lucide="clapperboard"></i><span>暂无条目</span></div>'}</aside>`;
+    const visible = registryVisibleAssets();
+    // AC5：项目制片分类看板不再显示，改由左栏树（项目›分组›条目）+ 素材网格承载；
+    // 树点项目=全部素材、点分组/条目=对应素材（QIN-543 entities[].assets 收敛）
+    root.innerHTML = `${renderAssetTreePanel()}
+    <section class="asset-panel asset-content registry-content registry-layout-${registryLayout} registry-aspect-${registryAspect} ${registrySimple ? 'registry-simple' : ''} ${registrySelectedIds.size ? 'manage-on' : ''}" style="--registry-card-size:${registryCardSize}px">
+        <div class="content-toolbar"><div class="content-heading"><strong>${escapeHtml(project?.name || '项目制片')}</strong><span>${entities.length} 个条目 · ${Number(project?.asset_count || 0)} 个素材 · 当前显示 ${visible.length} 项</span></div><div class="asset-tools"><button class="hw-btn" type="button" data-project-proxy-settings ${project?'':'disabled'}><i data-lucide="film"></i><span>代理设置</span></button><button class="hw-btn" type="button" data-project-template ${project?'':'disabled'}><i data-lucide="settings-2"></i><span>模板设置</span></button><button class="hw-btn" type="button" data-project-add-entity ${project?'':'disabled'}><i data-lucide="plus"></i><span>新增条目</span></button></div></div>
+        ${renderRegistryFilterChips()}
+        <div class="content-scroll registry-assets-scroll" data-registry-zoom-area title="Shift+滚轮调整预览大小">${renderRegistryAssetSections(visible, null, '没有符合条件的素材。从左栏树选择项目、分组或条目。')}${renderRegistryPagination()}</div>
+        ${renderRegistrySelectionBar(null)}
+    </section>`;
+    if(!assetTreeExpanded.has('system:projects')){
+        assetTreeExpanded.add('system:projects');
+        if(activeProjectId) assetTreeExpanded.add(`system:projects:${activeProjectId}`);
+    }
+    if(activeProjectId) void ensureAssetTreeProjectData(activeProjectId);
 }
+
 const AssetRegistryDefaultEntityTypes = [
     {id:'episode',name:'剧集'},{id:'scene',name:'场景'},{id:'shot',name:'镜头'},{id:'character',name:'角色'},{id:'task',name:'任务'}
 ];
@@ -11572,11 +11967,7 @@ function renderAssetManager(){
     const detail = selectedAsset();
     const imageCount = selectedAssetImageItems().length;
     root.innerHTML = `
-        ${renderSystemBoardRack(`${assetTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-asset-lib-new title="新建资产库"><i data-lucide="plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(assetTreeEdit, 'assetTreeEditInput', 'data-asset-tree-edit-save', 'data-asset-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('托管资产')}
-                <section class="asset-context-tree"><div class="nav-section-title">资产层级</div><div class="nav-tree">
-                    ${libs.map(item => renderAssetTreeBranch(item)).join('')}
-                </div></section>`)}
+        ${renderAssetTreePanel()}}
         <section class="asset-panel asset-content ${assetManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -11629,28 +12020,7 @@ function renderWorkflowManager(){
     const items = currentWorkflowItems();
     const detail = selectedWorkflow();
     root.innerHTML = `
-        ${renderSystemBoardRack(`${workflowTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-workflow-cat-new title="新建工作流分组"><i data-lucide="folder-plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(workflowTreeEdit, 'workflowTreeEditInput', 'data-workflow-tree-edit-save', 'data-workflow-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('工作流')}
-                <section class="asset-context-tree"><div class="nav-section-title">工作流层级</div><div class="nav-tree">
-                    <div class="tree-branch expanded">
-                        <button class="tree-row tree-parent contains-active" type="button" data-workflow-root>
-                            <span class="tree-row-icon"><i data-lucide="folder-open"></i></span>
-                            <span class="tree-row-name">工作流库</span>
-                            <span class="tree-row-count">${workflowCount()}</span>
-                        </button>
-                        <div class="tree-children">
-                            ${cats.length ? cats.map(c => {
-                                const active = workflowCategoryId(c) === activeWorkflowCategoryId && c.__libraryId === activeWorkflowLibraryId;
-                                return `<button class="tree-row tree-child ${active ? 'active' : ''}" type="button" data-workflow-cat="${escapeAttr(workflowCategoryId(c))}" data-workflow-cat-lib="${escapeAttr(c.__libraryId || '')}">
-                                <span class="tree-elbow"></span>
-                                <span class="tree-row-icon"><i data-lucide="workflow"></i></span>
-                                <span class="tree-row-name">${escapeHtml(c.name || '工作流')}</span>
-                                <span class="tree-row-count">${(c.items || []).length}</span>
-                            </button>${active ? renderWorkflowTreeActionBar() : ''}`;
-                            }).join('') : '<div class="tree-empty">暂无工作流分组</div>'}
-                        </div>
-                    </div>
-                </div></section>`)}
+        ${renderAssetTreePanel()}}
         <section class="asset-panel asset-content ${workflowManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -11993,11 +12363,7 @@ function renderPromptManager(){
         ? '当前条件下没有提示词。可以切换分类或清空搜索条件。'
         : `${lib?.name || '当前提示词库'} 暂无提示词${readonly ? '。' : '，点击「新增」添加。'}`;
     root.innerHTML = `
-        ${renderSystemBoardRack(`${promptTreeEdit?.placement === 'head' ? '' : '<button class="hw-btn hw-btn-icon" type="button" data-prompt-lib-new title="新建提示词库"><i data-lucide="plus"></i></button>'}
-                    ${renderHeadTreeInlineEdit(promptTreeEdit, 'promptTreeEditInput', 'data-prompt-tree-edit-save', 'data-prompt-tree-edit-cancel')}`, `${renderAssetSmartFilterContents('提示词')}
-                <section class="asset-context-tree"><div class="nav-section-title">提示词库</div><div class="nav-tree">
-                    ${libs.map(item => renderPromptTreeBranch(item)).join('')}
-                </div></section>`)}
+        ${renderAssetTreePanel()}}
         <section class="asset-panel asset-content ${promptManageMode ? 'manage-on' : ''}">
             <div class="content-toolbar">
                 <div class="content-heading">
@@ -13432,6 +13798,17 @@ async function handleClick(event){
     }
     // 【QIN-524】中栏目录机架：折叠成图标条、目录树展开与目录过滤
     // 【QIN-533】智能筛选页下线，不再有模式切换委托
+    // 【QIN-544】左栏单栏树：标签页、展开折叠、选中、挂载、面包屑点击
+    const treeTabBtn = target.closest?.('[data-asset-tree-tab]');
+    if(treeTabBtn){ activateAssetTreeTab(treeTabBtn.dataset.assetTreeTab || ''); return; }
+    const treeToggle = target.closest?.('[data-asset-tree-toggle]');
+    if(treeToggle){ event.stopPropagation(); toggleAssetTreeNode(treeToggle.dataset.assetTreeToggle || ''); return; }
+    const treeMount = target.closest?.('[data-asset-tree-mount]');
+    if(treeMount){ openBoardSourceModal('', 'new'); return; }
+    const treeCrumb = target.closest?.('[data-asset-tree-crumb]');
+    if(treeCrumb){ handleAssetTreeCrumbClick(treeCrumb.dataset.assetTreeCrumb || ''); return; }
+    const treeNode = target.closest?.('[data-asset-tree-node]');
+    if(treeNode){ selectAssetTreeNode(treeNode.dataset.assetTreeNode || ''); return; }
     if(target.closest?.('[data-asset-rack-collapse]')){ setAssetRackCollapsed(true); return; }
     if(target.closest?.('[data-asset-rack-expand]')){ setAssetRackCollapsed(false); return; }
     const assetRackToggle = target.closest?.('[data-asset-rack-toggle]');
@@ -20875,6 +21252,11 @@ root.addEventListener('pointerdown', event => {
 root.addEventListener('click', event => {
     handleClick(event).catch(err => setStatus(err.message || '操作失败'));
 });
+document.querySelector('.asset-breadcrumbs .asset-heading-row')?.addEventListener('click', event => {
+    // 面包屑位于 assetManagerRoot 外，根节点的点击委托无法接收这里的点击。
+    const crumb = event.target.closest?.('[data-asset-tree-crumb]');
+    if(crumb) handleAssetTreeCrumbClick(crumb.dataset.assetTreeCrumb || '');
+});
 root.addEventListener('dblclick', event => {
     const canvasStatCard = event.target.closest?.('[data-registry-stat="reference-canvas"]');
     if(canvasStatCard){
@@ -22159,6 +22541,9 @@ let registryBrowseInteracted = false;
 let registrySessionReady = false;
 document.addEventListener('pointerdown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
 document.addEventListener('keydown', () => { registryBrowseInteracted = true; }, {capture:true, once:true});
+// 【QIN-544】树面板键盘导航（捕获阶段委托，render 重建 DOM 不受影响）
+document.addEventListener('keydown', handleAssetTreeKeydown, {capture:true});
+
 function saveRegistryBrowseSession(){
     if(!registrySessionReady || !assetBoardById(activeTab)) return false;
     try {
