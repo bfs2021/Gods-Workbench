@@ -1,0 +1,23 @@
+{
+  "schema": "gw.cleanroom-admission-shard/v1",
+  "issue": 593,
+  "authorization_basis": "GitHub Issue #593 (QIN-541), 2026-11-04",
+  "files": [
+    "web/js/modules/asset-manager.js",
+    "web/css/pages/asset-manager.css",
+    "tests/frontend/qin-541-registry-card-info-layout.test.mjs",
+    "tests/frontend/node-files.txt",
+    "tests/hygiene/fixtures/admissions/issue-593.json",
+    "tests/hygiene/test_cleanroom_hygiene.py"
+  ],
+  "admitted_files": [],
+  "accepted_test_files": [
+    {
+      "path": "tests/frontend/qin-541-registry-card-info-layout.test.mjs",
+      "classification": "curated_test_coverage",
+      "authorization_basis": "GitHub Issue #593 (QIN-541), 2026-11-04",
+      "admission": "accepted"
+    }
+  ],
+  "notes": "QIN-541 标准卡信息层级重排：正文两行结构（名称 + 大小·尺寸），来源收敛为按需小图标；勾选框悬停显现；正文高度估算 92→44。"
+}

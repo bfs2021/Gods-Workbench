@@ -6558,6 +6558,44 @@ function registryModifiedLabel(item={}){
     const value = registryModifiedTime(item);
     return value ? formatDate(value) : '—';
 }
+// 【QIN-541】标准卡来源小图标：默认隐藏；仅当资产为多库、URL 采集，或来源不在当前左栏所选库
+// 范围内时显示（title 恒显示来源名，URL 资产显示采集 URL）。判定口径：
+// - 已登记素材库看板（sourceBoard）：素材 storage_root_id ≠ 看板绑定根 → 视为外来；
+// - 自定义库看板：素材根不在看板绑定的未隐藏来源内，且机架内来源选择会进一步收窄当前库；
+//   看板明确收下自动归档（automaticHidden=false）时，自动归档素材视为当前范围；
+// - 系统聚合看板（资产总览等）：以机架目录层级/来源过滤的当前根为「当前库」；未选库时
+//   无「当前库」可比，维持默认隐藏。
+function registryCardSourceBadge(item={}, board=null){
+    const names = registrySourceNames(item);
+    const multi = names.length > 1;
+    const collectSources = Array.isArray(item.metadata?.collect_sources) ? item.metadata.collect_sources : [];
+    const urlSource = String(collectSources[0]?.url || '').trim();
+    const root = String(item.storage_root_id || '');
+    const offline = registryRootIsOffline(item);
+    let foreign = false;
+    let icon = 'database';
+    let title = names.join(' · ') + (offline ? ' · 离线' : '');
+    if(board?.sourceBoard){
+        foreign = Boolean(root) && root !== String(board.rootId);
+    } else if(board?.system === false){
+        const visibleSources = (board.sources || []).filter(source => !source.hidden).map(source => String(source.id));
+        const selected = String(boardSourceSelection[board.id] || '');
+        if(root){
+            foreign = selected ? root !== selected : Boolean(visibleSources.length && !visibleSources.includes(root));
+        } else {
+            foreign = Boolean(board.automaticHidden);
+        }
+    } else {
+        const scopeRoot = String(registryNavFolder.rootId || registryRootId || '');
+        foreign = Boolean(scopeRoot) && Boolean(root) && root !== scopeRoot;
+    }
+    if(!multi && !urlSource && !foreign) return '';
+    if(urlSource){
+        icon = 'link';
+        title = urlSource;
+    }
+    return `<span class="registry-card-source" title="${escapeAttr(title)}"><i data-lucide="${icon}"></i></span>`;
+}
 function registryKindIcon(kind=''){
     return ({image:'image',video:'video',audio:'audio-lines',document:'file-text',workflow:'workflow',font:'type',model:'box'})[String(kind || '').toLowerCase()] || 'file';
 }
@@ -6645,8 +6683,10 @@ function registryVirtualCardHeight(item={}, cardWidth=176){
                     ? innerWidth / (16 / 9)
                     : 96
         : 150;
-    // 首次估算仅用于占位，渲染后以卡片实测高度为准。
-    const bodyHeight = registrySimple ? 0 : 92;
+    // 【QIN-541】首次估算仅用于占位，渲染后以卡片实测高度为准。标准卡正文重排后为两行紧凑
+    // 结构（文件名 22px + 「大小 · 尺寸」17px + 金库壳正文上内边距 5px），正文估算由 92 收敛到 44；
+    // 简洁模式正文隐藏仍为 0。方形模式与标准卡共用同一正文模板，随本估算同步收敛。
+    const bodyHeight = registrySimple ? 0 : 44;
     return Math.ceil(mediaHeight + bodyHeight + 14);
 }
 function registryVirtualHeightCacheKey(item, index=0, cacheMode=''){
@@ -10418,15 +10458,21 @@ function renderRegistryCard(item){
     }
     const fps = Number(item.frame_rate || item.metadata?.frame_rate || 0);
     const segmentBadge = matchedSegment ? `<span class="registry-card-segment-badge" data-video-jump-sec="${matchedSegment.start_sec}" data-video-jump-end="${matchedSegment.end_sec}" data-video-asset-id="${escapeAttr(item.id)}" data-video-frame-rate="${fps || ''}" title="命中片段：${escapeAttr(formatVideoSegmentRange(matchedSegment.start_sec, matchedSegment.end_sec))} ${escapeAttr(Array.isArray(matchedSegment.tags)?matchedSegment.tags.join(' · '):'')}"><i data-lucide="play-circle"></i><strong>${escapeHtml(formatVideoSegmentRange(matchedSegment.start_sec, matchedSegment.end_sec))}</strong></span>` : '';
+    // 【QIN-541】第二行为灰色单行「大小 · 尺寸」：无值字段直接省略，两字段皆无时整行省略。
+    const measureParts = [];
+    if(Number(item.size || 0) > 0) measureParts.push(formatFileSize(item.size));
+    const sublineWidth = Number(item.width || item.metadata?.width || 0);
+    const sublineHeight = Number(item.height || item.metadata?.height || 0);
+    if(sublineWidth > 0 && sublineHeight > 0) measureParts.push(`${sublineWidth}×${sublineHeight}`);
+    const subline = measureParts.length ? `<span class="registry-card-subline">${escapeHtml(measureParts.join(' · '))}</span>` : '';
     return `<article class="asset-card registry-card asset-type-${registryVisualType(item)} ${item.id === selectedRegistryAssetId ? 'active' : ''} ${selected ? 'selected' : ''}" data-registry-card="${escapeAttr(item.id)}" ${referenceCanvasId ? `data-reference-canvas-open="${escapeAttr(referenceCanvasId)}"` : ''} tabindex="0" role="button" aria-label="查看资产 ${escapeAttr(name)}">
         <input class="asset-card-check" type="checkbox" aria-label="选择 ${escapeAttr(name)}" data-registry-check="${escapeAttr(item.id)}" ${selected ? 'checked' : ''}>
         <span class="registry-card-format" aria-label="文件格式 ${escapeAttr(format)}">${escapeHtml(format)}</span>
         ${renderRegistryRecycleButton(item)}
         <div class="asset-thumb"${mediaAspectStyle ? ` style="${mediaAspectStyle}"` : ''}>${deferRegistryPreviewThumb(assetThumb(item))}${segmentBadge}<span class="registry-card-selection-overlay" aria-hidden="true"></span></div>
         <div class="asset-card-body">
-            <div class="registry-card-caption"><div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div><span class="registry-card-measure">${escapeHtml(item.kind === 'video' ? formatMediaDuration(item.duration || item.metadata?.duration) : formatFileSize(item.size || 0))}</span></div>
-            <div class="asset-card-meta"><span>${escapeHtml(registryAssetTypeLabel(item))}</span><span>${escapeHtml(formatDate(item.created_at))}</span></div>
-            <div class="registry-card-source" title="${escapeAttr(registrySourceNames(item).join(' · '))}"><i data-lucide="${registrySourceNames(item).length > 1 ? 'database-zap' : 'database'}"></i><span>${escapeHtml(registrySourceNames(item).join(' · '))}${registryRootIsOffline(item) ? ' · 离线' : ''}</span>${registrySourceNames(item).length > 1 ? `<em>${registrySourceNames(item).length} 库</em>` : ''}</div>
+            <div class="asset-card-name" data-registry-card-name title="${escapeAttr(name)}">${escapeHtml(name)}</div>
+            <div class="registry-card-caption">${subline}${registryCardSourceBadge(item, assetBoardById(activeTab))}</div>
         </div>
     </article>`;
 }
@@ -14667,7 +14713,9 @@ function renderDetailVideoSummary(item={},source=detailViewerState.source){
     const frameRate=Number(item.frame_rate || item.metadata?.frame_rate || 0);
     const versions=Array.isArray(item.versions) ? item.versions : [];
     const linkedBoardCount=registryAssetLinkedBoards(item).length;
-    const updated=item.updated_at || item.lastModified || item.canvas_updated_at || 0;
+    // 【QIN-539 口径 + 用户指示 2026-11-05】视频详情摘要时间行与详情一致：优先文件修改时间，
+    // 回退记录更新时间；确无数据时显示「—」，不再出现「未知」。
+    const updated=registryModifiedTime(item) || item.updated_at || item.canvas_updated_at || 0;
     const values=[
         ['稳定 ID',assetId ? assetId.slice(0,8) : '未关联',assetId],
         ['格式',assetFileExtension(item).toUpperCase() || 'VIDEO'],
@@ -14677,7 +14725,7 @@ function renderDetailVideoSummary(item={},source=detailViewerState.source){
         ['分辨率',width && height ? `${width} × ${height}` : '读取中'],
         ['帧率',frameRate ? `${Number.isInteger(frameRate) ? frameRate : frameRate.toFixed(2)} fps` : '读取中'],
         ['素材来源',detailViewerSourceLabel(source,item)],
-        ['更新时间',updated ? formatDate(updated) : '未知'],
+        ['修改时间',updated ? formatDate(updated) : '—'],
     ];
     return `<dl class="asset-video-summary">${values.map(([label,value,title=''])=>`<div><dt>${escapeHtml(label)}</dt><dd title="${escapeAttr(title || value)}">${escapeHtml(value)}</dd></div>`).join('')}</dl>`;
 }
