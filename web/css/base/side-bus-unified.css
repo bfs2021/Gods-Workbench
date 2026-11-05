@@ -121,7 +121,7 @@
 .gw-side-bus-unified .wf-tree-item.active :is(.wf-tree-name,.wf-tree-idx) {
   color: #dfc384;
 }
-.gw-side-bus-unified :is(.tree-node-card > span:last-child, #agentList .tree-node-card .rounded-full, #assetCategories [data-asset-category] > span:last-child, #assetCategoryTotal, #collabOnlineCount, .wf-source-badge, .wf-folder-actions .capsule-badge) {
+.gw-side-bus-unified :is(.tree-node-card > span:last-child, #agentList .tree-node-card .rounded-full, #assetCategoryTotal, #collabOnlineCount, .wf-source-badge, .wf-folder-actions .capsule-badge) {
   transform: scale(.5);
   transform-origin: right center;
 }
