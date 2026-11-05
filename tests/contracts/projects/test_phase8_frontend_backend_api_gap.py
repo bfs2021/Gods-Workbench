@@ -117,6 +117,12 @@ KNOWN_IMPLEMENTED = frozenset(
         "/api/asset-library",
         "/api/asset-library/categories",
         "/api/asset-library/libraries",
+        # 2026-11-05 QIN-547：收集箱默认目录、迁移托管资产、改位置与手动上传。
+        "/api/asset-inbox",
+        "/api/asset-inbox/viewed",
+        "/api/asset-inbox/migrate",
+        "/api/asset-inbox/settings",
+        "/api/asset-inbox/upload",
         "/api/asset-auth/callback",
         "/api/asset-auth/login",
         # 2026-09-26 用户确认增补本地数据库账户登录，不替代 OIDC 路径。

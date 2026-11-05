@@ -638,6 +638,17 @@ let detailImageEditorOpeningPromise = null;
 let detailImageEditorOpeningItemId = '';
 let detailImageEditorPointer = null;
 let assetNoticeTimer = 0;
+// 【QIN-547】收集箱：默认收集目录、素材列表、未读角标与设置面板状态
+let inboxItems = [];
+let inboxSettings = null;
+let inboxLoaded = false;
+let inboxLoading = false;
+let inboxError = '';
+let inboxQuery = '';
+let inboxSourceFilter = '';
+let inboxSettingsOpen = false;
+let inboxMigrating = false;
+let inboxBadgeTimer = 0;
 let detailViewerState = {
     open:false, source:'', id:'', index:0, items:[], text:'', textLoading:false, textError:'',
     textEditing:false, textTruncated:false, textVersions:[], textVersionsLoading:false,
@@ -833,18 +844,17 @@ function escapeHtml(value=''){
 function escapeAttr(value=''){ return escapeHtml(value); }
 const ASSET_BOARD_SETTINGS_KEY = 'asset_board_navigation_v1';
 const ASSET_SOURCE_BOARD_PREFIX = 'source_library_';
+// 【QIN-547】托管资产与上传资源合并为「收集箱」（我的资源树第一位），不再各占一个看板入口。
 const SYSTEM_ASSET_BOARDS = [
     {id:'registry', name:'资产总览', icon:'library-big', fixed:true, system:true},
     {id:'scripts', name:'剧本资产', icon:'file-text', system:true},
     {id:'projects', name:'项目制片', icon:'clapperboard', system:true},
-    {id:'assets', name:'托管资产', icon:'image', system:true},
     {id:'workflows', name:'工作流', icon:'workflow', system:true},
     {id:'prompts', name:'提示词', icon:'text-cursor-input', system:true},
     {id:'canvas-assets', name:'画布资产', icon:'layout-dashboard', system:true},
-    {id:'local', name:'上传资源', icon:'cloud-upload', system:true},
 ];
 // QIN-549：治理建议由资产工具栏顶栏入口打开，不再占用左侧看板。
-const SYSTEM_BOARD_RACK_TABS = ['scripts','projects','assets','workflows','prompts','canvas-assets','local'];
+const SYSTEM_BOARD_RACK_TABS = ['scripts','projects','workflows','prompts','canvas-assets'];
 const SCRIPT_ASSET_STORAGE_KEY = 'gwb_script_assets_v1';
 let scriptArchiveItems = [];
 function readScriptWorkspaceAssets(){
@@ -8360,6 +8370,14 @@ function startRegistryAutomaticIndexPolling(){
     clearInterval(registryAutoPollTimer);
     registryObservedJobKey = registryStatusJobKey();
     registryAutoPollTimer = window.setInterval(() => pollRegistryAutomaticIndex().catch(() => {}),5000);
+    clearInterval(inboxBadgeTimer);
+    // 【QIN-547】收集箱角标：不在收集箱视图时低频刷新未读数，新素材到达即更新角标。
+    inboxBadgeTimer = window.setInterval(async () => {
+        if(activeTab === 'inbox' || document.hidden) return;
+        const before = assetInboxUnreadCount();
+        await loadAssetInbox();
+        if(assetInboxUnreadCount() !== before) render();
+    },30000);
 }
 function parseRegistryTagNames(value=''){
     return [...new Set(String(value || '').split(/[,，;；\n]+/).map(tag => tag.trim()).filter(Boolean))].slice(0, 30);
@@ -9488,6 +9506,7 @@ function render(){
     else if(activeTab === 'projects') renderProjectManager();
     else if(activeTab === 'prompts') renderPromptManager();
     else if(activeTab === 'workflows') renderWorkflowManager();
+    else if(activeTab === 'inbox') renderInboxManager();
     else if(activeTab === 'local') renderLocalManager();
     else if(activeTab === 'canvas-assets') renderCanvasAssetsManager();
     else if(assetBoardById(activeTab)?.system === false) renderCustomAssetLibrary(assetBoardById(activeTab));
@@ -9902,6 +9921,182 @@ function renderLocalAssetsPagination(){
     return localAssets.length
         ? `<div class="tree-empty" role="status">已加载全部 ${localAssetsTotal} 个素材</div>`
         : '';
+}
+/* ---------------------------------------------------------------------------
+ * 【QIN-547】收集箱：托管资产与上传资源合并后的默认收集文件夹。
+ * 真实磁盘目录（默认 data_root/inbox，位置可在设置里改）；列表同时展示收集箱文件、
+ * 遗留浏览器收集文件与托管资产迁移后的 URL 条目；未读角标按「已查看时间点」计算。
+ * ------------------------------------------------------------------------- */
+const INBOX_KIND_LABELS = {
+    image:'图片', video:'视频', audio:'音频', document:'文档', archive:'压缩包',
+    workflow:'工作流', url:'链接', '未分类':'未分类',
+};
+const INBOX_SOURCE_LABELS = {
+    inbox:'收集箱', collect_inbox:'浏览器收集', asset_library:'托管资产',
+};
+function assetInboxKindLabel(kind=''){
+    return INBOX_KIND_LABELS[String(kind || '')] || String(kind || '素材');
+}
+function assetInboxSourceLabel(source=''){
+    return INBOX_SOURCE_LABELS[String(source || '')] || '素材';
+}
+function assetInboxUnreadCount(){
+    return Math.max(0, Number(inboxSettings?.unread_count || 0));
+}
+function assetInboxTotalCount(){
+    return Math.max(0, Number(inboxSettings?.count || inboxItems.length || 0));
+}
+function assetInboxFilteredItems(){
+    const query = String(inboxQuery || '').trim().toLowerCase();
+    return inboxItems.filter(item => {
+        if(inboxSourceFilter && item.source !== inboxSourceFilter) return false;
+        if(!query) return true;
+        return String(item.name || '').toLowerCase().includes(query);
+    });
+}
+function renderInboxCard(item){
+    const name = item.name || '未命名素材';
+    const metaParts = [assetInboxSourceLabel(item.source), assetInboxKindLabel(item.kind)];
+    if(Number(item.size_bytes || 0) > 0) metaParts.push(formatFileSize(item.size_bytes));
+    const linkLike = String(item.url || '').startsWith('http') || item.kind === 'url';
+    return `<article class="asset-card inbox-card" data-inbox-card="${escapeAttr(item.id)}" tabindex="0" role="article" aria-label="${escapeAttr(name)}">
+        <div class="asset-thumb"><span class="asset-file-icon"><i data-lucide="${linkLike ? 'link' : 'file'}"></i><small>${escapeHtml(assetInboxKindLabel(item.kind))}</small></span></div>
+        <div class="asset-card-body">
+            <div class="asset-card-name" title="${escapeAttr(name)}">${escapeHtml(name)}</div>
+            <div class="asset-card-meta">${escapeHtml(metaParts.join(' · '))}</div>
+        </div>
+    </article>`;
+}
+function renderInboxSourceChips(){
+    const chips = [['', '全部'], ['inbox', '收集箱'], ['collect_inbox', '浏览器收集'], ['asset_library', '托管资产']];
+    return `<div class="asset-tools">${chips.map(([value, label]) => `<button class="hw-btn ${inboxSourceFilter === value ? 'hw-btn-gold' : ''}" type="button" data-inbox-source="${escapeAttr(value)}">${escapeHtml(label)}</button>`).join('')}</div>`;
+}
+function renderInboxSettingsPanel(){
+    const path = String(inboxSettings?.path || '');
+    return `<section class="inbox-settings" data-inbox-settings-panel aria-label="收集箱设置">
+        <label class="asset-search-wrap"><i data-lucide="folder-cog"></i><input class="asset-search" type="text" data-inbox-path value="${escapeAttr(path)}" placeholder="收集箱绝对路径" aria-label="收集箱位置"></label>
+        <label class="inbox-settings-migrate"><input type="checkbox" data-inbox-migrate checked><span>把已有文件迁移到新位置（不勾选则旧文件留在原处）</span></label>
+        <div class="asset-tools">
+            <button class="hw-btn hw-btn-gold" type="button" data-inbox-settings-save><i data-lucide="save"></i><span>保存位置</span></button>
+            <button class="hw-btn" type="button" data-inbox-settings-cancel><span>取消</span></button>
+        </div>
+    </section>`;
+}
+function renderInboxEmpty(){
+    return `<div class="tree-empty" role="status"><p>收集箱还是空的</p><small>浏览器插件收集和手动上传都会默认落到这里；也可以在设置里把已有文件迁移进来。</small></div>`;
+}
+function renderInboxManager(){
+    if(!inboxLoaded && !inboxLoading){ void loadAssetInbox().then(() => { if(activeTab === 'inbox') render(); }); }
+    const items = assetInboxFilteredItems();
+    const total = assetInboxTotalCount();
+    const unread = assetInboxUnreadCount();
+    root.innerHTML = `${renderAssetTreePanel()}
+    <section class="asset-panel asset-content inbox-content">
+        <div class="content-toolbar">
+            <div class="content-heading">
+                <strong>收集箱</strong>
+                <span>${total ? `${total} 个素材` : '默认收集文件夹'}${unread ? ` · ${unread} 个新素材` : ''}${inboxSettings?.is_default ? ' · 默认位置' : ''}</span>
+            </div>
+            <div class="asset-tools">
+                <input id="inboxFileInput" type="file" multiple hidden>
+                <button class="hw-btn hw-btn-gold" type="button" data-inbox-upload><i data-lucide="upload"></i><span>上传文件</span></button>
+                <button class="hw-btn" type="button" data-inbox-migrate-run ${inboxMigrating ? 'disabled' : ''}><i data-lucide="package-open"></i><span>${inboxMigrating ? '迁移中' : '迁移托管资产'}</span></button>
+                <button class="hw-btn" type="button" data-inbox-settings-toggle><i data-lucide="settings-2"></i><span>收集箱设置</span></button>
+            </div>
+        </div>
+        ${renderInboxSourceChips()}
+        ${inboxSettingsOpen ? renderInboxSettingsPanel() : ''}
+        <div class="content-scroll">
+            ${inboxError ? `<div class="tree-empty" role="alert">${escapeHtml(inboxError)}</div>` : ''}
+            ${items.length ? `<div class="asset-grid">${items.map(renderInboxCard).join('')}</div>` : (inboxError ? '' : renderInboxEmpty())}
+        </div>
+    </section>`;
+    refreshIcons();
+}
+async function loadAssetInbox(){
+    inboxLoading = true;
+    inboxError = '';
+    try{
+        const data = await apiJsonResponse(assetManagerHttp.request('/api/asset-inbox?limit=500', {method:'GET', credentials:'same-origin'}));
+        inboxItems = Array.isArray(data.items) ? data.items : [];
+        inboxSettings = data.settings || null;
+        inboxLoaded = true;
+    }catch(error){
+        inboxError = String(error?.message || error || '收集箱读取失败');
+    }finally{
+        inboxLoading = false;
+    }
+}
+async function openAssetInbox(){
+    activeTab = 'inbox';
+    assetTreeTab = 'mine';
+    assetTreeSelectedKey = 'mine:inbox';
+    inboxLoaded = false;
+    render();
+    await loadAssetInbox();
+    if(activeTab === 'inbox') render();
+    if(assetInboxUnreadCount() > 0) await markAssetInboxViewed();
+}
+async function markAssetInboxViewed(){
+    try{
+        await apiJsonResponse(assetManagerHttp.request('/api/asset-inbox/viewed', {method:'POST', credentials:'same-origin'}));
+        if(inboxSettings) inboxSettings = {...inboxSettings, unread_count:0};
+    }catch(_){ /* 角标失败不阻断浏览 */ }
+}
+async function uploadAssetInboxFiles(files){
+    const list = Array.from(files || []).filter(Boolean);
+    if(!list.length) return;
+    const form = new FormData();
+    list.forEach(file => form.append('files', file, file.name));
+    try{
+        const result = await apiJsonResponse(assetManagerHttp.request('/api/asset-inbox/upload', {method:'POST', credentials:'same-origin', body:form}));
+        showAssetNotice(`已上传 ${Number(result.count || list.length)} 个文件到收集箱`);
+        await loadAssetInbox();
+        // 用户此刻正在收集箱里看到新文件，角标不应再算作未读。
+        if(activeTab === 'inbox' && assetInboxUnreadCount() > 0) await markAssetInboxViewed();
+    }catch(error){
+        showAssetFailure('上传到收集箱失败', error);
+    }
+    if(activeTab === 'inbox') render();
+}
+async function migrateAssetLibraryToInbox(){
+    if(inboxMigrating) return;
+    inboxMigrating = true;
+    render();
+    try{
+        const result = await apiJsonResponse(assetManagerHttp.request('/api/asset-inbox/migrate', {method:'POST', credentials:'same-origin'}));
+        const failed = Array.isArray(result.failed) ? result.failed.length : 0;
+        showAssetNotice(`托管资产已并入收集箱：迁入 ${Number(result.moved_files || 0)} 个文件，保留 ${Number(result.url_entries || 0)} 个链接条目${failed ? `，${failed} 个失败` : ''}`);
+        await loadAssetInbox();
+    }catch(error){
+        showAssetFailure('迁移托管资产失败', error);
+    }finally{
+        inboxMigrating = false;
+    }
+    if(activeTab === 'inbox') render();
+}
+async function saveAssetInboxSettings(){
+    const panel = document.querySelector('[data-inbox-settings-panel]');
+    const path = String(panel?.querySelector('[data-inbox-path]')?.value || '').trim();
+    const migrate = Boolean(panel?.querySelector('[data-inbox-migrate]')?.checked);
+    if(!path){ setStatus('请填写收集箱位置'); return; }
+    try{
+        const result = await apiJsonResponse(assetManagerHttp.request('/api/asset-inbox/settings', {
+            method:'PUT',
+            credentials:'same-origin',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({path, migrate}),
+        }));
+        inboxSettingsOpen = false;
+        const moved = Array.isArray(result.migrated) ? result.migrated.length : 0;
+        const conflicts = Array.isArray(result.conflicts) ? result.conflicts.length : 0;
+        const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+        showAssetNotice(`收集箱位置已更新${moved ? `，迁移 ${moved} 个文件` : ''}${skipped ? `，${skipped} 个相同文件已存在` : ''}${conflicts ? `，${conflicts} 个同名文件未迁移` : ''}`);
+        await loadAssetInbox();
+    }catch(error){
+        showAssetFailure('保存收集箱位置失败', error);
+    }
+    if(activeTab === 'inbox') render();
 }
 function renderLocalManager(){
     normalizeLocalCaptionSettings();
@@ -11839,7 +12034,7 @@ function assetTreeSystemBoards(){
     // AC2：系统资源树顶层节点（剧本/画布/提示词）；工作流入口删除（独立页面），系统资源只读
     return ['scripts', 'canvas-assets', 'prompts'].map(id => assetBoardById(id)).filter(Boolean);
 }
-function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false}){
+function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expanded=false, hasChildren=false, groupLabel=false, badge=0}){
     // AC6 管线样式：竖线与节点圆点由 CSS 依 --tree-depth 定位；is-path=根到选中支路，
     // is-selected=选中淡金底，is-empty=数量为 0 的目录变暗，is-group-label=分组标题小号灰字。
     const pathKeys = assetTreeSelectedPathKeys();
@@ -11855,6 +12050,7 @@ function renderAssetTreeNode({key, icon, name, count, depth=0, children='', expa
             <i class="asset-tree-icon" data-lucide="${escapeAttr(icon || 'folder')}"></i>
             <span class="asset-tree-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
             ${groupLabel ? '' : `<span class="asset-tree-count">${showCount ? countValue.toLocaleString('zh-CN') : ''}</span>`}
+            ${Number(badge) > 0 ? `<span class="asset-tree-badge" aria-label="${Number(badge)} 个新素材" title="${Number(badge)} 个新素材">${Number(badge) > 99 ? '99+' : Number(badge)}</span>` : ''}
         </button>
         ${children}
     </div>`;
@@ -11944,11 +12140,11 @@ function assetTreeFolderNodeFor(rootId, node, depth=0){
     });
 }
 function renderAssetTreeMineTree(){
-    // AC3：收集箱第一位（QIN-547 未合入，先占位）；挂载文件夹完整磁盘子目录树；底部「+ 挂载文件夹」
-    const inboxCount = Number(document.querySelector('[data-unassigned-count]')?.textContent || '') || 0;
+    // AC3：收集箱第一位（QIN-547 真实目录 + 未读角标）；挂载文件夹完整磁盘子目录树；底部「+ 挂载文件夹」
     const inboxNode = renderAssetTreeNode({
-        key:'mine:inbox', icon:'inbox', name:'收集箱', count:inboxCount, depth:0,
-        hasChildren:false,
+        // 收集箱是固定入口，只显示未读角标，避免总数与角标挤在同一行。
+        key:'mine:inbox', icon:'inbox', name:'收集箱', count:'', depth:0,
+        badge:assetInboxUnreadCount(), hasChildren:false,
     });
     const roots = assetTreeRootsList();
     const rootNodes = roots.map(root => {
@@ -12035,9 +12231,8 @@ function selectAssetTreeNode(key){
     if(!value) return;
     assetTreeSelectedKey = value;
     if(value === 'mine:inbox'){
-        // AC3：收集箱由 QIN-547 提供，先占位
-        setStatus('收集箱功能即将提供');
-        render();
+        // AC3：收集箱是真实磁盘文件夹视图（QIN-547）
+        void openAssetInbox();
         return;
     }
     if(value.startsWith('mine:root:')){
@@ -14065,6 +14260,22 @@ async function handleClick(event){
     if(treeCrumb){ handleAssetTreeCrumbClick(treeCrumb.dataset.assetTreeCrumb || ''); return; }
     const treeNode = target.closest?.('[data-asset-tree-node]');
     if(treeNode){ selectAssetTreeNode(treeNode.dataset.assetTreeNode || ''); return; }
+    // 【QIN-547】收集箱：上传、迁移托管资产、改位置与来源筛选
+    if(target.closest?.('[data-inbox-upload]')){
+        const inboxInput = document.getElementById('inboxFileInput');
+        if(inboxInput){
+            inboxInput.value = '';
+            inboxInput.onchange = async () => { await uploadAssetInboxFiles(inboxInput.files); };
+            inboxInput.click();
+        }
+        return;
+    }
+    if(target.closest?.('[data-inbox-migrate-run]')){ await migrateAssetLibraryToInbox(); return; }
+    if(target.closest?.('[data-inbox-settings-toggle]')){ inboxSettingsOpen = !inboxSettingsOpen; render(); return; }
+    if(target.closest?.('[data-inbox-settings-cancel]')){ inboxSettingsOpen = false; render(); return; }
+    if(target.closest?.('[data-inbox-settings-save]')){ await saveAssetInboxSettings(); return; }
+    const inboxSourceChip = target.closest?.('[data-inbox-source]');
+    if(inboxSourceChip){ inboxSourceFilter = inboxSourceChip.dataset.inboxSource || ''; render(); return; }
     if(target.closest?.('[data-asset-rack-collapse]')){ setAssetRackCollapsed(true); return; }
     if(target.closest?.('[data-asset-rack-expand]')){ setAssetRackCollapsed(false); return; }
     const assetRackToggle = target.closest?.('[data-asset-rack-toggle]');
@@ -23068,6 +23279,9 @@ document.addEventListener('click', () => {
 if(!directorySettingsPage) renderBoardNavigation();
 document.addEventListener('DOMContentLoaded', () => {
     if(directorySettingsPage){ loadGlobalDirectorySettings(); return; }
+    void loadAssetInbox().then(() => {
+        if(assetInboxUnreadCount() > 0 && activeTab !== 'inbox') render();
+    }).catch(() => null);
     loadRegistryPrincipal();
     loadGovernanceSuggestions();
     loadAll().then(async () => {

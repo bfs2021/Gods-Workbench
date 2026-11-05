@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import APIRouter, Header, Query, Request, status
 
 from gw.asset_library import organize
+from gw.asset_library import inbox
 from gw.asset_library import repository as repo
 from gw.asset_registry.organize_sync import AssetRegistryOrganizeListener
 from gw.core.auth import require_authenticated, require_edit_access
@@ -498,3 +499,165 @@ async def delete_storage_files(
     _write(authorization, x_user_role)
     payload = await _body(request)
     return repo.delete_storage_files(_ids(payload, "names"))
+
+
+# ---------------------------------------------------------------------------
+# 收集箱（QIN-547）：默认收集目录、位置设置、迁移与角标
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/asset-inbox", status_code=status.HTTP_200_OK)
+def list_asset_inbox(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    source: str | None = Query(None),
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """列出收集箱素材：本地文件、遗留收集文件与托管资产 URL 条目。"""
+    _read(authorization, x_user_role)
+    return inbox.list_items(limit, offset, (source or "").strip() or None)
+
+
+@router.post("/api/asset-inbox/viewed", status_code=status.HTTP_200_OK)
+def mark_asset_inbox_viewed(
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """记录已查看时间点，新素材角标按此时间点重新累计。"""
+    _write(authorization, x_user_role)
+    return inbox.mark_viewed()
+
+
+@router.put("/api/asset-inbox/settings", status_code=status.HTTP_200_OK)
+async def update_asset_inbox_settings(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """修改收集箱位置；migrate=true 时把已有文件搬到新位置（同一位置重复提交幂等）。"""
+    _write(authorization, x_user_role)
+    payload = await _body(request)
+    if "path" not in payload:
+        raise CleanroomException(400, "INVALID_REQUEST", "缺少 path")
+    migrate = payload.get("migrate", True)
+    if not isinstance(migrate, bool):
+        raise CleanroomException(400, "INVALID_REQUEST", "migrate 必须是布尔值")
+    return inbox.update_path(payload.get("path"), migrate)
+
+
+@router.post("/api/asset-inbox/migrate", status_code=status.HTTP_200_OK)
+def migrate_asset_library_into_inbox(
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """把托管资产记录并入收集箱；可重复执行，不会多出数据。"""
+    _write(authorization, x_user_role)
+    return inbox.migrate_asset_library()
+
+
+@router.post("/api/asset-inbox/upload", status_code=status.HTTP_201_CREATED)
+async def upload_to_inbox(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """手动上传素材到收集箱（默认落点，不写索引）。"""
+    _write(authorization, x_user_role)
+    if "multipart/form-data" not in (request.headers.get("content-type") or "").lower():
+        raise CleanroomException(400, "INVALID_REQUEST", "上传必须使用 multipart/form-data")
+    form = await request.form()
+    uploads = [item for item in form.getlist("files") if hasattr(item, "read")]
+    if not uploads:
+        raise CleanroomException(400, "INVALID_REQUEST", "缺少 files 上传字段")
+    created = []
+    for upload in uploads:
+        content = await upload.read(inbox.MAX_INBOX_UPLOAD_BYTES + 1)
+        created.append(inbox.add_upload(getattr(upload, "filename", ""), content))
+    return {
+        "items": created,
+        "count": len(created),
+        "settings": inbox.settings_snapshot(),
+        "data_status": "ok",
+    }
+
+
+# ---------------------------------------------------------------------------
+# 收集箱（QIN-547）：默认收集目录、位置设置、迁移与角标
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/asset-inbox", status_code=status.HTTP_200_OK)
+def list_asset_inbox(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    source: str | None = Query(None),
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """列出收集箱素材：本地文件、遗留收集文件与托管资产 URL 条目。"""
+    _read(authorization, x_user_role)
+    return inbox.list_items(limit, offset, (source or "").strip() or None)
+
+
+@router.post("/api/asset-inbox/viewed", status_code=status.HTTP_200_OK)
+def mark_asset_inbox_viewed(
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """记录已查看时间点，新素材角标按此时间点重新累计。"""
+    _write(authorization, x_user_role)
+    return inbox.mark_viewed()
+
+
+@router.put("/api/asset-inbox/settings", status_code=status.HTTP_200_OK)
+async def update_asset_inbox_settings(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """修改收集箱位置；migrate=true 时把已有文件搬到新位置（同一位置重复提交幂等）。"""
+    _write(authorization, x_user_role)
+    payload = await _body(request)
+    if "path" not in payload:
+        raise CleanroomException(400, "INVALID_REQUEST", "缺少 path")
+    migrate = payload.get("migrate", True)
+    if not isinstance(migrate, bool):
+        raise CleanroomException(400, "INVALID_REQUEST", "migrate 必须是布尔值")
+    return inbox.update_path(payload.get("path"), migrate)
+
+
+@router.post("/api/asset-inbox/migrate", status_code=status.HTTP_200_OK)
+def migrate_asset_library_into_inbox(
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """把托管资产记录并入收集箱；可重复执行，不会多出数据。"""
+    _write(authorization, x_user_role)
+    return inbox.migrate_asset_library()
+
+
+@router.post("/api/asset-inbox/upload", status_code=status.HTTP_201_CREATED)
+async def upload_to_inbox(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_user_role: str = Header("editor", alias="X-User-Role"),
+):
+    """手动上传素材到收集箱（默认落点，不写索引）。"""
+    _write(authorization, x_user_role)
+    if "multipart/form-data" not in (request.headers.get("content-type") or "").lower():
+        raise CleanroomException(400, "INVALID_REQUEST", "上传必须使用 multipart/form-data")
+    form = await request.form()
+    uploads = [item for item in form.getlist("files") if hasattr(item, "read")]
+    if not uploads:
+        raise CleanroomException(400, "INVALID_REQUEST", "缺少 files 上传字段")
+    created = []
+    for upload in uploads:
+        content = await upload.read(inbox.MAX_INBOX_UPLOAD_BYTES + 1)
+        created.append(inbox.add_upload(getattr(upload, "filename", ""), content))
+    return {
+        "items": created,
+        "count": len(created),
+        "settings": inbox.settings_snapshot(),
+        "data_status": "ok",
+    }

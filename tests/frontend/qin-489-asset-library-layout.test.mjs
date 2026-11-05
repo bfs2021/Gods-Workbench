@@ -72,9 +72,12 @@ test('AC1: 资源库左侧导航承载资产看板与新建资源入口', () => 
     assert.doesNotMatch(html, /id="assetCategories" role="tablist"/);
     assert.match(shell, /querySelectorAll\('#assetBoardTabs \.asset-board-tab'\)/);
     assert.match(shell, /waitForControl\('#assetBoardTabs \[data-board-create\]'\)/);
-    for (const label of ['资产总览', '剧本资产', '项目制片', '托管资产', '工作流', '提示词', '画布资产', '上传资源']) {
+    for (const label of ['资产总览', '剧本资产', '项目制片', '工作流', '提示词', '画布资产']) {
         assert.ok(manager.includes(`name:'${label}'`), `缺少导航项：${label}`);
     }
+    // QIN-547：托管资产与上传资源合并为收集箱（我的资源树第一位），不再各自占用左栏入口
+    assert.ok(!manager.includes("name:'托管资产'") && !manager.includes("name:'上传资源'"), '旧入口应移除');
+    assert.match(manager, /name:'收集箱'/, '收集箱入口应存在于我的资源树');
     assert.doesNotMatch(manager, /\{id:'governance', name:'治理建议'/);
     assert.match(manager, /data-governance-open/);
     assert.match(vaultCss, /html\.vault-shell-embedded[^\n]*#assetBoardTabs \{ display: none !important; \}/);
@@ -330,9 +333,12 @@ test('AC7: 左栏全部入口共用固定统计行和工具栏行，视图留在
     assert.match(vaultCss, /#assetManagerRoot > \.registry-overview-shell \{[\s\S]*grid-row: 1;/);
     assert.match(vaultCss, /#assetManagerRoot > \.registry-toolbar \{[\s\S]*grid-row: 2;/);
     assert.match(vaultCss, /#assetManagerRoot > \.asset-panel\.asset-content \{[\s\S]*grid-row: 3;/);
-    for (const id of ['registry', 'scripts', 'projects', 'assets', 'workflows', 'prompts', 'canvas-assets', 'local']) {
+    for (const id of ['registry', 'scripts', 'projects', 'workflows', 'prompts', 'canvas-assets']) {
         assert.ok(manager.includes(`id:'${id}'`), `资源库缺少入口：${id}`);
     }
+    // QIN-547：assets / local 两个看板入口已并入收集箱（local 字面量仍用于本机素材库数据模型）
+    assert.ok(!manager.includes("id:'assets'"), '托管资产看板入口应移除');
+    assert.ok(!manager.includes("{id:'local', name:'上传资源'"), '上传资源看板入口应移除');
     assert.doesNotMatch(manager, /activeTab === 'governance'/);
 });
 

@@ -94,8 +94,8 @@ test('AC1: 自定义看板中栏改用同一套双模机架，旧堆叠导航与
     assert.doesNotMatch(functionSource('render'), /asset-rack-collapsed/, '新树布局不得沿用旧机架折叠态');
     assert.match(
         MANAGER,
-        /const SYSTEM_BOARD_RACK_TABS = \['scripts','projects','assets','workflows','prompts','canvas-assets','local'\];/,
-        '系统看板必须登记进机架外壳覆盖清单'
+        /const SYSTEM_BOARD_RACK_TABS = \['scripts','projects','workflows','prompts','canvas-assets'\];/,
+        '系统看板必须登记进机架外壳覆盖清单（QIN-547 已移除托管资产/上传资源）'
     );
     // 【QIN-544】中栏机架由左栏单栏树替代：系统看板视图统一接入树面板
     for(const render of ['renderScriptAssetsManager','renderProjectManager','renderAssetManager','renderWorkflowManager','renderPromptManager','renderCanvasAssetsManager','renderLocalManager']){

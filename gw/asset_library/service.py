@@ -131,6 +131,28 @@ class AssetLibraryService:
             libraries=libraries,
         )
 
+    def iter_library_items(self) -> list[dict[str, Any]]:
+        """只读枚举当前主体可见的全部条目（附所属库/分类上下文），供收集箱迁移使用。"""
+        from gw.core.asset_visibility import asset_visible
+
+        with self._lock:
+            raw = copy.deepcopy(self._read_raw())
+        items: list[dict[str, Any]] = []
+        for library in raw.get("libraries", {}).values():
+            for category in library.get("categories", []):
+                for item in category.get("items", []):
+                    if not asset_visible(item):
+                        continue
+                    items.append(
+                        {
+                            **item,
+                            "library_id": library.get("library_id"),
+                            "category_id": category.get("category_id"),
+                            "category_type": category.get("type"),
+                        }
+                    )
+        return items
+
     @staticmethod
     def _visible_category(category):
         from gw.core.asset_visibility import asset_visible

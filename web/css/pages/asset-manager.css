@@ -3935,3 +3935,11 @@ body.gw-signal.gw-page--asset-manager #assetManagerRoot .registry-toolbar .regis
     .governance-drawer-state { align-items:flex-start; flex-wrap:wrap; }
     .governance-drawer-state > .hw-btn { margin-left:auto; }
 }
+
+/* 【QIN-547】收集箱：左栏未读角标与内联设置面板 */
+.asset-tree-badge { flex:0 0 auto; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:var(--gold-primary,#dfc384); color:var(--gw-engraved-text,#171107); font-size:var(--gw-type-label-md); font-weight:800; line-height:18px; text-align:center; font-variant-numeric:tabular-nums; }
+.inbox-content .inbox-settings { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }
+.inbox-content .inbox-settings .asset-search-wrap { flex:1 1 320px; min-width:240px; }
+.inbox-content .inbox-settings-migrate { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:var(--gw-type-label-md); }
+.inbox-content .inbox-settings-migrate input { accent-color:var(--gold-primary,#dfc384); }
+.inbox-content .inbox-card .asset-file-icon { width:100%; height:100%; justify-content:center; }

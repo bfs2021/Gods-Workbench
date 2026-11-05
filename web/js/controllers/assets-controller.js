@@ -291,10 +291,10 @@ window.WorkbenchAssets = (() => {
   let categorySnapshot = '';
   const SYSTEM_NAVIGATION_GROUPS = Object.freeze([
     {id: 'projects', name: '项目制片', children: ['scripts']},
-    {id: 'assets', name: '托管资产', children: ['workflows']},
+    // 【QIN-547】托管资产与上传资源合并为收集箱（资产库「我的资源」树第一位），不再各自占用左栏入口。
+    {id: 'workflows', name: '工作流', children: []},
     {id: 'canvas-assets', name: '画布资产', children: []},
     {id: 'prompts', name: '提示词', children: []},
-    {id: 'local', name: '上传资源', children: []},
     {id: 'governance', name: '治理建议', children: []},
   ]);
   const GROUPED_SYSTEM_BOARD_IDS = new Set(SYSTEM_NAVIGATION_GROUPS.flatMap(group => [group.id, ...group.children]));

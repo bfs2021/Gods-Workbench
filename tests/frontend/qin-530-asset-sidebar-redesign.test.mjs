@@ -159,11 +159,10 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
     ['registry', '资产总览', false, 'library-big'],
     ['scripts', '剧本资产', false, 'file-text'],
     ['projects', '项目制片', true, 'clapperboard'],
-    ['assets', '托管资产', false, 'image'],
+    // 【QIN-547】托管资产与上传资源并入收集箱，不再各自占用左栏系统入口。
     ['workflows', '工作流', false, 'workflow'],
     ['canvas-assets', '画布资产', false, 'layout-dashboard'],
     ['prompts', '提示词', false, 'text-cursor-input'],
-    ['local', '上传资源', false, 'cloud-upload'],
     ['custom-brand', '品牌素材', false, 'folder'],
     ['source_library_root', '已登记库', false, 'database'],
   ]);
@@ -172,10 +171,13 @@ test('AC2/AC3 导航对齐机架字号与行距，并以无编号树状导轨分
   const systemButtons = walk(groups[0]).filter(node => node.dataset.assetBoardLevel === 'primary');
   const nestedButtons = walk(groups[0]).filter(node => node.dataset.assetBoardLevel === 'nested');
   const userButtons = walk(groups[1]).filter(node => node.dataset.assetBoardLevel === 'primary');
-  assert.deepEqual(systemButtons.map(button => button.dataset.assetBoard), ['projects', 'assets', 'canvas-assets', 'prompts', 'local']);
-  assert.deepEqual(systemButtons.map(button => button.textContent), ['项目制片', '托管资产', '画布资产', '提示词', '上传资源']);
-  assert.deepEqual(nestedButtons.map(button => button.dataset.assetBoard), ['scripts', 'workflows']);
+  assert.deepEqual(systemButtons.map(button => button.dataset.assetBoard), ['projects', 'workflows', 'canvas-assets', 'prompts']);
+  assert.deepEqual(systemButtons.map(button => button.textContent), ['项目制片', '工作流', '画布资产', '提示词']);
+  assert.deepEqual(nestedButtons.map(button => button.dataset.assetBoard), ['scripts']);
   assert.deepEqual(userButtons.map(button => button.dataset.assetBoard), ['custom-brand', 'source_library_root']);
+  // 【QIN-547】旧左栏入口（托管资产 / 上传资源）必须彻底消失，合并为收集箱。
+  assert.ok(!systemButtons.some(button => ['assets', 'local'].includes(button.dataset.assetBoard)), '托管资产/上传资源不应再占用系统导航');
+  assert.ok(![...systemButtons, ...nestedButtons].some(button => /托管资产|上传资源/.test(button.textContent)), '左栏不应再出现旧入口文案');
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => !/^\s*\d+\s*$/.test(button.textContent)));
   assert.ok(walk(groups[0]).filter(node => node.dataset.assetBoard).every(button => button.classList.contains('tree-node-card')));
   assert.match(html, /\.asset-shell-nav-button \.asset-shell-nav-label\s*\{[^}]*font-size:\s*var\(--gw-type-body\) !important;[^}]*font-weight:\s*400;[^}]*transform:\s*none !important;/);
