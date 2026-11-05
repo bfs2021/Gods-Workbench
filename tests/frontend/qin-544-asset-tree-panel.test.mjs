@@ -56,6 +56,7 @@ test('AC2: 系统资源树只读：项目层级完整、剧本/画布/提示词�
     const systemTree = functionSource('renderAssetTreeSystemTree');
     assert.match(systemTree, /renderAssetTreeProjectsBranch\(\)/, '项目制片分支应接入');
     assert.match(systemTree, /assetTreeSystemBoards\(\)/, '系统看板节点应接入');
+    assert.match(systemTree, /board\.id === 'prompts' \? '提示词库' : board\.name/, '提示词节点标签应与票面一致');
     const boards = functionSource('assetTreeSystemBoards');
     assert.match(boards, /\['scripts', 'canvas-assets', 'prompts'\]/, '剧本/画布/提示词平级');
     assert.ok(!boards.includes('workflows'), '系统资源树不得有工作流入口');

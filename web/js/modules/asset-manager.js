@@ -11671,7 +11671,7 @@ function renderAssetTreeSystemTree(){
     // AC2：系统资源树（只读）：项目制片、剧本资产、画布资产、提示词库
     const projectBranch = renderAssetTreeProjectsBranch();
     const boardNodes = assetTreeSystemBoards().map(board => renderAssetTreeNode({
-        key:`system:${board.id}`, icon:board.icon, name:board.name, count:'', depth:0,
+        key:`system:${board.id}`, icon:board.icon, name:board.id === 'prompts' ? '提示词库' : board.name, count:'', depth:0,
         hasChildren:false,
     })).join('');
     return `<div class="asset-tree-scroll" role="tree" aria-label="系统资源树" tabindex="0" data-asset-tree-view="system">${projectBranch}${boardNodes}</div>`;
