@@ -55,15 +55,16 @@ function escapeMarkup(value=''){
     return String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 }
 
-function renderLocalManagerMarkup({tree, activeFolder='', classFilter=''}={}){
+function renderLocalManagerMarkup({tree, activeFolder='', classFilter='', assetTreeTab='system'}={}){
     const renderFolderPanel = new Function(
+        'assetTreeTab',
         'localUploadTree',
         'activeLocalUploadFolder',
         'activeLocalUploadClassFilter',
         'escapeAttr',
         'escapeHtml',
         `${functionSource('renderLocalUploadFolderBranch')}\n${functionSource('localUploadFolderContainsActive')}\n${functionSource('renderLocalUploadFolderPanel')}\nreturn renderLocalUploadFolderPanel;`
-    )(tree, activeFolder, classFilter, escapeMarkup, escapeMarkup);
+    )(assetTreeTab, tree, activeFolder, classFilter, escapeMarkup, escapeMarkup);
     const renderAssetTree = new Function(
         'activeTab',
         'assetTreeTab',
@@ -116,10 +117,14 @@ test('AC2 上传资源页面实际渲染来源目录树及新建、重命名入�
     assert.match(markup, /data-localup-folder="incoming\/nested"/);
     assert.match(markup, /class="asset-tree-node is-selected is-path"/);
     assert.match(markup, /data-localup-folder-new/);
+    assert.match(markup, /data-asset-tree-tab="system"/);
+    assert.match(markup, /data-asset-tree-tab="mine"/);
+    assert.match(markup, /role="heading" aria-level="2">上传资源/);
     assert.ok(renameButton, '应渲染文件夹重命名按钮');
     assert.doesNotMatch(renameButton, /\bdisabled\b/);
     assert.doesNotMatch(markup, /<\/aside>}\s*<section/);
-    assert.doesNotMatch(markup, /系统资源/);
+    const mineMarkup = renderLocalManagerMarkup({tree, assetTreeTab: 'mine'});
+    assert.match(mineMarkup, /aria-selected="true" data-asset-tree-tab="mine"/);
 });
 
 test('AC2 根目录和智能分类状态下禁用文件夹重命名', () => {
