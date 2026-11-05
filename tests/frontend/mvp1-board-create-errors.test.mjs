@@ -9,8 +9,9 @@ const styles = readFileSync(new URL('../../web/css/pages/asset-manager.css', imp
 const controller = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
 const shell = readFileSync(new URL('../../web/pages/assets.html', import.meta.url), 'utf8');
 
-test('新建资源入口嵌入总览卡片并沿用独立标准硬件按钮', () => {
-    assert.match(shell, /<div class="asset-shell-overview-card"[\s\S]*?id="assetSidebarOverview"[\s\S]*?id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"[\s\S]*?<nav class="gw-side-bus-list[^\"]*" id="assetCategories"/);
+test('新建资源入口移入顶栏并沿用独立标准硬件按钮', () => {
+    assert.match(shell, /id="assetSidebarCreate" class="hw-btn hw-btn-icon shrink-0" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
+    assert.doesNotMatch(shell, /id="assetVaultSidebar"|id="assetCategories"/);
     assert.match(controller, /async function openCreateAssetLibrary\(\)[\s\S]*?button\.click\(\)/);
     assert.doesNotMatch(controller, /asset-shell-nav-create/);
 });
