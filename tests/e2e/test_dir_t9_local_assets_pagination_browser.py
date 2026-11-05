@@ -52,6 +52,8 @@ def test_local_assets_show_error_retry_and_load_next_page(
         ) as failed_page:
             local_entry.click()
         assert failed_page.value.status == 503
+        assert vault.locator("[data-localup-back-to-tree]").is_visible()
+        assert vault.locator("[data-asset-tree-tab]").count() == 0
         vault.locator('[data-localup-retry]').wait_for(state="visible")
 
         with page.expect_response(
@@ -78,4 +80,8 @@ def test_local_assets_show_error_retry_and_load_next_page(
         assert params["cursor"]
         assert len(second_page.value.json()["items"]) == 1
         vault.get_by_text("已加载全部 101 个素材").wait_for(state="visible")
+        vault.locator("[data-localup-back-to-tree]").click()
+        vault.locator("#assetManagerRoot.asset-manager-root-page-registry").wait_for(timeout=15000)
+        assert vault.locator('[data-asset-tree-tab="mine"]').get_attribute("aria-selected") == "true"
+        assert vault.locator("[data-asset-tree-node-key].is-selected").count() == 0
         assert errors == []

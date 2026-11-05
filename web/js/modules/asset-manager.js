@@ -9798,12 +9798,9 @@ function renderLocalUploadFolderPanel(){
     const tree = localUploadTree || {id:'__root__', path:'', name:'根目录', count:0, children:[]};
     const canRename = Boolean(activeLocalUploadFolder) && !activeLocalUploadClassFilter;
     return `<aside class="asset-panel asset-nav asset-tree-panel" aria-label="上传文件夹">
-        <div class="asset-tree-tabs" role="tablist" aria-label="资产导航标签页">
-            <button class="asset-tree-tab ${assetTreeTab === 'system' ? 'active' : ''}" type="button" role="tab" aria-selected="${assetTreeTab === 'system'}" data-asset-tree-tab="system">系统资源</button>
-            <button class="asset-tree-tab ${assetTreeTab === 'mine' ? 'active' : ''}" type="button" role="tab" aria-selected="${assetTreeTab === 'mine'}" data-asset-tree-tab="mine">我的资源</button>
-        </div>
         <div class="asset-tree-tabs" role="group" aria-label="上传目录操作">
             <div class="asset-tree-tab active" role="heading" aria-level="2">上传资源</div>
+            <button class="hw-btn hw-btn-icon" type="button" data-localup-back-to-tree title="返回资源入口" aria-label="返回资源入口"><i data-lucide="arrow-left"></i></button>
             <button class="asset-tree-tab" type="button" data-localup-folder-new title="新建文件夹" aria-label="新建文件夹"><i data-lucide="folder-plus"></i><span>新建</span></button>
         </div>
         <div class="asset-tree-scroll" role="tree" aria-label="上传文件夹树" tabindex="0">${renderLocalUploadFolderBranch(tree)}</div>
@@ -11965,12 +11962,8 @@ function renderAssetTreePanel(extraClass=''){
 function activateAssetTreeTab(tab){
     // AC1：系统资源/我的资源标签页切换（各一棵树）
     const next = tab === 'mine' ? 'mine' : 'system';
-    if(assetTreeTab === next && activeTab !== 'local') return;
+    if(assetTreeTab === next) return;
     assetTreeTab = next;
-    if(activeTab === 'local'){
-        void activateAssetBoard('registry');
-        return;
-    }
     render();
 }
 function toggleAssetTreeNode(key){
@@ -12071,6 +12064,13 @@ function handleAssetTreeNodeClick(event){
     const node = event?.target?.closest?.('[data-asset-tree-node]');
     if(!node) return false;
     selectAssetTreeNode(node.dataset.assetTreeNode || '');
+    return true;
+}
+function handleLocalUploadBackClick(event){
+    const button = event?.target?.closest?.('[data-localup-back-to-tree]');
+    if(!button) return false;
+    assetTreeSelectedKey = '';
+    void activateAssetBoard('registry');
     return true;
 }
 function renderAssetRack(extraAttrs='', extraClass=''){
@@ -14037,6 +14037,7 @@ async function handleClick(event){
     // 【QIN-524】中栏目录机架：折叠成图标条、目录树展开与目录过滤
     // 【QIN-533】智能筛选页下线，不再有模式切换委托
     // 【QIN-544】左栏单栏树：标签页、展开折叠、选中、挂载、面包屑点击
+    if(handleLocalUploadBackClick(event)) return;
     const treeTabBtn = target.closest?.('[data-asset-tree-tab]');
     if(treeTabBtn){ activateAssetTreeTab(treeTabBtn.dataset.assetTreeTab || ''); return; }
     const treeToggle = target.closest?.('[data-asset-tree-toggle]');

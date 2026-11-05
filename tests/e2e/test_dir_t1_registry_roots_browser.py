@@ -21,17 +21,26 @@ def _storage_settings_get(response) -> bool:
 
 
 def _click_asset_tree_board(vault, board_id: str) -> None:
+    root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
+    if "asset-manager-root-local" in root_class:
+        vault.locator("[data-localup-back-to-tree]").click()
+        vault.locator("#assetManagerRoot.asset-manager-root-page-registry").wait_for(timeout=15000)
     if board_id == "registry":
-        if vault.locator("#assetManagerRoot.asset-manager-root-local").count():
-            vault.locator('[data-asset-tree-tab="mine"]').click()
         vault.locator('[data-asset-tree-crumb="registry"]').click()
         return
-    if board_id in {"scripts", "canvas-assets", "prompts"}:
+    if board_id == "governance":
+        _click_asset_tree_board(vault, "registry")
+        vault.locator("[data-governance-open]").click()
+        drawer = vault.locator("[data-governance-drawer-dialog]")
+        expect(drawer).to_be_visible()
+        drawer.locator("[data-governance-drawer-close]").click()
+        return
+    if board_id in {"projects", "scripts", "canvas-assets", "prompts"}:
         tab = vault.locator('[data-asset-tree-tab="system"]')
         root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
         if "asset-manager-root-local" in root_class or tab.get_attribute("aria-selected") != "true":
             tab.click()
-        tree_key = f"system:{board_id}"
+        tree_key = "system:projects" if board_id == "projects" else f"system:{board_id}"
     else:
         tab = vault.locator('[data-asset-tree-tab="mine"]')
         root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
@@ -40,6 +49,11 @@ def _click_asset_tree_board(vault, board_id: str) -> None:
         tree_key = f"mine:board:{board_id}"
     entry = vault.locator(f'[data-asset-tree-node="{tree_key}"]')
     entry.wait_for(state="visible", timeout=15000)
+    if board_id == "projects":
+        branch = vault.locator('[data-asset-tree-node-key="system:projects"]')
+        if branch.get_attribute("aria-expanded") != "true":
+            entry.click()
+        return
     try:
         entry.click(timeout=5000)
     except PlaywrightTimeout as exc:
@@ -62,7 +76,10 @@ def _click_asset_tree_board(vault, board_id: str) -> None:
 def _click_asset_tree_root(vault, root_id: str):
     tab = vault.locator('[data-asset-tree-tab="mine"]')
     root_class = vault.locator("#assetManagerRoot").get_attribute("class") or ""
-    if "asset-manager-root-local" in root_class or tab.get_attribute("aria-selected") != "true":
+    if "asset-manager-root-local" in root_class:
+        vault.locator("[data-localup-back-to-tree]").click()
+        vault.locator("#assetManagerRoot.asset-manager-root-page-registry").wait_for(timeout=15000)
+    if tab.get_attribute("aria-selected") != "true":
         tab.click()
     entry = vault.locator(f'[data-asset-tree-node="mine:root:{root_id}"]')
     entry.wait_for(state="visible", timeout=15000)
@@ -223,11 +240,11 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
                             root?.querySelector(':scope > .registry-toolbar')
                         ];
                         if (!root || !rows.every(Boolean) || !root.classList.contains(`asset-manager-root-page-${boardId}`)) return false;
-                    const rootRect = root.getBoundingClientRect();
+                        const rootRect = root.getBoundingClientRect();
                         return rows.every((element, index) => {
                             const rect = element.getBoundingClientRect();
-                        return Math.abs(rect.x - rootRect.x - expected[index].x) <= 1
-                            && Math.abs(rect.y - rootRect.y - expected[index].y) <= 1;
+                            return Math.abs(rect.x - rootRect.x - expected[index].x) <= 1
+                                && Math.abs(rect.y - rootRect.y - expected[index].y) <= 1;
                         });
                     }""",
                     arg={"expected": expected, "boardId": board_id},
@@ -292,10 +309,15 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
             expect(fixed_toolbar).to_be_visible()
             assert page.url == fixed_url, f"切换 {board_id} 不应导航离开当前页面"
             wait_for_fixed_rows(reference_boxes, board_id, "桌面")
+        for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
+            _click_asset_tree_board(vault, board_id)
+            assert page.url == fixed_url, f"打开 {route_name} 不应导航离开当前页面"
+            wait_for_fixed_rows(reference_boxes, "registry", f"桌面{route_name}")
         page.set_viewport_size({"width": 500, "height": 900})
         _click_asset_tree_board(vault, "registry")
         expect(fixed_stats).to_be_visible()
         expect(fixed_toolbar).to_be_visible()
+        narrow_reference = (position(fixed_stats), position(fixed_toolbar))
         for board_id in ("assets", "scripts", "prompts", "canvas-assets", "local"):
             _click_asset_tree_board(vault, board_id)
             expect(fixed_stats).to_be_visible()
@@ -303,5 +325,10 @@ def test_dir_t1_create_library_index_and_filter_from_browser(monkeypatch, tmp_pa
             assert page.url == fixed_url, f"窄屏切换 {board_id} 不应导航离开当前页面"
             expect(vault.locator("#assetManagerRoot")).to_have_class(re.compile(f"asset-manager-root-page-{board_id}"))
             expect(vault.locator(".asset-tree-panel")).to_be_visible()
+            wait_for_fixed_rows(narrow_reference, board_id, "窄屏")
+        for board_id, route_name in (("projects", "项目树"), ("governance", "治理建议")):
+            _click_asset_tree_board(vault, board_id)
+            assert page.url == fixed_url, f"窄屏打开 {route_name} 不应导航离开当前页面"
+            wait_for_fixed_rows(narrow_reference, "registry", f"窄屏{route_name}")
         assert bad_asset_responses == []
         assert errors == []

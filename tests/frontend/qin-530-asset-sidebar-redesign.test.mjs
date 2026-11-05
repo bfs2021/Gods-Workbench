@@ -67,6 +67,27 @@ test('QIN-560 AC3: 点击单栏树入口切换托管、上传与用户资源库�
   assert.deepEqual(activatedBoardIds, ['assets', 'local', 'library_example', 'source_library_example']);
 });
 
+test('QIN-560 AC3: 上传资源页用明确返回按钮回到树并清除旧选中态', () => {
+  const activatedBoardIds = [];
+  const context = createContext({
+    assetTreeSelectedKey: 'mine:board:local',
+    activateAssetBoard: id => activatedBoardIds.push(id),
+  });
+  runInContext(functionSource('handleLocalUploadBackClick'), context);
+  const button = {};
+  context.event = {
+    target: {
+      closest: selector => selector === '[data-localup-back-to-tree]' ? button : null,
+    },
+  };
+
+  assert.equal(runInContext('handleLocalUploadBackClick(event)', context), true);
+  assert.equal(runInContext('assetTreeSelectedKey', context), '');
+  assert.deepEqual(activatedBoardIds, ['registry']);
+  context.event.target.closest = () => null;
+  assert.equal(runInContext('handleLocalUploadBackClick(event)', context), false);
+});
+
 test('QIN-560 AC3: 未归属状态桥与 iframe 状态回写仍保留', () => {
   assert.match(html, /<div id="assetSidebarActionState" hidden aria-hidden="true">[\s\S]*?id="btnUnassignedInbox"/);
   assert.match(controller, /function syncToolbarEntry\(button = entry\(\)\)/);

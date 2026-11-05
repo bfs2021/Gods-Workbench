@@ -1308,6 +1308,7 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
     grid-column: 1;
 }
 @media (max-width: 900px) {
+    /* 窄屏将左栏放到第 3 行、内容放到第 4 行；需覆盖上方嵌入式左栏跨行 !important 与后置 registry-content 第 3 行规则。 */
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot {
         grid-template-columns: minmax(0,1fr) !important;
         grid-template-rows: auto auto auto minmax(360px,1fr) auto !important;
