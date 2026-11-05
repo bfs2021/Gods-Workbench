@@ -65,16 +65,14 @@ function functionSource(name){
     assert.fail(`函数未闭合：${name}`);
 }
 
-test('AC1: 资源库左侧导航承载资产看板与新建资源入口', () => {
-    assert.match(html, /<div class="asset-shell-overview-card"[\s\S]*?id="assetSidebarOverview"[\s\S]*?id="assetSidebarCreate" class="hw-btn hw-btn-icon" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
-    assert.doesNotMatch(html, /<span>资源库<\/span>/);
-    assert.match(html, /<nav class="gw-side-bus-list[^\"]*" id="assetCategories" aria-label="资源库导航"/);
-    assert.doesNotMatch(html, /id="assetCategories" role="tablist"/);
-    assert.match(shell, /querySelectorAll\('#assetBoardTabs \.asset-board-tab'\)/);
+test('QIN-560 AC1/AC2: 资产页只保留 QIN-544 内嵌树，创建入口留在顶栏', () => {
+    assert.doesNotMatch(html, /id="assetVaultSidebar"|id="assetCategories"/);
+    assert.match(html, /id="assetSidebarCreate" class="hw-btn hw-btn-icon shrink-0" onclick="WorkbenchAssets\.openCreateAssetLibrary\(\)"/);
+    assert.match(html, /<main id="assetVaultStage">[\s\S]*?<iframe id="assetVaultFrame"/);
+    assert.match(shell, /async function openCreateAssetLibrary\(\)/);
     assert.match(shell, /waitForControl\('#assetBoardTabs \[data-board-create\]'\)/);
-    for (const label of ['资产总览', '剧本资产', '项目制片', '托管资产', '工作流', '提示词', '画布资产', '上传资源']) {
-        assert.ok(manager.includes(`name:'${label}'`), `缺少导航项：${label}`);
-    }
+    assert.match(manager, /data-asset-tree-tab="system"/);
+    assert.match(manager, /data-asset-tree-tab="mine"/);
     assert.doesNotMatch(manager, /\{id:'governance', name:'治理建议'/);
     assert.match(manager, /data-governance-open/);
     assert.match(vaultCss, /html\.vault-shell-embedded[^\n]*#assetBoardTabs \{ display: none !important; \}/);
@@ -83,9 +81,9 @@ test('AC1: 资源库左侧导航承载资产看板与新建资源入口', () => 
 test('AC2: 状态显示在固定顶栏并从嵌入资产管理器回写', () => {
     const statusIndex = html.indexOf('ASSET VAULT');
     const statusNodeIndex = html.indexOf('id="assetVaultStatus"');
-    const sidebarIndex = html.indexOf('id="assetVaultSidebar"');
-    assert.ok(statusIndex >= 0 && statusNodeIndex > statusIndex && statusNodeIndex < sidebarIndex);
-    assert.doesNotMatch(html.slice(html.indexOf('id="navPillsGroup"'), sidebarIndex), /assetVaultStatus/);
+    const workspaceIndex = html.indexOf('class="asset-shell-workspace');
+    assert.ok(statusIndex >= 0 && statusNodeIndex > statusIndex && statusNodeIndex < workspaceIndex);
+    assert.doesNotMatch(html.slice(html.indexOf('id="navPillsGroup"'), workspaceIndex), /assetVaultStatus/);
     assert.match(manager, /window\.parent\.document\.getElementById\('assetVaultStatus'\)/);
     assert.match(manager, /embeddedVault \? '' : `<div id="assetStatus"/);
 });
@@ -317,9 +315,11 @@ test('QIN-505 AC6: 虚拟瀑布流缩放后快速重算卡片列与位置', () =
     assert.equal(forceCalls, 2);
 });
 
-test('AC5: 窄屏时左侧导航转为可横向滚动入口', () => {
-    assert.match(html, /@media \(max-width: 700px\)[\s\S]*?#assetCategories \{[^}]*overflow-x: auto/);
-    assert.doesNotMatch(html, /@media \(max-width: 700px\) \{ #assetVaultSidebar \{ display: none/);
+test('QIN-560 AC4: 窄屏内容区仍由内嵌单栏树和主区域承载', () => {
+    assert.doesNotMatch(html, /#assetCategories|#assetVaultSidebar/);
+    assert.match(html, /#assetVaultStage \{ flex: 1; min-width: 0; min-height: 0; display: flex/);
+    assert.match(html, /#assetVaultFrame \{ flex: 1; width: 100%;/);
+    assert.match(manager, /renderAssetTreePanel\(\)/);
 });
 
 test('AC7: 左栏全部入口共用固定统计行和工具栏行，视图留在资源库页内切换', () => {
