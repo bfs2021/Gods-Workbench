@@ -10585,7 +10585,9 @@ function renderRegistryCard(item){
     }
     const selected = registrySelectedIds.has(item.id);
     const name = item.name || 'asset';
-    const format = registryAssetCategory(item) === 'lut' ? 'LUT' : (registryAssetExtension(item).toUpperCase() || 'FILE');
+    const isLut = String(item.kind || item.media_type || item.type || '').toLowerCase() === 'lut'
+        || registryAssetExtension(item).toLowerCase() === 'cube';
+    const format = isLut ? 'LUT' : (registryAssetExtension(item).toUpperCase() || 'FILE');
     const referenceCanvasId = boardReferenceCanvasSelection[activeTab] || '';
     const mediaAspectStyle = registryMediaAspectStyle(item);
     const matchedSegment = item.kind === 'video' ? findMatchedVideoSegment(item, registryQuery) : null;
