@@ -100,7 +100,9 @@ def _all_local_asset_items(kind: str | None) -> list[dict[str, Any]]:
     return [_local_asset_item(item) for item in items]
 
 
-def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
+def _local_asset_tree(
+    items: list[dict[str, Any]], extra_folder_paths: list[str] | None = None
+) -> dict[str, Any]:
     root: dict[str, Any] = {
         "id": "__root__",
         "path": "",
@@ -110,11 +112,11 @@ def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
         "children": [],
     }
     nodes = {"": root}
-    for item in items:
-        parent_path = str(item.get("folder") or "")
+
+    def ensure_folder(path_text: str, *, count_item: bool = True) -> None:
         current_parts: list[str] = []
         parent = root
-        for part in PurePosixPath(parent_path).parts:
+        for part in PurePosixPath(path_text.replace("\\", "/")).parts:
             if part in {"", ".", "/", ".."}:
                 continue
             current_parts.append(part)
@@ -131,8 +133,15 @@ def _local_asset_tree(items: list[dict[str, Any]]) -> dict[str, Any]:
                 }
                 nodes[path] = node
                 parent["children"].append(node)
-            node["count"] += 1
+            if count_item:
+                node["count"] += 1
             parent = node
+
+    for item in items:
+        ensure_folder(str(item.get("folder") or ""))
+    for folder_path in extra_folder_paths or []:
+        ensure_folder(str(folder_path or ""), count_item=False)
+
     for node in nodes.values():
         node["children"].sort(key=lambda child: str(child["name"]).casefold())
     return root
@@ -283,8 +292,8 @@ async def create_local_asset_folder(
     auth = _write(authorization, x_user_role)
     operator = auth.subject or auth.display_name or "local_user"
     payload = await _body(request)
-    if payload.get("path") or payload.get("parent") or _root_hint(payload):
-        return organize.create_folder(
+    if "path" in payload or payload.get("organize") is True:
+        result = organize.create_folder(
             raw_path=payload.get("path"),
             name=payload.get("name"),
             parent=payload.get("parent"),
@@ -292,7 +301,29 @@ async def create_local_asset_folder(
             operator=operator,
             expected_version=_expected_version(payload),
         )
-    return repo.create_local_folder(str(payload.get("name") or ""))
+    else:
+        result = repo.create_local_folder(
+            str(payload.get("name") or ""),
+            parent=str(payload.get("parent") or ""),
+        )
+
+    items = _all_local_asset_items(str(payload.get("kind") or "").strip() or None)
+    folder_path = str(
+        result.get("canonical_relpath")
+        or result.get("relative_path")
+        or result.get("display_path")
+        or ""
+    ).replace("\\", "/")
+    if folder_path.startswith("local_assets/"):
+        folder_path = folder_path.removeprefix("local_assets/")
+    result.update(
+        {
+            "items": items,
+            "tree": _local_asset_tree(items, [folder_path]),
+            "folder": {"path": folder_path},
+        }
+    )
+    return result
 
 
 @router.patch("/api/local-assets/folders", status_code=status.HTTP_200_OK)

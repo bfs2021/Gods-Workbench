@@ -662,7 +662,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
+            json={"organize": True, "name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for reserved name {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "RESERVED_NAME_FORBIDDEN"
@@ -682,7 +682,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
+            json={"organize": True, "name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for illegal char {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "INVALID_CHARACTERS"
@@ -693,7 +693,7 @@ def test_naming_and_path_validation(organize_env):
         res = client.post(
             "/api/local-assets/folders",
             headers=AUTH,
-            json={"name": name, "root_id": rid1, "expected_version": _v(client)},
+            json={"organize": True, "name": name, "root_id": rid1, "expected_version": _v(client)},
         )
         assert res.status_code == 400, f"Expected 400 for end dot/space {name}, got {res.status_code}"
         assert res.json()["detail"]["code"] == "INVALID_NAME_END"
@@ -703,7 +703,7 @@ def test_naming_and_path_validation(organize_env):
     res_long = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": long_name, "root_id": rid1, "expected_version": _v(client)},
+        json={"organize": True, "name": long_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert res_long.status_code == 400
     assert res_long.json()["detail"]["code"] == "NAME_TOO_LONG"
@@ -860,7 +860,7 @@ def test_cross_user_undo_permission_check(organize_env):
     create_res = client.post(
         "/api/local-assets/folders",
         headers=user_a_auth,
-        json={"name": "user_a_folder", "root_id": rid1, "expected_version": _v(client)},
+        json={"organize": True, "name": "user_a_folder", "root_id": rid1, "expected_version": _v(client)},
     )
     assert create_res.status_code == 201
     undo = create_res.json()["undo"]
@@ -953,7 +953,7 @@ def test_name_length_utf8_bytes_validation(organize_env):
     res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": long_chinese_name, "root_id": rid1, "expected_version": _v(client)},
+        json={"organize": True, "name": long_chinese_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "NAME_TOO_LONG"
@@ -963,7 +963,7 @@ def test_name_length_utf8_bytes_validation(organize_env):
     ok_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": valid_chinese_name, "root_id": rid1, "expected_version": _v(client)},
+        json={"organize": True, "name": valid_chinese_name, "root_id": rid1, "expected_version": _v(client)},
     )
     assert ok_res.status_code == 201
 
@@ -991,7 +991,7 @@ def test_expected_version_cas_optimistic_concurrency(organize_env):
     bad_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "cas_folder", "root_id": rid1, "expected_version": v0 + 999},
+        json={"organize": True, "name": "cas_folder", "root_id": rid1, "expected_version": v0 + 999},
     )
     assert bad_res.status_code == 409
     assert bad_res.json()["detail"]["code"] == "VERSION_CONFLICT"
@@ -1000,7 +1000,7 @@ def test_expected_version_cas_optimistic_concurrency(organize_env):
     ok_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "cas_folder", "root_id": rid1, "expected_version": v0},
+        json={"organize": True, "name": "cas_folder", "root_id": rid1, "expected_version": v0},
     )
     assert ok_res.status_code == 201
     v1 = ok_res.json()["version"]
@@ -1251,7 +1251,7 @@ def test_expected_version_mandatory_on_all_write_endpoints(organize_env):
     r_create = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "test_mandatory_folder", "root_id": rid1},
+        json={"organize": True, "name": "test_mandatory_folder", "root_id": rid1},
     )
     assert r_create.status_code == 409
     assert r_create.json()["detail"]["code"] == "VERSION_CONFLICT"
@@ -1261,7 +1261,7 @@ def test_expected_version_mandatory_on_all_write_endpoints(organize_env):
     r_setup = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "test_folder_for_req", "root_id": rid1, "expected_version": v0},
+        json={"organize": True, "name": "test_folder_for_req", "root_id": rid1, "expected_version": v0},
     )
     assert r_setup.status_code == 201
 
@@ -1324,7 +1324,7 @@ def test_version_bump_strictly_after_success(organize_env):
     r_create = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "bump_test_folder", "root_id": rid1, "expected_version": v_start},
+        json={"organize": True, "name": "bump_test_folder", "root_id": rid1, "expected_version": v_start},
     )
     assert r_create.status_code == 201
     v1 = r_create.json()["version"]
@@ -1335,7 +1335,7 @@ def test_version_bump_strictly_after_success(organize_env):
     r_dup = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "bump_test_folder", "root_id": rid1, "expected_version": v1},
+        json={"organize": True, "name": "bump_test_folder", "root_id": rid1, "expected_version": v1},
     )
     assert r_dup.status_code == 409
     assert _v(client) == v1
@@ -1398,7 +1398,7 @@ def test_version_file_corrupted_or_missing_fail_closed(organize_env):
     r_missing = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
+        json={"organize": True, "name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
     )
     assert r_missing.status_code == 500
     assert r_missing.json()["detail"]["code"] == "VERSION_STATE_CORRUPTED"
@@ -1409,7 +1409,7 @@ def test_version_file_corrupted_or_missing_fail_closed(organize_env):
     r_corrupt = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
+        json={"organize": True, "name": "fail_closed_folder", "root_id": rid1, "expected_version": 1},
     )
     assert r_corrupt.status_code == 500
     assert r_corrupt.json()["detail"]["code"] == "VERSION_STATE_CORRUPTED"
@@ -1420,7 +1420,7 @@ def test_version_file_corrupted_or_missing_fail_closed(organize_env):
     r_ok = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "recovered_folder", "root_id": rid1, "expected_version": 10},
+        json={"organize": True, "name": "recovered_folder", "root_id": rid1, "expected_version": 10},
     )
     assert r_ok.status_code == 201
     assert r_ok.json()["version"] == 11
@@ -1485,7 +1485,7 @@ def test_error_messages_contain_no_internal_paths_or_exc(organize_env):
     r_res = client.post(
         "/api/local-assets/folders",
         headers=AUTH,
-        json={"name": "CON", "root_id": rid1, "expected_version": v},
+        json={"organize": True, "name": "CON", "root_id": rid1, "expected_version": v},
     )
     msg1 = r_res.json()["detail"]["message"]
     assert "D:" not in msg1 and "C:" not in msg1 and "\\" not in msg1
@@ -1747,10 +1747,6 @@ def test_lifespan_initializes_organize_version_file(tmp_path, monkeypatch):
     data_dir.mkdir()
     monkeypatch.setenv("GW_DATA_DIR", str(data_dir))
     monkeypatch.setenv("GW_DISABLE_AGENT_INTEGRATION", "1")
-    # 重置 storage 路径缓存
-    from gw.core import storage as _storage
-    _storage._DATA_ROOT_CACHE = None
-
     # 确保版本文件不存在（模拟新装环境）
     vfile = data_dir / "system_internal" / "organize_version.json"
     assert not vfile.exists(), "测试前提：版本文件不应存在"
@@ -1804,3 +1800,100 @@ def test_nested_readonly_library_blocked_by_target_path(organize_env):
         )
         assert res.status_code == 403, f"嵌套只读库的目标路径应被拒绝: {res.json()}"
         assert res.json()["detail"]["code"] == "SOURCE_READ_ONLY"
+
+
+def test_readonly_library_ancestor_cannot_be_deleted_renamed_or_moved(organize_env):
+    """保护包含嵌套只读库的目录，禁止删除、重命名或移动整棵祖先树。"""
+    client = organize_env["client"]
+    rid = organize_env["root_id_1"]
+    root = organize_env["user_root_1"]
+    readonly_ancestor = root / "readonly_parent"
+    readonly_library = readonly_ancestor / "nested_readonly_library"
+    readonly_library.mkdir(parents=True, exist_ok=True)
+
+    from gw.settings.service import default_storage_settings_service
+    original_snapshot = default_storage_settings_service.get_snapshot
+
+    class MockSnapshot:
+        def __init__(self, original):
+            self.local_library_read_only = {"nested_readonly": True}
+            self.local_libraries = [
+                {"id": "nested_readonly", "path": str(readonly_library), "read_only": False}
+            ]
+            self.original = original
+
+        def __getattr__(self, name):
+            return getattr(self.original, name)
+
+    with patch.object(
+        default_storage_settings_service,
+        "get_snapshot",
+        return_value=MockSnapshot(original_snapshot()),
+    ):
+        delete = client.post(
+            "/api/local-assets/delete",
+            headers=AUTH,
+            json={"path": "readonly_parent", "root_id": rid, "organize": True, "expected_version": _v(client)},
+        )
+        rename = client.patch(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={"path": "readonly_parent", "name": "renamed_parent", "root_id": rid, "expected_version": _v(client)},
+        )
+        move = client.post(
+            "/api/local-assets/folders/move",
+            headers=AUTH,
+            json={"source": "readonly_parent", "target": "moved_parent", "root_id": rid, "expected_version": _v(client)},
+        )
+
+    for response in (delete, rename, move):
+        assert response.status_code == 403, response.json()
+        assert response.json()["detail"]["code"] == "SOURCE_READ_ONLY"
+    assert readonly_ancestor.is_dir()
+    assert readonly_library.is_dir()
+    assert not (root / "renamed_parent").exists()
+    assert not (root / "moved_parent").exists()
+
+
+def test_unresolvable_readonly_library_path_fails_closed(organize_env, monkeypatch):
+    """只读库路径解析失败时必须拒绝写入，不能跳过只读校验。"""
+    client = organize_env["client"]
+    rid = organize_env["root_id_1"]
+    root = organize_env["user_root_1"]
+    broken_path = "<unresolvable-readonly-library>"
+
+    from gw.settings.service import default_storage_settings_service
+    original_snapshot = default_storage_settings_service.get_snapshot
+    original_resolve = Path.resolve
+
+    class MockSnapshot:
+        def __init__(self, original):
+            self.local_library_read_only = {}
+            self.local_libraries = [
+                {"id": "broken_readonly", "path": broken_path, "read_only": True}
+            ]
+            self.original = original
+
+        def __getattr__(self, name):
+            return getattr(self.original, name)
+
+    def fail_broken_library_resolve(path, *args, **kwargs):
+        if str(path) == broken_path:
+            raise OSError("path resolution failed")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fail_broken_library_resolve)
+    with patch.object(
+        default_storage_settings_service,
+        "get_snapshot",
+        return_value=MockSnapshot(original_snapshot()),
+    ):
+        response = client.post(
+            "/api/local-assets/folders",
+            headers=AUTH,
+            json={"path": "safe_child", "root_id": rid, "expected_version": _v(client)},
+        )
+
+    assert response.status_code == 403, response.json()
+    assert response.json()["detail"]["code"] == "SOURCE_READ_ONLY"
+    assert not (root / "safe_child").exists()

@@ -266,8 +266,8 @@ def _client_safe_undo(record: dict[str, Any]) -> dict[str, Any]:
 def check_root_writable(root: Path, root_id: str | None = None, resolved_target: Path | None = None) -> None:
     """校验目标允许根是否为可写根；系统根或只读配置一律拒绝写入。
 
-    resolved_target：实际目标文件/目录的绝对路径（可选）。若提供，库路径匹配时将
-    同时检查库路径与 resolved_root 的包含关系，以支持库挂在允许根之下的嵌套场景。
+    resolved_target：实际目标文件/目录的绝对路径（可选）。同时检查目标是否位于只读库内，
+    以及目标目录是否包含只读库，以阻止改动只读库的祖先目录。
     """
     resolved_root = root.resolve()
     resolved_check = (resolved_target or root).resolve()
@@ -288,6 +288,10 @@ def check_root_writable(root: Path, root_id: str | None = None, resolved_target:
         lib_id = str(lib.get("id") or lib.get("library_id") or "").strip()
         lib_rid = str(lib.get("root_identity_id") or "").strip()
         lib_path = str(lib.get("path") or lib.get("root_path") or "").strip()
+        lib_read_only = bool(lib.get("read_only", False)) or bool(
+            (lib_id and source_policy.get(lib_id, False))
+            or (lib_rid and source_policy.get(lib_rid, False))
+        )
 
         is_match = False
         if lib_rid and (lib_rid == rid or storage.coerce_root_id(lib_rid) == storage.coerce_root_id(rid)):
@@ -297,13 +301,16 @@ def check_root_writable(root: Path, root_id: str | None = None, resolved_target:
         elif lib_path:
             try:
                 res_lib = Path(lib_path).resolve()
-                # 同时检查挂载根和目标路径是否属于该库，支持库嵌套在允许根之下的场景
+                # 同时保护库内路径、库本身和包含只读库的祖先目录。
                 if (resolved_root == res_lib or resolved_root.is_relative_to(res_lib)
-                        or resolved_check == res_lib or resolved_check.is_relative_to(res_lib)):
+                        or resolved_check == res_lib or resolved_check.is_relative_to(res_lib)
+                        or res_lib.is_relative_to(resolved_check)):
                     is_match = True
             except (ValueError, OSError) as exc:
-                # 路径解析失败时，记录日志并保守处理（若库本身被标记为只读则拒绝）
-                logger.warning("check_root_writable: 解析库路径失败 %r: %s，跳过该库匹配", lib_path, exc)
+                # 只读库无法解析时无法排除路径重叠，必须拒绝写入；可写库记录后跳过。
+                logger.warning("check_root_writable: 解析库路径失败 %r: %s", lib_path, exc)
+                if lib_read_only:
+                    raise CleanroomException(403, "SOURCE_READ_ONLY", "只读素材源路径无法安全校验，拒绝写入") from None
                 continue
 
         if is_match:

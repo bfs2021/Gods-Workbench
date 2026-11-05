@@ -225,3 +225,37 @@ def test_auth_and_permissions(api_env):
         json={"path": str(user_root / "test"), "root_id": user_rid},
     )
     assert viewer_res.status_code == 403
+
+
+def test_legacy_parent_folder_create_keeps_frontend_response_contract(api_env, monkeypatch):
+    """旧前端只发送 parent 时走本地资源接口，并返回刷新树所需字段。"""
+    client = api_env["client"]
+    parent = storage.data_root() / "local_assets" / "sub"
+    parent.mkdir(parents=True, exist_ok=True)
+
+    def unexpected_organize_create(**kwargs):
+        pytest.fail(f"旧 parent 请求不应路由到 organize.create_folder: {kwargs}")
+
+    monkeypatch.setattr(organize, "create_folder", unexpected_organize_create)
+    response = client.post(
+        "/api/local-assets/folders",
+        headers=AUTH,
+        json={"kind": "local", "parent": "sub", "name": "nested"},
+    )
+
+    assert response.status_code == 201, response.json()
+    payload = response.json()
+    assert (parent / "nested").is_dir()
+    assert isinstance(payload.get("items"), list)
+    assert isinstance(payload.get("tree"), dict)
+    assert payload.get("folder") == {"path": "sub/nested"}
+
+    folder_paths = []
+
+    def collect_paths(node):
+        folder_paths.append(node.get("path"))
+        for child in node.get("children", []):
+            collect_paths(child)
+
+    collect_paths(payload["tree"])
+    assert "sub/nested" in folder_paths
