@@ -1,6 +1,7 @@
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {createContext, runInContext} from 'node:vm';
 
 const html = readFileSync(new URL('../../web/pages/assets.html', import.meta.url), 'utf8');
 const controller = readFileSync(new URL('../../web/js/controllers/assets-controller.js', import.meta.url), 'utf8');
@@ -36,6 +37,34 @@ test('QIN-560 AC3: QIN-544 内嵌树保留双标签、树选择与面包屑', ()
   assert.match(manager, /function selectAssetTreeNode\(/);
   assert.match(manager, /function handleAssetTreeCrumbClick\(/);
   assert.match(manager, /data-asset-tree-crumb/);
+});
+
+test('QIN-560 AC3: 点击单栏树入口切换托管、上传与用户资源库看板', () => {
+  const activatedBoardIds = [];
+  const context = createContext({
+    assetTreeSelectedKey: '',
+    activatedBoardIds,
+    assetBoardById: id => ({id}),
+    activateAssetBoard: id => activatedBoardIds.push(id),
+  });
+  runInContext([
+    functionSource('handleAssetTreeNodeClick'),
+    functionSource('selectAssetTreeNode'),
+  ].join('\n'), context);
+
+  for (const boardId of ['assets', 'local', 'library_example', 'source_library_example']) {
+    const key = `mine:board:${boardId}`;
+    const row = {dataset: {assetTreeNode: key}};
+    context.event = {
+      target: {
+        closest: selector => selector === '[data-asset-tree-node]' ? row : null,
+      },
+    };
+    assert.equal(runInContext('handleAssetTreeNodeClick(event)', context), true);
+    assert.equal(runInContext('assetTreeSelectedKey', context), key);
+    assert.equal(activatedBoardIds.at(-1), boardId);
+  }
+  assert.deepEqual(activatedBoardIds, ['assets', 'local', 'library_example', 'source_library_example']);
 });
 
 test('QIN-560 AC3: 未归属状态桥与 iframe 状态回写仍保留', () => {

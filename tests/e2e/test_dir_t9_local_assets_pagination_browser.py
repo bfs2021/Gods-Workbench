@@ -43,13 +43,14 @@ def test_local_assets_show_error_retry_and_load_next_page(
         page.route("**/api/local-assets?*", fail_once)
         goto_ready(page, base + "/static/pages/assets.html")
         vault = page.frame_locator("#assetVaultFrame")
-        local_tab = page.locator('#assetCategories [data-asset-board="local"]')
-        local_tab.wait_for(state="visible")
+        vault.locator('[data-asset-tree-tab="mine"]').click()
+        local_entry = vault.locator('[data-asset-tree-node="mine:board:local"]')
+        local_entry.wait_for(state="visible")
         with page.expect_response(
             lambda response: "/api/local-assets?" in response.url
             and response.request.method == "GET"
         ) as failed_page:
-            local_tab.click()
+            local_entry.click()
         assert failed_page.value.status == 503
         vault.locator('[data-localup-retry]').wait_for(state="visible")
 

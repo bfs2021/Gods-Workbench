@@ -451,7 +451,7 @@ window.WorkbenchAssets = (() => {
     const currentFrame = document.getElementById('assetVaultFrame');
     if (!currentFrame) return;
     if (event?.type === 'click') {
-      const link = event.target?.closest?.('.nav-pill-btn[href], .tree-node-card[href]');
+      const link = event.target?.closest?.('.nav-pill-btn[href]');
       if (!link) return;
       const target = new URL(link.getAttribute('href') || '', location.href);
       if (target.origin !== location.origin || target.pathname === location.pathname) return;

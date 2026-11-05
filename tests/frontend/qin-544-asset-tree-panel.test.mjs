@@ -72,7 +72,7 @@ test('AC2: 系统资源树只读：项目层级完整、剧本/画布/提示词�
     assert.match(functionSource('ensureAssetTreeProjectData'), /getRegistryProject/, '项目详情走 QIN-543 接口');
 });
 
-test('AC3: 我的资源树：收集箱第一位（占位）、挂载文件夹完整子目录树、底部挂载入口', () => {
+test('AC3: 我的资源树：收集箱、资源入口、挂载文件夹完整子目录树和底部挂载入口', () => {
     const mineTree = functionSource('renderAssetTreeMineTree');
     assert.match(mineTree, /mine:inbox/, '收集箱节点应存在');
     assert.match(mineTree, /收集箱/, '收集箱文案应存在');
@@ -80,6 +80,8 @@ test('AC3: 我的资源树：收集箱第一位（占位）、挂载文件夹完
     const rootsPos = mineTree.indexOf('assetTreeRootsList()');
     assert.ok(inboxPos >= 0 && rootsPos >= 0 && inboxPos < rootsPos, '收集箱应排在挂载文件夹之前');
     assert.match(mineTree, /assetTreeRootsList\(\)/, '挂载文件夹树应接入根目录清单');
+    assert.match(mineTree, /assetTreeUserBoards\(\)/, '托管、上传与用户资源库入口应使用现有看板列表');
+    assert.match(functionSource('assetTreeUserBoards'), /board\.id === 'assets' \|\| board\.id === 'local' \|\| !board\.system/, '资源入口应包含托管资产、上传资源与用户自定义资源库');
     const panel = functionSource('renderAssetTreePanel');
     assert.match(panel, /data-asset-tree-mount/, '面板底部挂载按钮应存在');
     assert.match(functionSource('renderAssetTreeMineTree'), /assetRackFolderTree/, '目录树复用 QIN-542 完整磁盘子目录树');

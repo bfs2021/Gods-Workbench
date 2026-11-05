@@ -1317,11 +1317,11 @@ html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoo
     }
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot > :is(.asset-panel.asset-nav,.asset-smart-filter-panel,.library-board-nav) {
         grid-column: 1;
-        grid-row: 3;
+        grid-row: 3 !important;
     }
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot > :is(.registry-content,.asset-panel.asset-content,.asset-workspace-panel,.script-assets-panel) {
         grid-column: 1;
-        grid-row: 4;
+        grid-row: 4 !important;
     }
     html.vault-shell-embedded body.gw-signal.gw-page--asset-manager #assetManagerRoot > :is(.asset-panel.asset-detail,.registry-detail-panel) {
         grid-column: 1;
