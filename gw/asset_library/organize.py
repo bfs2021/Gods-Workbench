@@ -346,10 +346,19 @@ def _save_undo_record(undo_record: dict[str, Any]) -> None:
     if not undo_id:
         return
     record_file = _undo_records_dir() / f"{undo_id}.json"
-    record_file.write_text(
-        json.dumps(undo_record, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    temp_file = record_file.with_name(f"{record_file.name}.tmp.{secrets.token_hex(8)}")
+    try:
+        temp_file.write_text(
+            json.dumps(undo_record, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temp_file.replace(record_file)
+    except Exception:
+        try:
+            temp_file.unlink(missing_ok=True)
+        except OSError as cleanup_exc:
+            logger.warning("清理撤销账本临时文件失败 %s: %s", temp_file, cleanup_exc)
+        raise
 
 
 def _restore_from_recycler(stash_record: dict[str, Any], root_id: str | None = None) -> None:
@@ -1231,7 +1240,22 @@ def undo_operation(
                     raise CleanroomException(500, "UNDO_FAILED", "覆盖备份记录损坏")
                 stashed_raw = overwritten_backup.get("stashed_path")
                 if not stashed_raw or not Path(str(stashed_raw)).is_file():
-                    raise CleanroomException(500, "UNDO_FAILED", "覆盖暂存文件丢失，无法安全撤销")
+                    pending_target = str(overwritten_backup.get("original_abs_path") or "")
+                    try:
+                        restored_target_matches = (
+                            bool(record.get("b_restore_pending"))
+                            and a_restored
+                            and curr.is_file()
+                            and bool(pending_target)
+                            and Path(pending_target).resolve() == curr.resolve()
+                        )
+                    except (OSError, RuntimeError, ValueError):
+                        restored_target_matches = False
+                    if not restored_target_matches:
+                        raise CleanroomException(500, "UNDO_FAILED", "覆盖暂存文件丢失，无法安全撤销")
+                    b_restored = True
+                    record["b_restored"] = True
+                    record.pop("b_restore_pending", None)
 
             # 第一阶段：将 A 迁回原位置 orig 并更新 A 的索引
             if not a_restored:
@@ -1274,9 +1298,13 @@ def undo_operation(
             if overwritten_backup:
                 if not b_restored:
                     try:
+                        # 先将恢复待续状态写入账本；若物理恢复后最终状态写失败，重试仍能识别已恢复的 B。
+                        record["b_restore_pending"] = True
+                        _save_undo_record(record)
                         _restore_from_recycler(overwritten_backup, root_id=rid)
                         b_restored = True
                         record["b_restored"] = True
+                        record.pop("b_restore_pending", None)
                         _save_undo_record(record)
                     except Exception as exc:
                         logger.error("撤销恢复被覆盖文件失败（账本保留以供重试）: %s", exc)

@@ -1159,6 +1159,86 @@ def test_move_file_overwrite_undo_missing_backup_fails_before_moving_a(organize_
     assert _v(client) == version
 
 
+def test_move_file_overwrite_undo_retries_after_b_restore_ledger_write_failure(organize_env):
+    """B 已物理恢复但 b_restored 账本写失败时，重试应补回 B 的索引。"""
+    client = organize_env["client"]
+    rid1 = organize_env["root_id_1"]
+    root1 = organize_env["user_root_1"]
+    file_a = root1 / "ledger_retry_a.txt"
+    file_b = root1 / "ledger_retry_b.txt"
+    file_a.write_text("content-a", encoding="utf-8")
+    file_b.write_text("content-b", encoding="utf-8")
+    asset_lib_repo.index_local_files([str(file_a), str(file_b)], "document")
+    entries_before = asset_lib_repo._local_state().read().get("entries", {}).values()
+    b_asset_id = next(
+        entry["asset_id"] for entry in entries_before if entry.get("display_path") == file_b.name
+    )
+
+    move_res = client.post(
+        "/api/local-assets/move",
+        headers=AUTH,
+        json={
+            "source": file_a.name,
+            "target": file_b.name,
+            "source_root_id": rid1,
+            "conflict_resolution": "overwrite",
+            "expected_version": _v(client),
+        },
+    )
+    assert move_res.status_code == 200, move_res.text
+    undo = move_res.json()["undo"]
+    version = move_res.json()["version"]
+    undo_file = organize._undo_records_dir() / f"{undo['undo_id']}.json"
+    ledger = json.loads(undo_file.read_text(encoding="utf-8"))
+    stashed_path = Path(ledger["overwritten_backup"]["stashed_path"])
+    real_replace = Path.replace
+
+    def fail_final_b_state_replace(source, target):
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        if target == undo_file and payload.get("b_restored") is True:
+            raise OSError("simulated b_restored ledger replace failure")
+        return real_replace(source, target)
+
+    with patch.object(Path, "replace", autospec=True, side_effect=fail_final_b_state_replace):
+        first_undo = client.post(
+            "/api/local-assets/undo",
+            headers=AUTH,
+            json={"undo": undo, "expected_version": version},
+        )
+
+    assert first_undo.status_code == 500
+    assert first_undo.json()["detail"]["code"] == "UNDO_FAILED"
+    assert file_a.read_text(encoding="utf-8") == "content-a"
+    assert file_b.read_text(encoding="utf-8") == "content-b"
+    assert not stashed_path.exists()
+    assert undo_file.exists()
+    pending_ledger = json.loads(undo_file.read_text(encoding="utf-8"))
+    assert pending_ledger.get("b_restore_pending") is True
+    assert pending_ledger.get("b_restored") is not True
+    assert pending_ledger.get("a_restored") is True
+    assert not list(undo_file.parent.glob(f"{undo_file.name}.tmp.*"))
+    entries_after_first = asset_lib_repo._local_state().read().get("entries", {}).values()
+    assert all(entry.get("asset_id") != b_asset_id for entry in entries_after_first)
+    assert _v(client) == version
+
+    retry = client.post(
+        "/api/local-assets/undo",
+        headers=AUTH,
+        json={"undo": undo, "expected_version": version},
+    )
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["undone"] is True
+    assert retry.json()["version"] == version + 1
+    assert not undo_file.exists()
+    assert file_a.read_text(encoding="utf-8") == "content-a"
+    assert file_b.read_text(encoding="utf-8") == "content-b"
+    entries_after_retry = asset_lib_repo._local_state().read().get("entries", {}).values()
+    assert any(
+        entry.get("asset_id") == b_asset_id and entry.get("display_path") == file_b.name
+        for entry in entries_after_retry
+    )
+
+
 def test_move_file_overwrite_undo_retryable(organize_env):
     """验证 move_file 覆盖撤销若第二步恢复失败，账本保留且支持再次撤销重试。"""
     client = organize_env["client"]
